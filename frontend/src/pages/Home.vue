@@ -1,0 +1,69 @@
+<template>
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl">
+      <!-- Header -->
+      <div class="text-center mb-12">
+        <h1 class="text-5xl font-bold text-white mb-3 tracking-tight">
+          Interview<span class="text-blue-400">Mate</span>
+        </h1>
+        <p class="text-slate-400 text-lg">选择你的角色，开始面试之旅</p>
+      </div>
+
+      <!-- Mode Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Interviewee Card -->
+        <router-link to="/interviewee"
+          class="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 p-8 transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-emerald-500/25 cursor-pointer block">
+          <div class="relative z-10">
+            <div class="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center mb-5 backdrop-blur-sm">
+              <svg class="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+              </svg>
+            </div>
+            <h2 class="text-2xl font-bold text-white mb-2">面试者模式</h2>
+            <p class="text-emerald-200 text-sm leading-relaxed">
+              作为求职者，模拟真实面试场景，获取 AI 反馈与建议
+            </p>
+            <span class="inline-flex items-center mt-5 text-white/80 text-sm font-medium group-hover:text-white transition-colors">
+              进入模式
+              <svg class="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+              </svg>
+            </span>
+          </div>
+          <div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+          <div class="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2"></div>
+        </router-link>
+
+        <!-- Interviewer Card -->
+        <router-link to="/interviewer"
+          class="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 p-8 transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-blue-500/25 cursor-pointer block">
+          <div class="relative z-10">
+            <div class="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center mb-5 backdrop-blur-sm">
+              <svg class="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+              </svg>
+            </div>
+            <h2 class="text-2xl font-bold text-white mb-2">面试官模式</h2>
+            <p class="text-blue-200 text-sm leading-relaxed">
+              作为面试官，根据岗位要求提问并评估候选人的表现
+            </p>
+            <span class="inline-flex items-center mt-5 text-white/80 text-sm font-medium group-hover:text-white transition-colors">
+              进入模式
+              <svg class="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+              </svg>
+            </span>
+          </div>
+          <div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+          <div class="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2"></div>
+        </router-link>
+      </div>
+
+      <!-- Footer -->
+      <p class="text-center text-slate-500 text-sm mt-10">
+        选择一个模式以开始
+      </p>
+    </div>
+  </div>
+</template>
