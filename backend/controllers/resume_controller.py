@@ -1,0 +1,111 @@
+import json
+import os
+
+from fastapi import APIRouter, File, UploadFile, HTTPException
+from pydantic import BaseModel
+
+from backend.config import UPLOAD_DIR
+from backend.repositories import resume_repo, upload_repo
+from backend.services.file_service import parse_resume
+
+router = APIRouter(prefix="/api/resumes", tags=["resumes"])
+
+
+class ResumeUpdate(BaseModel):
+    name: str | None = None
+    target_position: str | None = None
+    education: str | None = None
+    experience_years: str | None = None
+    skills: str | None = None
+    parse_status: str | None = None
+
+
+@router.get("")
+async def list_resumes(search: str = "", parse_status: str = "", experience_years: str = ""):
+    return resume_repo.list_all(search, parse_status, experience_years)
+
+
+@router.get("/{rid}")
+async def get_resume(rid: int):
+    r = resume_repo.get_by_id(rid)
+    if not r:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    return r
+
+
+@router.post("/upload")
+async def upload_resume_file(file: UploadFile = File(...)):
+    ext = upload_repo.validate(file)
+    filename = await upload_repo.save(file, "resume", ext)
+    resume = resume_repo.create({
+        "name": os.path.splitext(file.filename or "unknown")[0],
+        "file_path": filename,
+        "file_type": ext.lstrip("."),
+        "parse_status": "wait",
+    })
+    return resume
+
+
+@router.put("/{rid}")
+async def update_resume(rid: int, body: ResumeUpdate):
+    data = {k: v for k, v in body.model_dump().items() if v is not None}
+    r = resume_repo.update(rid, data)
+    if not r:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    return r
+
+
+@router.delete("/{rid}")
+async def delete_resume(rid: int):
+    r = resume_repo.get_by_id(rid)
+    if r:
+        fp = r.get("file_path")
+        if fp:
+            fpath = os.path.join(UPLOAD_DIR, "resume", fp)
+            if os.path.exists(fpath):
+                os.remove(fpath)
+    if not resume_repo.delete(rid):
+        raise HTTPException(status_code=404, detail="简历不存在")
+    return {"status": "ok"}
+
+
+@router.post("/{rid}/parse")
+async def parse_resume_api(rid: int):
+    r = resume_repo.get_by_id(rid)
+    if not r:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    file_path = r.get("file_path")
+    if not file_path:
+        raise HTTPException(status_code=400, detail="简历未关联文件")
+
+    try:
+        result = parse_resume(file_path)
+        structured = result["structured"]
+        resume_repo.update(rid, {
+            "name": structured.get("基础信息", {}).get("姓名") or r["name"],
+            "target_position": structured.get("基础信息", {}).get("意向岗位") or "",
+            "education": _format_education(structured.get("教育经历", [])),
+            "skills": _extract_skills(result["raw"]),
+            "parse_status": "success",
+            "structured_data": json.dumps(structured, ensure_ascii=False),
+        })
+        return {"status": "ok", "structured": structured}
+    except Exception as e:
+        resume_repo.update(rid, {"parse_status": "fail"})
+        raise HTTPException(status_code=500, detail=f"解析失败: {e}")
+
+
+def _format_education(edu_list: list) -> str:
+    if not edu_list:
+        return ""
+    top = edu_list[0]
+    return f"{top.get('学位', '')} | {top.get('学校', '')}"
+
+
+def _extract_skills(text: str) -> str:
+    """简单提取技术关键词"""
+    import re
+    keywords = ["Java", "Python", "Go", "C++", "TypeScript", "React", "Vue", "Node", "SpringBoot",
+                "MySQL", "Redis", "Docker", "Kubernetes", "AWS", "PyTorch", "NLP", "LLM"]
+    found = [k for k in keywords if re.search(re.escape(k), text, re.IGNORECASE)]
+    return ", ".join(found[:8]) if found else ""

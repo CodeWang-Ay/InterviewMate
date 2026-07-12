@@ -9,12 +9,15 @@ from backend.controllers.interview_controller import router as interview_router
 from backend.controllers.chat_controller import router as chat_router
 from backend.controllers.report_controller import router as report_router
 from backend.controllers.jd_controller import router as jd_router
-from backend.repositories.jd_repo import init_db
+from backend.controllers.resume_controller import router as resume_router
+from backend.repositories.jd_repo import init_db as init_jd_db
+from backend.repositories.resume_repo import init_db as init_resume_db
 
 os.makedirs(os.path.join(UPLOAD_DIR, "jd"), exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_DIR, "resume"), exist_ok=True)
 os.makedirs(INTERVIEW_DIR, exist_ok=True)
-init_db()
+init_jd_db()
+init_resume_db()
 
 app = FastAPI(title="InterviewMate")
 
@@ -22,6 +25,7 @@ app.include_router(interview_router)
 app.include_router(chat_router)
 app.include_router(report_router)
 app.include_router(jd_router)
+app.include_router(resume_router)
 
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 

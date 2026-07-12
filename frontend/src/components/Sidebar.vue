@@ -6,7 +6,7 @@ const route = useRoute()
 const navItems = [
   { icon: 'fa-home', label: '首页', path: '/' },
   { icon: 'fa-file-text', label: '岗位 JD 管理', path: '/jd-manager' },
-  { icon: 'fa-id-card-o', label: '简历管理', path: '/interviewee' },
+  { icon: 'fa-id-card-o', label: '简历管理', path: '/resume-manager' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/interviewee' },
   { icon: 'fa-book', label: '题库中心', path: '/' },
   { icon: 'fa-clipboard', label: '面试记录', path: '/interview-record' },
