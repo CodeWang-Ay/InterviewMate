@@ -13,7 +13,8 @@ const chatBox = ref(null)
 onMounted(async () => {
   const jd = route.query.jd
   const resume = route.query.resume
-  if (!jd || !resume) {
+  const planId = route.query.plan_id
+  if (!planId && (!jd || !resume)) {
     messages.value.push({ role: 'system', content: '缺少 JD 或简历参数，请返回重新生成面试计划。' })
     return
   }
@@ -21,7 +22,7 @@ onMounted(async () => {
     const res = await fetch('/api/chat/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jd_filename: jd, resume_filename: resume }),
+      body: JSON.stringify(planId ? { plan_id: Number(planId) } : { jd_filename: jd, resume_filename: resume }),
     })
     const data = await res.json()
     sessionId.value = data.session_id

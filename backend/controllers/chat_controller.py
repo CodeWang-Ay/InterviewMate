@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 @router.post("/start")
 async def chat_start(body: ChatStart):
-    session_id, message, state = start_session(body.jd_filename, body.resume_filename)
+    session_id, message, state = start_session(body.jd_filename, body.resume_filename, body.plan_id)
     return {"session_id": session_id, "message": message, "state": state}
 
 

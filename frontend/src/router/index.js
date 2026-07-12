@@ -44,7 +44,7 @@ router.beforeEach((to) => {
   let token = ''
   try { token = localStorage.getItem('token') || '' } catch (_) {}
   if (!token && !publicPages.includes(to.path)) {
-    return '/login'
+    return { path: '/login', query: { redirect: to.fullPath } }
   }
 })
 

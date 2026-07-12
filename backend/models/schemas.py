@@ -15,8 +15,9 @@ class PlanGenerate(BaseModel):
 
 
 class ChatStart(BaseModel):
-    jd_filename: str
-    resume_filename: str
+    jd_filename: str = ""
+    resume_filename: str = ""
+    plan_id: int | None = None
 
 
 class ChatMessage(BaseModel):

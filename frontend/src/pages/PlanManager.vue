@@ -42,6 +42,7 @@ function createInterview(plan) {
 
 const statusBadge = (s) => ({
   wait: 'bg-blue-50 text-blue-600',
+  pending: 'bg-gray-100 text-gray-500',
   running: 'bg-orange-50 text-orange-600',
   finish: 'bg-green-100 text-green-600',
   cancel: 'bg-gray-100 text-gray-500',
@@ -49,6 +50,7 @@ const statusBadge = (s) => ({
 
 const statusLabel = (s) => ({
   wait: '待发起面试',
+  pending: '待前序完成',
   running: '面试中',
   finish: '已完成面试',
   cancel: '已作废',
@@ -84,6 +86,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; fetchL
           <select v-model="filterStatus" class="border rounded-lg px-3 py-2 min-w-[160px]" @change="fetchList">
             <option value="">全部计划状态</option>
             <option value="wait">待发起面试</option>
+            <option value="pending">待前序完成</option>
             <option value="running">面试中</option>
             <option value="finish">已完成面试</option>
             <option value="cancel">已作废</option>
@@ -101,6 +104,8 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; fetchL
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm w-8">#</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">候选人</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">目标岗位(JD)</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">轮次</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">面试者账号</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">匹配度</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">题目数</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">创建时间</th>
@@ -113,6 +118,19 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; fetchL
               <td class="px-4 py-3 text-sm text-gray-500">{{ i + 1 }}</td>
               <td class="px-4 py-3 font-medium text-sm">{{ p.candidate_name }}</td>
               <td class="px-4 py-3 text-sm">{{ p.jd_name }}</td>
+              <td class="px-4 py-3 text-sm">
+                <div class="flex flex-col gap-1">
+                  <span class="w-fit px-2 py-1 rounded bg-indigo-50 text-indigo-600 text-xs">{{ p.interview_round || '-' }}</span>
+                  <span v-if="p.workflow_name" class="text-xs text-gray-400">{{ p.workflow_name }} · 第 {{ p.stage_order || 1 }}/{{ p.stage_count || 1 }} 环节</span>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-xs text-gray-600">
+                <div v-if="p.candidate_username" class="font-mono leading-5">
+                  <div>{{ p.candidate_username }}</div>
+                  <div class="text-gray-400">{{ p.candidate_password }}</div>
+                </div>
+                <span v-else>-</span>
+              </td>
               <td class="px-4 py-3 font-medium text-sm" :class="p.match_score >= 80 ? 'text-green-600' : p.match_score >= 60 ? 'text-yellow-600' : 'text-red-600'">{{ p.match_score }}%</td>
               <td class="px-4 py-3 text-sm">{{ p.question_count }} 道</td>
               <td class="px-4 py-3 text-sm text-gray-500">{{ p.created_at?.slice(0, 16) || '-' }}</td>

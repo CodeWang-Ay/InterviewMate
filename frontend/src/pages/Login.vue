@@ -1,8 +1,9 @@
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
+const route = useRoute()
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
@@ -27,7 +28,7 @@ async function doLogin() {
     localStorage.setItem('username', data.username)
     localStorage.setItem('nickname', data.nickname)
     if (data.avatar) localStorage.setItem('avatar', data.avatar)
-    router.push('/')
+    router.push(route.query.redirect || '/')
   } catch (e) {
     error.value = e.message
   }

@@ -18,6 +18,7 @@ class ResumeUpdate(BaseModel):
     experience_years: str | None = None
     skills: str | None = None
     parse_status: str | None = None
+    structured_data: str | None = None
 
 
 @router.get("")

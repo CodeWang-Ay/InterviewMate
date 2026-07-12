@@ -1,8 +1,12 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
+
+const assignedLoading = ref(true)
+const assignedPlans = ref([])
+const assignedError = ref('')
 
 // JD
 const jdText = ref('')
@@ -27,6 +31,55 @@ const ALLOWED_TYPES = '.pdf,.docx,.txt,.md'
 
 const canParse = computed(() => resumeFile.value && !resumeParsed.value)
 const canGenerate = computed(() => jdSaved.value && resumeParsed.value)
+const currentAssignedPlan = computed(() => {
+  return assignedPlans.value.find(p => ['wait', 'running'].includes(p.status)) || assignedPlans.value[0] || null
+})
+const workflowName = computed(() => assignedPlans.value[0]?.workflow_name || '面试流程')
+
+onMounted(fetchAssignedPlans)
+
+async function fetchAssignedPlans() {
+  assignedLoading.value = true
+  assignedError.value = ''
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/plans/my', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || '获取面试计划失败')
+    }
+    assignedPlans.value = await res.json()
+    const plan = currentAssignedPlan.value
+    if (plan && ['wait', 'running'].includes(plan.status)) {
+      router.replace({ path: '/chat', query: { plan_id: plan.id } })
+    }
+  } catch (e) {
+    assignedError.value = e.message
+  } finally {
+    assignedLoading.value = false
+  }
+}
+
+function planStatusLabel(status) {
+  return { wait: '待开始', pending: '待前序完成', running: '面试中', finish: '已完成', cancel: '已取消' }[status] || status
+}
+
+function planStatusClass(status) {
+  return {
+    wait: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    pending: 'bg-slate-700/60 text-slate-400 border-slate-600',
+    running: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    finish: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    cancel: 'bg-red-500/15 text-red-300 border-red-500/30',
+  }[status] || 'bg-slate-700/60 text-slate-400 border-slate-600'
+}
+
+function startAssignedInterview(plan) {
+  if (!plan) return
+  router.push({ path: '/chat', query: { plan_id: plan.id } })
+}
 
 async function saveJD() {
   if (!jdText.value.trim()) return
@@ -138,8 +191,62 @@ async function generatePlan() {
     <div class="w-full max-w-2xl">
       <div class="text-center mb-10">
         <h1 class="text-3xl font-bold text-white mb-2">面试者模式</h1>
-        <p class="text-slate-400">填写岗位 JD，上传个人简历，生成面试计划</p>
+        <p class="text-slate-400">{{ assignedPlans.length ? '查看你的面试流程并开始当前环节' : '填写岗位 JD，上传个人简历，生成面试计划' }}</p>
       </div>
+
+      <div v-if="assignedLoading" class="rounded-2xl border border-slate-700 bg-slate-900/60 p-8 text-center text-slate-400">
+        <span class="inline-block w-5 h-5 border-2 border-slate-500 border-t-white rounded-full animate-spin mr-2 align-middle"></span>
+        正在加载你的面试流程...
+      </div>
+
+      <div v-else-if="assignedPlans.length" class="space-y-6">
+        <div class="rounded-2xl border border-emerald-500/25 bg-slate-900/70 shadow-2xl overflow-hidden">
+          <div class="px-6 py-5 border-b border-slate-700/60 flex items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-bold text-white">{{ workflowName }}</h2>
+              <p class="text-sm text-slate-400 mt-1">{{ currentAssignedPlan?.candidate_name }} · {{ currentAssignedPlan?.jd_name }}</p>
+            </div>
+            <span class="px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 text-xs border border-emerald-500/30">
+              {{ assignedPlans.length }} 个环节
+            </span>
+          </div>
+
+          <div class="p-6">
+            <div class="flex items-center gap-3 overflow-x-auto pb-2">
+              <template v-for="(plan, index) in assignedPlans" :key="plan.id">
+                <div class="min-w-[180px] rounded-xl border p-4" :class="planStatusClass(plan.status)">
+                  <div class="text-xs opacity-80">第 {{ plan.stage_order || index + 1 }}/{{ plan.stage_count || assignedPlans.length }} 环节</div>
+                  <div class="text-base font-semibold mt-2">{{ plan.interview_round }}</div>
+                  <div class="text-xs mt-3">{{ planStatusLabel(plan.status) }}</div>
+                </div>
+                <i v-if="index < assignedPlans.length - 1" class="fa fa-long-arrow-right text-slate-500"></i>
+              </template>
+            </div>
+
+            <div class="mt-6 rounded-xl bg-slate-800/70 border border-slate-700 p-5">
+              <div class="text-sm text-slate-400">当前环节</div>
+              <div class="flex items-center justify-between gap-4 mt-2">
+                <div>
+                  <div class="text-lg font-bold text-white">{{ currentAssignedPlan?.interview_round }}</div>
+                  <div class="text-xs text-slate-500 mt-1">状态：{{ planStatusLabel(currentAssignedPlan?.status) }}</div>
+                </div>
+                <button
+                  class="px-5 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  :disabled="!['wait', 'running'].includes(currentAssignedPlan?.status)"
+                  @click="startAssignedInterview(currentAssignedPlan)"
+                >
+                  开始当前面试
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p v-if="assignedError" class="text-red-400 text-sm text-center">{{ assignedError }}</p>
+      </div>
+
+      <template v-else>
+      <p v-if="assignedError" class="text-red-400 text-sm text-center mb-4">{{ assignedError }}</p>
 
       <!-- Step 1: JD -->
       <div class="mb-6">
@@ -354,6 +461,7 @@ async function generatePlan() {
           ← 返回首页
         </router-link>
       </div>
+      </template>
     </div>
   </div>
 </template>
