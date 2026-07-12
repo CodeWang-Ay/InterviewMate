@@ -9,4 +9,8 @@ dependencies = [
     "python-multipart",
     "pypdf",
     "python-docx",
+    "openai",
+    "dotenv>=0.9.9",
+    "json-repair>=0.61.3",
+    "loguru>=0.7.3",
 ]

@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, File, UploadFile, HTTPException
 
 from backend.models.schemas import JDContent, ResumeParse, PlanGenerate
@@ -29,18 +31,21 @@ async def upload_resume(file: UploadFile = File(...)):
 
 @router.post("/parse/resume")
 async def api_parse_resume(body: ResumeParse):
-    resume_text = parse_resume(body.resume_filename)
+    result = parse_resume(body.resume_filename)
     print("=" * 60)
     print("【简历解析结果】")
-    print(resume_text)
+    print(result["raw"][:500])
+    print("【结构化信息】")
+    print(json.dumps(result["structured"], ensure_ascii=False, indent=2))
     print("=" * 60)
-    return {"resume": resume_text}
+    return {"resume": result["raw"], "structured": result["structured"]}
 
 
 @router.post("/generate/plan")
 async def generate_plan(body: PlanGenerate):
     jd_text = read_jd(body.jd_filename)
-    resume_text = parse_resume(body.resume_filename)
+    result = parse_resume(body.resume_filename)
+    resume_text = result["raw"]
 
     questions = extract_questions_from_jd(jd_text)
     questions_text = "\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))

@@ -16,6 +16,8 @@ const resumeUploading = ref(false)
 const resumeParsing = ref(false)
 const resumeParsed = ref(false)
 const resumeContent = ref('')
+const resumeStructured = ref(null)
+const showStructured = ref(true)
 
 // Plan
 const planGenerating = ref(false)
@@ -97,6 +99,7 @@ async function parseResume() {
     }
     const data = await res.json()
     resumeContent.value = data.resume
+    resumeStructured.value = data.structured || null
     resumeParsed.value = true
   } catch (e) {
     alert(e.message)
@@ -230,9 +233,77 @@ async function generatePlan() {
         <div v-if="resumeParsed" class="mt-3 w-full rounded-xl bg-slate-800/50 border border-blue-600/30 overflow-hidden">
           <div class="px-5 py-3 bg-blue-600/10 border-b border-blue-600/20 flex items-center justify-between">
             <span class="text-blue-400 text-sm font-medium">简历解析结果</span>
-            <span class="text-slate-500 text-xs">{{ resumeContent.length }} 字符</span>
+            <div class="flex items-center gap-3">
+              <button
+                class="text-slate-500 hover:text-slate-300 text-xs transition-colors"
+                @click="showStructured = !showStructured"
+              >
+                {{ showStructured ? '查看原文' : '结构化视图' }}
+              </button>
+              <span class="text-slate-500 text-xs">{{ resumeContent.length }} 字符</span>
+            </div>
           </div>
-          <pre class="text-slate-300 text-sm p-5 whitespace-pre-wrap overflow-auto max-h-48">{{ resumeContent }}</pre>
+
+          <!-- 结构化视图 -->
+          <div v-if="showStructured && resumeStructured" class="divide-y divide-slate-700/30">
+            <!-- 基础信息 -->
+            <div v-if="resumeStructured.基础信息" class="px-5 py-3">
+              <h4 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">基础信息</h4>
+              <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <div v-for="(val, key) in resumeStructured.基础信息" :key="key">
+                  <template v-if="val">
+                    <span class="text-slate-500 text-xs">{{ key }}</span>
+                    <p class="text-white text-sm">{{ val }}</p>
+                  </template>
+                </div>
+              </div>
+              <p v-if="resumeStructured.自我评价" class="text-slate-400 text-xs mt-2 leading-relaxed">
+                <span class="text-slate-500">自我评价：</span>{{ resumeStructured.自我评价 }}
+              </p>
+            </div>
+
+            <!-- 教育经历 -->
+            <div v-if="resumeStructured.教育经历?.length" class="px-5 py-3">
+              <h4 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">教育经历</h4>
+              <div v-for="(edu, i) in resumeStructured.教育经历" :key="i" class="mb-2 last:mb-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-white text-sm font-medium">{{ edu.学校 }}</span>
+                  <span class="text-slate-500 text-xs">{{ edu.专业 }}</span>
+                  <span class="text-blue-400 text-xs">{{ edu.学位 }}</span>
+                  <span class="text-slate-600 text-xs ml-auto">{{ edu.开始时间 }} ~ {{ edu.结束时间 }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 工作经历 -->
+            <div v-if="resumeStructured.工作经历?.length" class="px-5 py-3">
+              <h4 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">工作经历</h4>
+              <div v-for="(job, i) in resumeStructured.工作经历" :key="i" class="mb-3 last:mb-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="text-white text-sm font-medium">{{ job.公司名称 }}</span>
+                  <span class="text-emerald-400 text-xs">{{ job.职位 }}</span>
+                  <span class="text-slate-600 text-xs ml-auto">{{ job.开始时间 }} ~ {{ job.结束时间 }}</span>
+                </div>
+                <p class="text-slate-400 text-xs leading-relaxed line-clamp-2">{{ job.工作描述 }}</p>
+              </div>
+            </div>
+
+            <!-- 项目经历 -->
+            <div v-if="resumeStructured.项目经历?.length" class="px-5 py-3">
+              <h4 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">项目经历</h4>
+              <div v-for="(proj, i) in resumeStructured.项目经历" :key="i" class="mb-3 last:mb-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="text-white text-sm font-medium">{{ proj.项目名称 }}</span>
+                  <span class="text-purple-400 text-xs">{{ proj.角色 }}</span>
+                  <span class="text-slate-600 text-xs ml-auto">{{ proj.开始时间 }} ~ {{ proj.结束时间 }}</span>
+                </div>
+                <p class="text-slate-400 text-xs leading-relaxed line-clamp-2">{{ proj.项目描述 }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 原始文本视图 -->
+          <pre v-if="!showStructured || !resumeStructured" class="text-slate-300 text-sm p-5 whitespace-pre-wrap overflow-auto max-h-48">{{ resumeContent }}</pre>
         </div>
       </div>
 

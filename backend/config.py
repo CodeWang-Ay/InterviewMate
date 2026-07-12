@@ -7,6 +7,10 @@ INTERVIEW_DIR = os.path.join(BASE_DIR, "interviews")
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
+# LLM (OpenAI 兼容格式)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")  # 可选，兼容 API 代理
+
 DEFAULT_QUESTIONS = [
     "请做一个简短的自我介绍，重点介绍与这个岗位相关的经历。",
     "根据 JD 中的核心技术要求，请分享一个你做过的相关项目，遇到了哪些挑战，如何解决的？",

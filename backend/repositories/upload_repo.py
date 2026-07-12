@@ -45,7 +45,8 @@ def read_text(subdir: str, filename: str) -> str:
     elif filename.endswith(".pdf"):
         from pypdf import PdfReader
         reader = PdfReader(filepath)
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+        pdf_content = "\n".join(page.extract_text() or "" for page in reader.pages)
+        return pdf_content
     elif filename.endswith(".docx"):
         from docx import Document
         doc = Document(filepath)
