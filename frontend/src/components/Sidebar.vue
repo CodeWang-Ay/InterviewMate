@@ -1,9 +1,24 @@
 <script setup>
+import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
-const nickname = localStorage.getItem('nickname') || '用户'
-const avatarUrl = localStorage.getItem('avatar') || `https://ui-avatars.com/api/?name=${encodeURIComponent(nickname)}&background=1677ff&color=fff`
+const router = useRouter()
+
+function getStore(key, fallback = '') {
+  try { return localStorage.getItem(key) || fallback } catch (_) { return fallback }
+}
+
+const nickname = ref(getStore('nickname', '用户'))
+const avatarUrl = ref(getStore('avatar', ''))
+if (!avatarUrl.value) {
+  avatarUrl.value = `https://ui-avatars.com/api/?name=${encodeURIComponent(nickname.value)}&background=1677ff&color=fff`
+}
+
+function doLogout() {
+  localStorage.clear()
+  router.push('/login')
+}
 
 const navItems = [
   { icon: 'fa-home', label: '首页', path: '/' },
@@ -47,11 +62,14 @@ const navItems = [
     <div class="mt-auto pt-4 border-t border-gray-200">
       <router-link to="/user-center" class="flex items-center gap-3 hover:bg-gray-100 rounded-lg p-2 -mx-2 transition cursor-pointer no-underline">
         <img :src="avatarUrl" alt="avatar" class="w-10 h-10 rounded-full flex-shrink-0">
-        <div>
+        <div class="flex-1">
           <div class="font-medium text-gray-800 text-sm">{{ nickname }}</div>
           <div class="text-xs text-gray-500">专业版</div>
         </div>
       </router-link>
+      <button type="button" class="mt-2 w-full text-left text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex items-center gap-2 px-2 py-1.5 cursor-pointer" @click="doLogout">
+        <i class="fa fa-sign-out"></i> 退出登录
+      </button>
     </div>
   </aside>
 </template>

@@ -29,13 +29,18 @@ def init_db():
                 password_hash TEXT NOT NULL,
                 nickname TEXT DEFAULT '',
                 avatar TEXT DEFAULT '',
+                email TEXT DEFAULT '',
+                phone TEXT DEFAULT '',
+                company TEXT DEFAULT '',
+                bio TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
         # 兼容旧表：添加 avatar 列
         cols = [c[1] for c in conn.execute("PRAGMA table_info(users)").fetchall()]
-        if "avatar" not in cols:
-            conn.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''")
+        for col in ["avatar", "email", "phone", "company", "bio"]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT ''")
         # 默认管理员
         conn.execute(
             "INSERT OR IGNORE INTO users (username, password_hash, nickname) VALUES (?,?,?)",
@@ -72,6 +77,10 @@ def login(username: str, password: str) -> dict | None:
         "token": token, "username": username,
         "nickname": row["nickname"] or username,
         "avatar": row["avatar"] or "",
+        "email": row["email"] or "",
+        "phone": row["phone"] or "",
+        "company": row["company"] or "",
+        "bio": row["bio"] or "",
     }
 
 
@@ -85,9 +94,15 @@ def get_user_info(username: str) -> dict | None:
     return dict(row) if row else None
 
 
-def update_profile(username: str, nickname: str) -> bool:
+def update_profile(username: str, data: dict) -> bool:
+    allowed = ["nickname", "email", "phone", "company", "bio"]
+    sets = [f"{k}=?" for k in allowed if k in data]
+    vals = [data[k] for k in allowed if k in data]
+    if not sets:
+        return False
+    vals.append(username)
     with _conn() as conn:
-        cur = conn.execute("UPDATE users SET nickname=? WHERE username=?", (nickname, username))
+        cur = conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE username=?", vals)
         return cur.rowcount > 0
 
 

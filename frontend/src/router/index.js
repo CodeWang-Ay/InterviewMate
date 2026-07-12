@@ -41,7 +41,8 @@ const router = createRouter({
 // 路由守卫：未登录跳转登录页
 router.beforeEach((to) => {
   const publicPages = ['/login', '/register']
-  const token = localStorage.getItem('token')
+  let token = ''
+  try { token = localStorage.getItem('token') || '' } catch (_) {}
   if (!token && !publicPages.includes(to.path)) {
     return '/login'
   }

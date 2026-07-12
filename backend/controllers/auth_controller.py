@@ -38,6 +38,10 @@ class RegisterBody(BaseModel):
 
 class ProfileUpdate(BaseModel):
     nickname: str = ""
+    email: str = ""
+    phone: str = ""
+    company: str = ""
+    bio: str = ""
 
 
 class PasswordChange(BaseModel):
@@ -72,8 +76,9 @@ async def logout(body: LoginBody):
 async def update_profile(body: ProfileUpdate, username: str = Depends(get_current_user)):
     if not body.nickname.strip():
         raise HTTPException(status_code=400, detail="昵称不能为空")
-    user_repo.update_profile(username, body.nickname.strip())
-    return {"status": "ok", "nickname": body.nickname.strip()}
+    data = {k: v.strip() for k, v in body.model_dump().items() if v.strip()}
+    user_repo.update_profile(username, data)
+    return {"status": "ok", **data}
 
 
 @router.put("/password")
