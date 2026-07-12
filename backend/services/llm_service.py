@@ -1,14 +1,16 @@
 import json
+import os
 import re
 import json_repair
 from loguru import logger
 from openai import OpenAI
-from dotenv                     import load_dotenv
+from dotenv import load_dotenv
 
-from backend.config import OPENAI_API_KEY, OPENAI_BASE_URL
-# 加载环境变量
+# 先加载 .env，再读取环境变量
 load_dotenv(".env")
-logger.info(f"OPENAI_API_KEY: {OPENAI_API_KEY, OPENAI_BASE_URL}, OPENAI_BASE_URL: {OPENAI_BASE_URL}")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
+logger.info(f"OPENAI_API_KEY: {'已设置' if OPENAI_API_KEY else '未设置'}, BASE_URL: {OPENAI_BASE_URL or '(默认)'}")
 RESUME_EXTRACTION_PROMPT = """你是一位专业的简历解析专家。请从以下简历文本中提取关键信息，严格按 JSON 格式输出。
 
 输出 JSON 结构如下（缺失字段用空字符串或空数组）：
@@ -70,6 +72,7 @@ def extract_resume_info(text: str) -> dict:
         return _fallback_extraction(text)
 
     try:
+        logger.info("简历解析...............")
         client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
 
         truncated = text[:15000] if len(text) > 15000 else text

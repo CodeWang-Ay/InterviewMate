@@ -8,9 +8,6 @@ DB_PATH = os.path.join(BASE_DIR, "data", "interviewmate.db")
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
-# LLM (OpenAI 兼容格式)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")  # 可选，兼容 API 代理
 
 DEFAULT_QUESTIONS = [
     "请做一个简短的自我介绍，重点介绍与这个岗位相关的经历。",

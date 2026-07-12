@@ -34,14 +34,23 @@ async def get_resume(rid: int):
 
 
 @router.post("/upload")
-async def upload_resume_file(file: UploadFile = File(...)):
+async def upload_resume_file(file: UploadFile = File(...), jd_id: int = 0):
     ext = upload_repo.validate(file)
     filename = await upload_repo.save(file, "resume", ext)
+    jd_name = ""
+    if jd_id > 0:
+        from backend.repositories import jd_repo as jdr
+        jd = jdr.get_by_id(jd_id)
+        if jd:
+            jd_name = jd.get("name", "")
     resume = resume_repo.create({
         "name": os.path.splitext(file.filename or "unknown")[0],
         "file_path": filename,
         "file_type": ext.lstrip("."),
         "parse_status": "wait",
+        "jd_id": jd_id if jd_id > 0 else None,
+        "jd_name": jd_name,
+        "original_name": file.filename or "",
     })
     return resume
 
@@ -53,6 +62,22 @@ async def update_resume(rid: int, body: ResumeUpdate):
     if not r:
         raise HTTPException(status_code=404, detail="简历不存在")
     return r
+
+
+@router.get("/{rid}/raw")
+async def get_resume_raw(rid: int):
+    r = resume_repo.get_by_id(rid)
+    if not r or not r.get("file_path"):
+        raise HTTPException(status_code=404, detail="无文件内容")
+    fpath = os.path.join(UPLOAD_DIR, "resume", r["file_path"])
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    try:
+        from backend.repositories.upload_repo import read_text
+        text = read_text("resume", r["file_path"])
+        return {"raw": text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取失败: {e}")
 
 
 @router.delete("/{rid}")

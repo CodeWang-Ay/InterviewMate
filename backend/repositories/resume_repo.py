@@ -25,6 +25,8 @@ def init_db():
                 file_type TEXT DEFAULT '',
                 parse_status TEXT DEFAULT 'wait',
                 structured_data TEXT DEFAULT '{}',
+                jd_id INTEGER DEFAULT NULL,
+                jd_name TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
@@ -69,10 +71,11 @@ def get_by_id(rid: int) -> dict | None:
 def create(data: dict) -> dict:
     with _conn() as conn:
         cur = conn.execute(
-            "INSERT INTO resumes (name, target_position, education, experience_years, skills, file_path, file_type, parse_status) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO resumes (name, target_position, education, experience_years, skills, file_path, file_type, parse_status, jd_id, jd_name, original_name) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (data.get("name", ""), data.get("target_position", ""), data.get("education", ""),
              data.get("experience_years", ""), data.get("skills", ""), data.get("file_path", ""),
-             data.get("file_type", ""), data.get("parse_status", "wait")),
+             data.get("file_type", ""), data.get("parse_status", "wait"),
+             data.get("jd_id"), data.get("jd_name", ""), data.get("original_name", "")),
         )
         return get_by_id(cur.lastrowid)
 
@@ -81,7 +84,7 @@ def update(rid: int, data: dict) -> dict | None:
     existing = get_by_id(rid)
     if not existing:
         return None
-    allowed = ["name", "target_position", "education", "experience_years", "skills", "file_path", "file_type", "parse_status", "structured_data"]
+    allowed = ["name", "target_position", "education", "experience_years", "skills", "file_path", "file_type", "parse_status", "structured_data", "jd_id", "jd_name", "original_name"]
     sets = [f"{f}=?" for f in allowed if f in data]
     vals = [data[f] for f in allowed if f in data]
     if not sets:

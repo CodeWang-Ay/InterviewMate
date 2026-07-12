@@ -20,7 +20,8 @@ async def save(file: UploadFile, subdir: str, ext: str) -> str:
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="文件大小不能超过 10MB")
-    filename = f"{uuid.uuid4().hex}{ext}"
+    original = (file.filename or "unknown").rsplit(".", 1)[0]
+    filename = f"{original}_{uuid.uuid4().hex[:6]}{ext}"
     filepath = os.path.join(UPLOAD_DIR, subdir, filename)
     with open(filepath, "wb") as f:
         f.write(content)
