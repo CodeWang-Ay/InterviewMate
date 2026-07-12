@@ -24,6 +24,11 @@ class JdUpdate(BaseModel):
     status: str | None = None
 
 
+@router.get("/stats")
+async def jd_stats():
+    return jd_repo.get_stats()
+
+
 @router.get("")
 async def list_jds(category: str = "", status: str = "", location: str = "", search: str = "", recruitment_type: str = "", page: int = 1, page_size: int = 10):
     items, total = jd_repo.list_all_paged(category, status, location, search, recruitment_type, page, page_size)

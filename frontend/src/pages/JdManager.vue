@@ -19,12 +19,14 @@ const pageSize = ref(10)
 const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '' })
 
 // 统计数据
-const stats = computed(() => ({
-  total: jdList.value.length,
-  enabled: jdList.value.filter(j => j.status === 'enable').length,
-  disabled: jdList.value.filter(j => j.status === 'disable').length,
-  categories: [...new Set(jdList.value.map(j => j.category))].filter(Boolean).length,
-}))
+const stats = ref({ total: 0, enabled: 0, disabled: 0, categories: 0, interns: 0, campus: 0, social: 0 })
+
+async function fetchStats() {
+  try {
+    const res = await fetch('/api/jds/stats')
+    if (res.ok) stats.value = await res.json()
+  } catch (_) {}
+}
 
 async function fetchJds() {
   loading.value = true
@@ -48,7 +50,7 @@ async function fetchJds() {
   loading.value = false
 }
 
-onMounted(fetchJds)
+onMounted(() => { fetchStats(); fetchJds() })
 
 let searchTimer = null
 function onSearchChange() { clearTimeout(searchTimer); searchTimer = setTimeout(fetchJds, 300) }
@@ -133,12 +135,16 @@ function changePageSize(size) {
           <p class="text-xs text-gray-500 mt-1">启用中</p>
         </div>
         <div class="bg-white rounded-xl p-4 shadow-sm text-center">
-          <p class="text-2xl font-bold text-orange-500">{{ stats.disabled }}</p>
-          <p class="text-xs text-gray-500 mt-1">已停用</p>
-        </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
           <p class="text-2xl font-bold text-purple-500">{{ stats.categories }}</p>
           <p class="text-xs text-gray-500 mt-1">岗位类别</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
+          <div class="flex items-center justify-center gap-2">
+            <span class="text-lg font-bold text-green-600">{{ stats.interns }}</span>
+            <span class="text-lg font-bold text-blue-600">{{ stats.campus }}</span>
+            <span class="text-lg font-bold text-purple-600">{{ stats.social }}</span>
+          </div>
+          <p class="text-xs text-gray-500 mt-1">实习生 / 校招 / 社招</p>
         </div>
       </div>
 

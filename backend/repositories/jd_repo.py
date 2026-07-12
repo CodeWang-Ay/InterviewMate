@@ -76,6 +76,19 @@ def list_all_paged(category="", status="", location="", search="", recruitment_t
         return [dict(r) for r in rows], total
 
 
+def get_stats():
+    with _conn() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM jds").fetchone()[0]
+        enabled = conn.execute("SELECT COUNT(*) FROM jds WHERE status='enable'").fetchone()[0]
+        disabled = conn.execute("SELECT COUNT(*) FROM jds WHERE status='disable'").fetchone()[0]
+        categories = conn.execute("SELECT COUNT(DISTINCT category) FROM jds WHERE category != ''").fetchone()[0]
+        interns = conn.execute("SELECT COUNT(*) FROM jds WHERE recruitment_type='实习生'").fetchone()[0]
+        campus = conn.execute("SELECT COUNT(*) FROM jds WHERE recruitment_type='校招'").fetchone()[0]
+        social = conn.execute("SELECT COUNT(*) FROM jds WHERE recruitment_type='社招'").fetchone()[0]
+        return {"total": total, "enabled": enabled, "disabled": disabled, "categories": categories,
+                "interns": interns, "campus": campus, "social": social}
+
+
 def get_by_id(jd_id):
     with _conn() as conn:
         row = conn.execute("SELECT * FROM jds WHERE id=?", (jd_id,)).fetchone()
