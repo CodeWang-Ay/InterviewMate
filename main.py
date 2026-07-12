@@ -41,8 +41,37 @@ async def save_file(file: UploadFile, subdir: str, ext: str) -> str:
     return filename
 
 
+def read_resume_file(filename: str) -> str:
+    """根据扩展名读取简历文件内容"""
+    filepath = os.path.join(UPLOAD_DIR, "resume", filename)
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext in (".txt", ".md"):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
+    elif ext == ".pdf":
+        from pypdf import PdfReader
+        reader = PdfReader(filepath)
+        pages = [page.extract_text() or "" for page in reader.pages]
+        return "\n".join(pages)
+    elif ext == ".docx":
+        from docx import Document
+        doc = Document(filepath)
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        return "\n".join(paragraphs)
+
+    raise HTTPException(status_code=400, detail=f"无法读取格式: {ext}")
+
+
+# ---------- API ----------
+
 class JDContent(BaseModel):
     content: str
+
+
+class InterviewStart(BaseModel):
+    jd_filename: str
+    resume_filename: str
 
 
 @app.get("/api/health")
@@ -68,6 +97,34 @@ async def upload_resume(file: UploadFile = File(...)):
     ext = validate_file(file)
     filename = await save_file(file, "resume", ext)
     return {"filename": filename, "original_name": file.filename, "status": "ok"}
+
+
+@app.post("/api/interview/start")
+async def start_interview(body: InterviewStart):
+    """开始面试：读取 JD 和简历内容"""
+    # 读取 JD
+    jd_path = os.path.join(UPLOAD_DIR, "jd", body.jd_filename)
+    if not os.path.exists(jd_path):
+        raise HTTPException(status_code=404, detail="JD 文件不存在")
+    with open(jd_path, "r", encoding="utf-8") as f:
+        jd_text = f.read()
+
+    # 读取简历
+    resume_path = os.path.join(UPLOAD_DIR, "resume", body.resume_filename)
+    if not os.path.exists(resume_path):
+        raise HTTPException(status_code=404, detail="简历文件不存在")
+    resume_text = read_resume_file(body.resume_filename)
+
+    # 终端日志
+    print("=" * 60)
+    print("【岗位 JD】")
+    print(jd_text)
+    print("=" * 60)
+    print("【个人简历】")
+    print(resume_text)
+    print("=" * 60)
+
+    return {"jd": jd_text, "resume": resume_text}
 
 
 # 生产模式：挂载前端构建产物
