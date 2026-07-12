@@ -11,6 +11,7 @@ from backend.controllers.report_controller import router as report_router
 from backend.controllers.jd_controller import router as jd_router
 from backend.controllers.resume_controller import router as resume_router
 from backend.controllers.plan_controller import router as plan_router
+from backend.controllers.record_controller import router as record_router
 from backend.repositories.jd_repo import init_db as init_jd_db
 from backend.repositories.resume_repo import init_db as init_resume_db
 from backend.repositories.plan_repo import init_db as init_plan_db
@@ -30,6 +31,7 @@ app.include_router(report_router)
 app.include_router(jd_router)
 app.include_router(resume_router)
 app.include_router(plan_router)
+app.include_router(record_router)
 
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 

@@ -9,7 +9,7 @@ const navItems = [
   { icon: 'fa-id-card-o', label: '简历管理', path: '/resume-manager' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },
   { icon: 'fa-book', label: '题库中心', path: '/' },
-  { icon: 'fa-clipboard', label: '面试记录', path: '/interview-record' },
+  { icon: 'fa-clipboard', label: '面试记录', path: '/record-list' },
   { icon: 'fa-bar-chart', label: '面试报告', path: '/report' },
   { icon: 'fa-cog', label: '设置', path: '/' },
 ]
