@@ -250,13 +250,7 @@ def analyze_interview(session_id: str) -> dict:
             {"name": "问题解决", "score": solve_score, "comment": solve_comment},
             {"name": "岗位匹配", "score": overall_score, "comment": fit_comment},
         ],
-        "qa_pairs": [
-            {
-                "question": questions[i] if i < len(questions) else "",
-                "answer": answers[i]["content"] if i < len(answers) else "",
-            }
-            for i in range(max(len(questions), len(answers)))
-        ],
+        "history": history,
         "suggestions": suggestions,
     }
 

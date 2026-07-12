@@ -76,7 +76,7 @@ function onKeydown(e) {
 <template>
   <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
     <!-- 固定大小的聊天卡片 -->
-    <div class="w-full max-w-4xl h-[75vh] bg-slate-900/60 backdrop-blur-sm border border-slate-700/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+    <div class="w-full max-w-6xl h-[75vh] bg-slate-900/60 backdrop-blur-sm border border-slate-700/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="flex-shrink-0 border-b border-slate-700/50 px-5 py-3 flex items-center gap-3 bg-slate-800/30 rounded-t-2xl">
         <router-link to="/interviewee" class="text-slate-400 hover:text-white transition-colors">
