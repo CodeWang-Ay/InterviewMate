@@ -162,6 +162,8 @@ function onKeydown(e) {
         </div>
         <p v-if="state === 'COMPLETED'" class="text-slate-500 text-xs text-center mt-2">
           面试已结束 ·
+          <router-link :to="{ path: '/report', query: { session_id: sessionId } }" class="text-emerald-400 hover:text-emerald-300 font-medium ml-1">查看面试报告</router-link>
+          ·
           <router-link to="/interviewee" class="text-blue-400 hover:text-blue-300 ml-1">返回</router-link>
         </p>
       </footer>
