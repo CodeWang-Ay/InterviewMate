@@ -5,6 +5,7 @@ import Interviewee from '../pages/Interviewee.vue'
 import Chat from '../pages/Chat.vue'
 import Report from '../pages/Report.vue'
 import InterviewRecord from '../pages/InterviewRecord.vue'
+import JdManager from '../pages/JdManager.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -13,6 +14,7 @@ const routes = [
   { path: '/chat', component: Chat },
   { path: '/report', component: Report },
   { path: '/interview-record', component: InterviewRecord },
+  { path: '/jd-manager', component: JdManager },
 ]
 
 const router = createRouter({

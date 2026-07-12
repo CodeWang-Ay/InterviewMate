@@ -3,6 +3,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 INTERVIEW_DIR = os.path.join(BASE_DIR, "interviews")
+DB_PATH = os.path.join(BASE_DIR, "data", "interviewmate.db")
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB

@@ -1,3 +1,4 @@
+import os
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -7,19 +8,21 @@ from backend.config import UPLOAD_DIR, INTERVIEW_DIR
 from backend.controllers.interview_controller import router as interview_router
 from backend.controllers.chat_controller import router as chat_router
 from backend.controllers.report_controller import router as report_router
+from backend.controllers.jd_controller import router as jd_router
+from backend.repositories.jd_repo import init_db
 
-import os
 os.makedirs(os.path.join(UPLOAD_DIR, "jd"), exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_DIR, "resume"), exist_ok=True)
 os.makedirs(INTERVIEW_DIR, exist_ok=True)
+init_db()
 
 app = FastAPI(title="InterviewMate")
 
 app.include_router(interview_router)
 app.include_router(chat_router)
 app.include_router(report_router)
+app.include_router(jd_router)
 
-# 生产模式：挂载前端构建产物
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
 
