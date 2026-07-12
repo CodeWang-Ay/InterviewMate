@@ -114,9 +114,10 @@ node_modules/
 frontend/dist/
 
 # ================================
-# Uploads
+# Uploads & Interviews
 # ================================
 uploads/
+interviews/
 
 # ================================
 # Project specific (optional)

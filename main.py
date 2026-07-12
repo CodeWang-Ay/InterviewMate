@@ -1,6 +1,10 @@
+import json
 import os
 import re
+import time
 import uuid
+from datetime import datetime
+
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -14,9 +18,12 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 # 上传目录
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+INTERVIEW_DIR = os.path.join(BASE_DIR, "interviews")
 os.makedirs(os.path.join(UPLOAD_DIR, "jd"), exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_DIR, "resume"), exist_ok=True)
+os.makedirs(INTERVIEW_DIR, exist_ok=True)
 
 # 面试会话存储
 chat_sessions: dict[str, dict] = {}
@@ -85,6 +92,28 @@ def extract_questions_from_jd(jd_text: str) -> list[str]:
             if q:
                 questions.append(q)
     return questions if questions else DEFAULT_QUESTIONS
+
+
+def save_interview_record(session_id: str):
+    """将面试记录持久化到 JSON 文件"""
+    session = chat_sessions.get(session_id)
+    if not session:
+        return
+    record = {
+        "session_id": session_id,
+        "jd_filename": session.get("jd_filename"),
+        "resume_filename": session.get("resume_filename"),
+        "questions": session.get("questions", []),
+        "state": session.get("state"),
+        "question_index": session.get("question_index", 0),
+        "history": session.get("history", []),
+        "created_at": session.get("created_at"),
+        "completed_at": datetime.now().isoformat(),
+    }
+    filepath = os.path.join(INTERVIEW_DIR, f"{session_id}.json")
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
+    print(f"[会话 {session_id}] 记录已保存到 {filepath}")
 
 
 # ---------- Models ----------
@@ -206,6 +235,7 @@ async def chat_start(body: ChatStart):
         "question_index": 0,
         "questions": questions,
         "history": [],
+        "created_at": datetime.now().isoformat(),
     }
 
     opening = "你好！感谢你来参加今天的面试。我是今天的面试官，将根据岗位要求向你提几个问题。请问你准备好了吗？"
@@ -254,6 +284,10 @@ async def chat_message(body: ChatMessage):
 
     session["history"].append({"role": "interviewer", "content": reply})
     print(f"[会话 {body.session_id}] 面试官: {reply}")
+
+    # 面试结束时持久化记录
+    if session["state"] == "COMPLETED":
+        save_interview_record(body.session_id)
 
     return {"message": reply, "state": session["state"]}
 
