@@ -11,6 +11,8 @@ import PlanManager from '../pages/PlanManager.vue'
 import RecordList from '../pages/RecordList.vue'
 import ReportList from '../pages/ReportList.vue'
 import Settings from '../pages/Settings.vue'
+import Login from '../pages/Login.vue'
+import Register from '../pages/Register.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -25,11 +27,22 @@ const routes = [
   { path: '/record-list', component: RecordList },
   { path: '/report-list', component: ReportList },
   { path: '/settings', component: Settings },
+  { path: '/login', component: Login },
+  { path: '/register', component: Register },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+// 路由守卫：未登录跳转登录页
+router.beforeEach((to) => {
+  const publicPages = ['/login', '/register']
+  const token = localStorage.getItem('token')
+  if (!token && !publicPages.includes(to.path)) {
+    return '/login'
+  }
 })
 
 export default router
