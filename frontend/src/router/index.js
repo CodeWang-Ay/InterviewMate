@@ -13,6 +13,7 @@ import ReportList from '../pages/ReportList.vue'
 import Settings from '../pages/Settings.vue'
 import Login from '../pages/Login.vue'
 import Register from '../pages/Register.vue'
+import UserCenter from '../pages/UserCenter.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -29,6 +30,7 @@ const routes = [
   { path: '/settings', component: Settings },
   { path: '/login', component: Login },
   { path: '/register', component: Register },
+  { path: '/user-center', component: UserCenter },
 ]
 
 const router = createRouter({

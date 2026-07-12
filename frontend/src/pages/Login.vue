@@ -26,6 +26,7 @@ async function doLogin() {
     localStorage.setItem('token', data.token)
     localStorage.setItem('username', data.username)
     localStorage.setItem('nickname', data.nickname)
+    if (data.avatar) localStorage.setItem('avatar', data.avatar)
     router.push('/')
   } catch (e) {
     error.value = e.message

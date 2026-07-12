@@ -36,6 +36,7 @@ app.include_router(resume_router)
 app.include_router(plan_router)
 app.include_router(record_router)
 app.include_router(auth_router)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
