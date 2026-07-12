@@ -7,6 +7,7 @@ import Report from '../pages/Report.vue'
 import InterviewRecord from '../pages/InterviewRecord.vue'
 import JdManager from '../pages/JdManager.vue'
 import ResumeManager from '../pages/ResumeManager.vue'
+import PlanManager from '../pages/PlanManager.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -17,6 +18,7 @@ const routes = [
   { path: '/interview-record', component: InterviewRecord },
   { path: '/jd-manager', component: JdManager },
   { path: '/resume-manager', component: ResumeManager },
+  { path: '/plan-manager', component: PlanManager },
 ]
 
 const router = createRouter({
