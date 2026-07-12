@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI面试助手 - 简历管理</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#1677ff',
+            success: '#22c55e',
+            warning: '#faad14',
+            danger: '#f5222d',
+            sidebarBg: '#f7f8fa',
+          },
+        }
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .sidebar-item-active {
+        @apply bg-primary/10 text-primary rounded-lg;
+      }
+      .card-shadow {
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      }
+      .text-ellipsis-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+    }
+  </style>
+</head>
+<body class="bg-white h-screen flex overflow-hidden">
+  <!-- 左侧侧边栏【最新完整菜单顺序】 -->
+  <aside class="w-[220px] bg-sidebarBg flex flex-col p-4">
+    <div class="flex items-center gap-2 mb-8">
+      <div class="w-9 h-9 bg-primary rounded-lg flex items-center justify-center text-white font-bold text-lg">AI</div>
+      <span class="text-lg font-semibold text-gray-800">AI 面试助手</span>
+    </div>
+
+    <nav class="flex-1 space-y-1">
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-home text-lg w-5 text-center"></i>
+        <span>首页</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-file-text text-lg w-5 text-center"></i>
+        <span>岗位 JD 管理</span>
+      </a>
+      <!-- 当前页面激活 -->
+      <a href="#" class="sidebar-item-active flex items-center gap-3 px-3 py-2.5 rounded-lg">
+        <i class="fa fa-id-card-o text-lg w-5 text-center"></i>
+        <span>简历管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-list-alt text-lg w-5 text-center"></i>
+        <span>面试计划管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-book text-lg w-5 text-center"></i>
+        <span>题库中心</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-clipboard text-lg w-5 text-center"></i>
+        <span>面试记录</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-bar-chart text-lg w-5 text-center"></i>
+        <span>面试报告</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-cog text-lg w-5 text-center"></i>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <div class="mt-auto pt-4 border-t border-gray-200">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-gray-300 overflow-hidden flex-shrink-0">
+          <img src="https://ui-avatars.com/api/?name=张三&background=0D8ABC&color=fff" alt="avatar">
+        </div>
+        <div>
+          <div class="font-medium text-gray-800">张三</div>
+          <div class="text-sm text-gray-500">专业版</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主内容区域 -->
+  <main class="flex-1 overflow-auto p-6 bg-gray-50">
+    <!-- 顶部标题栏 -->
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-[24px] font-bold text-gray-900">简历管理</h2>
+      <button class="bg-primary text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-primary/90">
+        <i class="fa fa-plus"></i> 上传简历
+      </button>
+    </div>
+
+    <!-- 搜索筛选区域 -->
+    <div class="bg-white rounded-xl p-5 card-shadow mb-6">
+      <div class="flex flex-wrap gap-4 items-center">
+        <div class="w-64">
+          <div class="relative">
+            <input type="text" placeholder="搜索候选人姓名、技能、期望岗位" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-primary">
+            <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
+          </div>
+        </div>
+        <select class="border rounded-lg px-3 py-2 min-w-[160px]">
+          <option value="">全部解析状态</option>
+          <option value="wait">待解析</option>
+          <option value="success">解析成功</option>
+          <option value="fail">解析失败</option>
+        </select>
+        <select class="border rounded-lg px-3 py-2 min-w-[160px]">
+          <option value="">全部工作年限</option>
+          <option>应届生</option>
+          <option>1-3年</option>
+          <option>3-5年</option>
+          <option>5年以上</option>
+        </select>
+        <button class="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90">搜索</button>
+        <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">重置筛选</button>
+      </div>
+    </div>
+
+    <!-- 拖拽上传简历区域 -->
+    <div class="border-2 border-dashed border-primary/30 rounded-xl p-8 mb-6 text-center bg-white card-shadow">
+      <i class="fa fa-cloud-upload text-[40px] text-primary mb-3"></i>
+      <p class="text-gray-700 text-lg">拖拽简历文件到此处快速上传</p>
+      <p class="text-gray-400 text-sm mt-1">支持 PDF / DOC / DOCX，上传后自动启动AI简历解析</p>
+    </div>
+
+    <!-- 简历卡片列表 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+      <!-- 简历卡片 1 - 解析成功 -->
+      <div class="bg-white rounded-xl p-5 card-shadow">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-bold text-lg">李明</h3>
+            <span class="text-gray-500">后端开发工程师</span>
+          </div>
+          <span class="px-2 py-1 bg-green-100 text-success text-xs rounded">解析成功</span>
+        </div>
+        <div class="text-sm text-gray-500 space-y-1 mb-4">
+          <p><i class="fa fa-graduation-cap mr-1"></i>本科 | 3年开发经验</p>
+          <p class="text-ellipsis-2"><i class="fa fa-tags mr-1"></i>Java, SpringBoot, MySQL, Redis, 微服务</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="border border-primary text-primary py-1.5 rounded hover:bg-blue-50">查看详情</button>
+          <button class="border border-success text-success py-1.5 rounded hover:bg-green-50">匹配岗位JD</button>
+          <button class="col-span-2 bg-primary text-white py-1.5 rounded hover:bg-primary/90">创建面试任务</button>
+        </div>
+      </div>
+
+      <!-- 简历卡片 2 - 解析成功 -->
+      <div class="bg-white rounded-xl p-5 card-shadow">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-bold text-lg">王小雨</h3>
+            <span class="text-gray-500">前端开发工程师</span>
+          </div>
+          <span class="px-2 py-1 bg-green-100 text-success text-xs rounded">解析成功</span>
+        </div>
+        <div class="text-sm text-gray-500 space-y-1 mb-4">
+          <p><i class="fa fa-graduation-cap mr-1"></i>硕士 | 2年开发经验</p>
+          <p class="text-ellipsis-2"><i class="fa fa-tags mr-1"></i>Vue3, TypeScript, Vite, ElementPlus, Axios</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="border border-primary text-primary py-1.5 rounded hover:bg-blue-50">查看详情</button>
+          <button class="border border-success text-success py-1.5 rounded hover:bg-green-50">匹配岗位JD</button>
+          <button class="col-span-2 bg-primary text-white py-1.5 rounded hover:bg-primary/90">创建面试任务</button>
+        </div>
+      </div>
+
+      <!-- 简历卡片 3 - 待解析 -->
+      <div class="bg-white rounded-xl p-5 card-shadow">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-bold text-lg">张伟</h3>
+            <span class="text-gray-500">算法工程师</span>
+          </div>
+          <span class="px-2 py-1 bg-orange-100 text-warning text-xs rounded">待解析</span>
+        </div>
+        <div class="text-sm text-gray-500 space-y-1 mb-4">
+          <p><i class="fa fa-file-pdf-o mr-1"></i>文件：张伟_算法.pdf</p>
+          <p class="text-gray-400">等待AI抽取简历信息...</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="border border-warning text-warning py-1.5 rounded hover:bg-orange-50">手动解析</button>
+          <button class="border border-gray-300 text-gray-400 py-1.5 rounded cursor-not-allowed" disabled>匹配岗位JD</button>
+          <button class="col-span-2 bg-gray-300 text-gray-500 py-1.5 rounded cursor-not-allowed" disabled>创建面试任务</button>
+        </div>
+      </div>
+
+      <!-- 简历卡片 4 - 解析失败 -->
+      <div class="bg-white rounded-xl p-5 card-shadow">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-bold text-lg">陈琳</h3>
+            <span class="text-gray-500">测试工程师</span>
+          </div>
+          <span class="px-2 py-1 bg-red-100 text-danger text-xs rounded">解析失败</span>
+        </div>
+        <div class="text-sm text-gray-500 space-y-1 mb-4">
+          <p><i class="fa fa-file-word-o mr-1"></i>文件：陈琳_测试.docx</p>
+          <p class="text-red-400">文件内容无法识别，请重新上传或手动填写信息</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="border border-primary text-primary py-1.5 rounded hover:bg-blue-50">重新解析</button>
+          <button class="border border-gray-300 text-gray-400 py-1.5 rounded cursor-not-allowed" disabled>匹配岗位JD</button>
+          <button class="col-span-2 bg-gray-300 text-gray-500 py-1.5 rounded cursor-not-allowed" disabled>创建面试任务</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分页 -->
+    <div class="flex justify-between items-center mt-8">
+      <span class="text-sm text-gray-500">共 18 份简历</span>
+      <div class="flex gap-1">
+        <button class="px-3 py-2 border rounded-lg">上一页</button>
+        <button class="px-3 py-2 border rounded-lg bg-primary text-white">1</button>
+        <button class="px-3 py-2 border rounded-lg">2</button>
+        <button class="px-3 py-2 border rounded-lg">3</button>
+        <button class="px-3 py-2 border rounded-lg">下一页</button>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

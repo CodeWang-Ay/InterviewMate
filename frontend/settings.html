@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI面试助手 - 设置</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#1677ff',
+            success: '#22c55e',
+            warning: '#faad14',
+            danger: '#f5222d',
+            info: '#4096ff',
+            sidebarBg: '#f7f8fa',
+          },
+        }
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .sidebar-item-active {
+        @apply bg-primary/10 text-primary rounded-lg;
+      }
+      .card-shadow {
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      }
+      .switch-checkbox:checked + .switch-slider {
+        background-color: #1677ff;
+      }
+      .switch-checkbox:checked + .switch-slider:before {
+        transform: translateX(18px);
+      }
+      .switch-slider {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 22px;
+        background-color: #ccc;
+        border-radius: 22px;
+        transition: 0.3s;
+      }
+      .switch-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 2px;
+        bottom: 2px;
+        background-color: white;
+        border-radius: 50%;
+        transition: 0.3s;
+      }
+      .switch-checkbox {
+        opacity: 0;
+        width: 0;
+        height: 0;
+        position: absolute;
+      }
+    }
+  </style>
+</head>
+<body class="bg-white h-screen flex overflow-hidden">
+  <!-- 左侧侧边栏【完整菜单】 -->
+  <aside class="w-[220px] bg-sidebarBg flex flex-col p-4">
+    <div class="flex items-center gap-2 mb-8">
+      <div class="w-9 h-9 bg-primary rounded-lg flex items-center justify-center text-white font-bold text-lg">AI</div>
+      <span class="text-lg font-semibold text-gray-800">AI 面试助手</span>
+    </div>
+
+    <nav class="flex-1 space-y-1">
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-home text-lg w-5 text-center"></i>
+        <span>首页</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-file-text text-lg w-5 text-center"></i>
+        <span>岗位 JD 管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-id-card-o text-lg w-5 text-center"></i>
+        <span>简历管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-list-alt text-lg w-5 text-center"></i>
+        <span>面试计划管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-book text-lg w-5 text-center"></i>
+        <span>题库中心</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-clipboard text-lg w-5 text-center"></i>
+        <span>面试记录</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-bar-chart text-lg w-5 text-center"></i>
+        <span>面试报告</span>
+      </a>
+      <!-- 当前页面激活 -->
+      <a href="#" class="sidebar-item-active flex items-center gap-3 px-3 py-2.5 rounded-lg">
+        <i class="fa fa-cog text-lg w-5 text-center"></i>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <div class="mt-auto pt-4 border-t border-gray-200">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-gray-300 overflow-hidden flex-shrink-0">
+          <img src="https://ui-avatars.com/api/?name=张三&background=0D8ABC&color=fff" alt="avatar">
+        </div>
+        <div>
+          <div class="font-medium text-gray-800">张三</div>
+          <div class="text-sm text-gray-500">专业版</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主内容区域 -->
+  <main class="flex-1 overflow-auto p-6 bg-gray-50">
+    <h2 class="text-[24px] font-bold text-gray-900 mb-6">系统设置</h2>
+
+    <!-- 1. 账号信息卡片 -->
+    <div class="bg-white rounded-xl p-6 card-shadow mb-6">
+      <h3 class="text-lg font-semibold border-b pb-3 mb-4">账号基础信息</h3>
+      <div class="grid grid-cols-2 gap-y-5 gap-x-8 max-w-[700px]">
+        <div>
+          <label class="text-gray-500 text-sm block mb-1">昵称</label>
+          <input class="w-full border rounded-lg px-3 py-2" value="张三">
+        </div>
+        <div>
+          <label class="text-gray-500 text-sm block mb-1">手机号</label>
+          <input class="w-full border rounded-lg px-3 py-2" value="138****8888" disabled>
+        </div>
+        <div>
+          <label class="text-gray-500 text-sm block mb-1">角色权限</label>
+          <input class="w-full border rounded-lg px-3 py-2" value="面试官（专业版）" disabled>
+        </div>
+        <div>
+          <label class="text-gray-500 text-sm block mb-1">邮箱（接收报告通知）</label>
+          <input class="w-full border rounded-lg px-3 py-2" value="zhangsan@xxx.com">
+        </div>
+      </div>
+      <div class="mt-5">
+        <button class="bg-primary text-white px-5 py-2 rounded-lg hover:bg-primary/90">保存账号信息</button>
+        <button class="border border-gray-300 px-5 py-2 rounded-lg ml-3 hover:bg-gray-50">修改密码</button>
+      </div>
+    </div>
+
+    <!-- 2. AI面试全局参数【核心配置】 -->
+    <div class="bg-white rounded-xl p-6 card-shadow mb-6">
+      <h3 class="text-lg font-semibold border-b pb-3 mb-4">AI面试全局参数</h3>
+      <div class="space-y-5 max-w-[750px]">
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-medium">允许AI自动追问候选人</div>
+            <div class="text-sm text-gray-500">候选人回答不完善时，AI主动发起深度追问</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked class="switch-checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-medium">面试中实时AI点评</div>
+            <div class="text-sm text-gray-500">面试官侧边栏实时展示候选人回答优缺点提示</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked class="switch-checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-medium">面试结束自动生成面试报告</div>
+            <div class="text-sm text-gray-500">面试会话结束后自动执行评分与报告生成</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked class="switch-checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-medium">语音转文字（ASR）开启</div>
+            <div class="text-sm text-gray-500">支持候选人语音作答，自动转为文本分析</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="switch-checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div>
+          <label class="text-gray-500 text-sm block mb-1">AI严格程度（面试难度基准）</label>
+          <select class="w-full border rounded-lg px-3 py-2 max-w-[360px]">
+            <option value="loose">宽松 - 偏鼓励，评分标准较低</option>
+            <option value="normal" selected>标准 - 均衡客观评估（推荐）</option>
+            <option value="strict">严格 - 高标准筛选候选人</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-gray-500 text-sm block mb-1">单次面试最大题目数量上限</label>
+          <input type="number" class="w-full border rounded-lg px-3 py-2 max-w-[360px]" value="18">
+        </div>
+      </div>
+      <div class="mt-5">
+        <button class="bg-primary text-white px-5 py-2 rounded-lg hover:bg-primary/90">保存AI配置</button>
+        <button class="border border-gray-300 px-5 py-2 rounded-lg ml-3 hover:bg-gray-50">恢复默认配置</button>
+      </div>
+    </div>
+
+    <!-- 3. 通知设置 -->
+    <div class="bg-white rounded-xl p-6 card-shadow mb-6">
+      <h3 class="text-lg font-semibold border-b pb-3 mb-4">消息通知设置</h3>
+      <div class="space-y-5 max-w-[750px]">
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-medium">面试报告完成邮件推送</div>
+            <div class="text-sm text-gray-500">报告生成完成后发送邮件通知</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked class="switch-checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-medium">简历解析完成通知</div>
+            <div class="text-sm text-gray-500">大批量简历解析完成提醒</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked class="switch-checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. 数据管理 -->
+    <div class="bg-white rounded-xl p-6 card-shadow mb-6">
+      <h3 class="text-lg font-semibold border-b pb-3 mb-4">数据管理</h3>
+      <div class="space-y-4">
+        <button class="border border-primary text-primary px-4 py-2 rounded-lg hover:bg-blue-50">导出全部简历&面试记录</button>
+        <button class="border border-warning text-warning px-4 py-2 rounded-lg hover:bg-orange-50">清理本地缓存文件</button>
+        <button class="border border-danger text-danger px-4 py-2 rounded-lg hover:bg-red-50">注销当前账号</button>
+      </div>
+    </div>
+
+    <!-- 5. 关于系统 -->
+    <div class="bg-white rounded-xl p-6 card-shadow">
+      <h3 class="text-lg font-semibold border-b pb-3 mb-4">关于AI面试助手</h3>
+      <p class="text-gray-600">当前版本：V1.0.0</p>
+      <p class="text-gray-500 text-sm mt-2">专为招聘面试、求职模拟面试打造的AI面试辅助平台</p>
+      <div class="mt-4 flex gap-4">
+        <span class="text-primary hover:underline cursor-pointer">使用帮助文档</span>
+        <span class="text-primary hover:underline cursor-pointer">联系客服</span>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

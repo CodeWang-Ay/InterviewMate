@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI面试助手 - 面试计划管理</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#1677ff',
+            success: '#22c55e',
+            warning: '#faad14',
+            danger: '#f5222d',
+            info: '#4096ff',
+            sidebarBg: '#f7f8fa',
+          },
+        }
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .sidebar-item-active {
+        @apply bg-primary/10 text-primary rounded-lg;
+      }
+      .card-shadow {
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      }
+      .text-ellipsis-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+    }
+  </style>
+</head>
+<body class="bg-white h-screen flex overflow-hidden">
+  <!-- 左侧侧边栏【统一完整菜单】 -->
+  <aside class="w-[220px] bg-sidebarBg flex flex-col p-4">
+    <div class="flex items-center gap-2 mb-8">
+      <div class="w-9 h-9 bg-primary rounded-lg flex items-center justify-center text-white font-bold text-lg">AI</div>
+      <span class="text-lg font-semibold text-gray-800">AI 面试助手</span>
+    </div>
+
+    <nav class="flex-1 space-y-1">
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-home text-lg w-5 text-center"></i>
+        <span>首页</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-file-text text-lg w-5 text-center"></i>
+        <span>岗位 JD 管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-id-card-o text-lg w-5 text-center"></i>
+        <span>简历管理</span>
+      </a>
+      <!-- 当前页面激活 -->
+      <a href="#" class="sidebar-item-active flex items-center gap-3 px-3 py-2.5 rounded-lg">
+        <i class="fa fa-list-alt text-lg w-5 text-center"></i>
+        <span>面试计划管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-book text-lg w-5 text-center"></i>
+        <span>题库中心</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-clipboard text-lg w-5 text-center"></i>
+        <span>面试记录</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-bar-chart text-lg w-5 text-center"></i>
+        <span>面试报告</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-cog text-lg w-5 text-center"></i>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <div class="mt-auto pt-4 border-t border-gray-200">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-gray-300 overflow-hidden flex-shrink-0">
+          <img src="https://ui-avatars.com/api/?name=张三&background=0D8ABC&color=fff" alt="avatar">
+        </div>
+        <div>
+          <div class="font-medium text-gray-800">张三</div>
+          <div class="text-sm text-gray-500">专业版</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主内容区域 -->
+  <main class="flex-1 overflow-auto p-6 bg-gray-50">
+    <!-- 顶部标题区域 -->
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-[24px] font-bold text-gray-900">面试计划管理</h2>
+      <div class="flex gap-3">
+        <button class="border border-primary text-primary px-4 py-2 rounded-lg hover:bg-blue-50">
+          <i class="fa fa-file-text-o mr-1"></i>手动新建计划
+        </button>
+        <button class="bg-primary text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-primary/90">
+          <i class="fa fa-magic"></i>AI生成面试计划
+        </button>
+      </div>
+    </div>
+
+    <!-- 搜索筛选区域 -->
+    <div class="bg-white rounded-xl p-5 card-shadow mb-6">
+      <div class="flex flex-wrap gap-4 items-center">
+        <div class="w-60">
+          <div class="relative">
+            <input type="text" placeholder="候选人姓名 / 岗位名称" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-primary">
+            <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
+          </div>
+        </div>
+        <select class="border rounded-lg px-3 py-2 min-w-[160px]">
+          <option value="">全部计划状态</option>
+          <option value="wait">待发起面试</option>
+          <option value="running">面试中</option>
+          <option value="finish">已完成面试</option>
+          <option value="cancel">已作废</option>
+        </select>
+        <input type="date" class="border rounded-lg px-3 py-2 min-w-[160px]">
+        <button class="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90">搜索</button>
+        <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">重置筛选</button>
+      </div>
+    </div>
+
+    <!-- 面试计划表格列表 -->
+    <div class="bg-white rounded-xl card-shadow overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="text-left px-4 py-4 text-gray-600 font-medium w-[5%]">#</th>
+            <th class="text-left px-4 py-4 text-gray-600 font-medium w-[12%]">候选人</th>
+            <th class="text-left px-4 py-4 text-gray-600 font-medium w-[16%]">目标岗位(JD)</th>
+            <th class="text-left px-4 py-4 text-gray-600 font-medium w-[10%]">匹配度</th>
+            <th class="text-left px-4 py-4 text-gray-600 font-medium w-[10%]">题目数量</th>
+            <th class="text-left px-4 py-4 text-gray-600 font-medium w-[14%]">创建时间</th>
+            <th class="text-left px-4 py-4 text-gray-600 font-medium w-[10%]">状态</th>
+            <th class="text-center px-4 py-4 text-gray-600 font-medium w-[23%]">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-4">1</td>
+            <td class="px-4 py-4 font-medium">李明</td>
+            <td class="px-4 py-4">后端开发工程师</td>
+            <td class="px-4 py-4 text-primary font-medium">82%</td>
+            <td class="px-4 py-4">12 道</td>
+            <td class="px-4 py-4 text-sm text-gray-500">2026-07-10 16:20</td>
+            <td class="px-4 py-4">
+              <span class="px-2 py-1 bg-blue-50 text-info text-xs rounded">待发起面试</span>
+            </td>
+            <td class="px-4 py-4 text-center">
+              <button class="text-primary hover:underline text-sm">预览计划</button>
+              <button class="text-primary hover:underline text-sm ml-2">编辑题目</button>
+              <button class="text-success hover:underline text-sm ml-2">发起面试</button>
+              <button class="text-danger hover:underline text-sm ml-2">作废</button>
+            </td>
+          </tr>
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-4">2</td>
+            <td class="px-4 py-4 font-medium">王小雨</td>
+            <td class="px-4 py-4">前端开发工程师</td>
+            <td class="px-4 py-4 text-primary font-medium">75%</td>
+            <td class="px-4 py-4">10 道</td>
+            <td class="px-4 py-4 text-sm text-gray-500">2026-07-09 20:15</td>
+            <td class="px-4 py-4">
+              <span class="px-2 py-1 bg-green-100 text-success text-xs rounded">已完成面试</span>
+            </td>
+            <td class="px-4 py-4 text-center">
+              <button class="text-primary hover:underline text-sm">预览计划</button>
+              <button class="text-gray-400 text-sm ml-2">编辑题目</button>
+              <button class="text-gray-400 text-sm ml-2">发起面试</button>
+              <button class="text-primary hover:underline text-sm ml-2">查看面试报告</button>
+            </td>
+          </tr>
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-4">3</td>
+            <td class="px-4 py-4 font-medium">张伟</td>
+            <td class="px-4 py-4">大模型算法工程师</td>
+            <td class="px-4 py-4 text-warning font-medium">63%</td>
+            <td class="px-4 py-4">14 道</td>
+            <td class="px-4 py-4 text-sm text-gray-500">2026-07-08 11:32</td>
+            <td class="px-4 py-4">
+              <span class="px-2 py-1 bg-orange-50 text-warning text-xs rounded">面试中</span>
+            </td>
+            <td class="px-4 py-4 text-center">
+              <button class="text-primary hover:underline text-sm">预览计划</button>
+              <button class="text-gray-400 text-sm ml-2">编辑题目</button>
+              <button class="text-success hover:underline text-sm ml-2">进入面试房间</button>
+              <button class="text-gray-400 text-sm ml-2">作废</button>
+            </td>
+          </tr>
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-4">4</td>
+            <td class="px-4 py-4 font-medium">陈琳</td>
+            <td class="px-4 py-4">测试工程师</td>
+            <td class="px-4 py-4 text-primary font-medium">78%</td>
+            <td class="px-4 py-4">9 道</td>
+            <td class="px-4 py-4 text-sm text-gray-500">2026-07-07 15:40</td>
+            <td class="px-4 py-4">
+              <span class="px-2 py-1 bg-gray-100 text-gray-500 text-xs rounded">已作废</span>
+            </td>
+            <td class="px-4 py-4 text-center">
+              <button class="text-primary hover:underline text-sm">预览计划</button>
+              <button class="text-gray-400 text-sm ml-2">编辑题目</button>
+              <button class="text-primary hover:underline text-sm ml-2">重新发起面试</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页区域 -->
+    <div class="flex justify-between items-center mt-6">
+      <span class="text-sm text-gray-500">共 16 条面试计划</span>
+      <div class="flex gap-1">
+        <button class="px-3 py-2 border rounded-lg">上一页</button>
+        <button class="px-3 py-2 border rounded-lg bg-primary text-white">1</button>
+        <button class="px-3 py-2 border rounded-lg">2</button>
+        <button class="px-3 py-2 border rounded-lg">3</button>
+        <button class="px-3 py-2 border rounded-lg">下一页</button>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

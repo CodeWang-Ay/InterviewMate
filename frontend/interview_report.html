@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI面试助手 - 面试报告</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#1677ff',
+            success: '#22c55e',
+            warning: '#faad14',
+            danger: '#f5222d',
+            info: '#4096ff',
+            sidebarBg: '#f7f8fa',
+          },
+        }
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .sidebar-item-active {
+        @apply bg-primary/10 text-primary rounded-lg;
+      }
+      .card-shadow {
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      }
+      .text-ellipsis-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .progress {
+        height:6px;
+        border-radius:99px;
+      }
+    }
+  </style>
+</head>
+<body class="bg-white h-screen flex overflow-hidden">
+  <!-- 左侧侧边栏【统一完整菜单顺序】 -->
+  <aside class="w-[220px] bg-sidebarBg flex flex-col p-4">
+    <div class="flex items-center gap-2 mb-8">
+      <div class="w-9 h-9 bg-primary rounded-lg flex items-center justify-center text-white font-bold text-lg">AI</div>
+      <span class="text-lg font-semibold text-gray-800">AI 面试助手</span>
+    </div>
+
+    <nav class="flex-1 space-y-1">
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-home text-lg w-5 text-center"></i>
+        <span>首页</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-file-text text-lg w-5 text-center"></i>
+        <span>岗位 JD 管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-id-card-o text-lg w-5 text-center"></i>
+        <span>简历管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-list-alt text-lg w-5 text-center"></i>
+        <span>面试计划管理</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-book text-lg w-5 text-center"></i>
+        <span>题库中心</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-clipboard text-lg w-5 text-center"></i>
+        <span>面试记录</span>
+      </a>
+      <!-- 当前页面激活 -->
+      <a href="#" class="sidebar-item-active flex items-center gap-3 px-3 py-2.5 rounded-lg">
+        <i class="fa fa-bar-chart text-lg w-5 text-center"></i>
+        <span>面试报告</span>
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-200 transition">
+        <i class="fa fa-cog text-lg w-5 text-center"></i>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <div class="mt-auto pt-4 border-t border-gray-200">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-gray-300 overflow-hidden flex-shrink-0">
+          <img src="https://ui-avatars.com/api/?name=张三&background=0D8ABC&color=fff" alt="avatar">
+        </div>
+        <div>
+          <div class="font-medium text-gray-800">张三</div>
+          <div class="text-sm text-gray-500">专业版</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主内容区域 -->
+  <main class="flex-1 overflow-auto p-6 bg-gray-50">
+    <!-- 顶部标题 -->
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-[24px] font-bold text-gray-900">面试报告</h2>
+      <span class="text-gray-500 text-sm">面试结束后系统自动生成完整评估报告</span>
+    </div>
+
+    <!-- 搜索筛选区 -->
+    <div class="bg-white rounded-xl p-5 card-shadow mb-6">
+      <div class="flex flex-wrap gap-4 items-center">
+        <div class="w-60">
+          <div class="relative">
+            <input type="text" placeholder="搜索候选人姓名、应聘岗位" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-primary">
+            <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
+          </div>
+        </div>
+        <select class="border rounded-lg px-3 py-2 min-w-[150px]">
+          <option value="">全部面试结论</option>
+          <option value="pass">建议录用</option>
+          <option value="pending">待定观察</option>
+          <option value="fail">不予录用</option>
+        </select>
+        <input type="date" class="border rounded-lg px-3 py-2 min-w-[150px]">
+        <button class="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90">搜索</button>
+        <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">重置筛选</button>
+      </div>
+    </div>
+
+    <!-- 报告卡片列表 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+      <!-- 报告卡片1 -->
+      <div class="bg-white rounded-xl p-5 card-shadow">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-bold text-lg">李明 - 后端开发工程师</h3>
+            <p class="text-sm text-gray-400">报告生成：2026-07-10 15:25</p>
+          </div>
+          <span class="px-2 py-1 bg-green-100 text-success text-xs rounded">建议录用</span>
+        </div>
+        <div class="mb-3">
+          <div class="flex justify-between text-sm mb-1">
+            <span>综合评分</span>
+            <span class="font-medium">82 / 100</span>
+          </div>
+          <div class="w-full bg-gray-100 progress">
+            <div class="bg-success progress" style="width:82%"></div>
+          </div>
+        </div>
+        <div class="text-sm text-gray-500 mb-4 text-ellipsis-2">
+          候选人项目经验扎实，Java基础掌握良好，并发场景具备实战经验；沟通逻辑清晰，稳定性良好。建议进入复试。
+        </div>
+        <div class="flex gap-2">
+          <button class="flex-1 border border-primary text-primary py-1.5 rounded hover:bg-blue-50">查看完整报告</button>
+          <button class="flex-1 bg-gray-100 text-gray-600 py-1.5 rounded hover:bg-gray-200">下载PDF</button>
+        </div>
+      </div>
+
+      <!-- 报告卡片2 -->
+      <div class="bg-white rounded-xl p-5 card-shadow">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-bold text-lg">王小雨 - 前端开发工程师</h3>
+            <p class="text-sm text-gray-400">报告生成：2026-07-09 19:40</p>
+          </div>
+          <span class="px-2 py-1 bg-yellow-100 text-warning text-xs rounded">有待提升</span>
+        </div>
+        <div class="mb-3">
+          <div class="flex justify-between text-sm mb-1">
+            <span>综合评分</span>
+            <span class="font-medium">71 / 100</span>
+          </div>
+          <div class="w-full bg-gray-100 progress">
+            <div class="bg-warning progress" style="width:71%"></div>
+          </div>
+        </div>
+        <div class="text-sm text-gray-500 mb-4 text-ellipsis-2">
+          Vue基础熟练，但工程化、性能优化相关知识薄弱；面试容易紧张，回答深度不足，建议加强底层原理学习。
+        </div>
+        <div class="flex gap-2">
+          <button class="flex-1 border border-primary text-primary py-1.5 rounded hover:bg-blue-50">查看完整报告</button>
+          <button class="flex-1 bg-gray-100 text-gray-600 py-1.5 rounded hover:bg-gray-200">下载PDF</button>
+        </div>
+      </div>
+
+      <!-- 报告卡片3 -->
+      <div class="bg-white rounded-xl p-5 card-shadow">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-bold text-lg">张伟 - 大模型算法工程师</h3>
+            <p class="text-sm text-gray-400">报告生成：2026-07-08 10:35</p>
+          </div>
+          <span class="px-2 py-1 bg-red-100 text-danger text-xs rounded">不予录用</span>
+        </div>
+        <div class="mb-3">
+          <div class="flex justify-between text-sm mb-1">
+            <span>综合评分</span>
+            <span class="font-medium">56 / 100</span>
+          </div>
+          <div class="w-full bg-gray-100 progress">
+            <div class="bg-danger progress" style="width:56%"></div>
+          </div>
+        </div>
+        <div class="text-sm text-gray-500 mb-4 text-ellipsis-2">
+          算法基础薄弱，项目偏向调用开源模型，缺少自主训练、调优经验，无法满足岗位业务需求，暂不匹配。
+        </div>
+        <div class="flex gap-2">
+          <button class="flex-1 border border-primary text-primary py-1.5 rounded hover:bg-blue-50">查看完整报告</button>
+          <button class="flex-1 bg-gray-100 text-gray-600 py-1.5 rounded hover:bg-gray-200">下载PDF</button>
+        </div>
+      </div>
+
+      <!-- 报告卡片4 -->
+      <div class="bg-white rounded-xl p-5 card-shadow">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-bold text-lg">陈琳 - 测试工程师</h3>
+            <p class="text-sm text-gray-400">报告生成：2026-07-07 16:52</p>
+          </div>
+          <span class="px-2 py-1 bg-yellow-100 text-warning text-xs rounded">待定观察</span>
+        </div>
+        <div class="mb-3">
+          <div class="flex justify-between text-sm mb-1">
+            <span>综合评分</span>
+            <span class="font-medium">76 / 100</span>
+          </div>
+          <div class="w-full bg-gray-100 progress">
+            <div class="bg-warning progress" style="width:76%"></div>
+          </div>
+        </div>
+        <div class="text-sm text-gray-500 mb-4 text-ellipsis-2">
+          功能测试经验充足，但自动化测试能力欠缺；学习意愿较强，可考虑后续复试观察成长潜力。
+        </div>
+        <div class="flex gap-2">
+          <button class="flex-1 border border-primary text-primary py-1.5 rounded hover:bg-blue-50">查看完整报告</button>
+          <button class="flex-1 bg-gray-100 text-gray-600 py-1.5 rounded hover:bg-gray-200">下载PDF</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分页 -->
+    <div class="flex justify-between items-center mt-8">
+      <span class="text-sm text-gray-500">共 12 份面试报告</span>
+      <div class="flex gap-1">
+        <button class="px-3 py-2 border rounded-lg">上一页</button>
+        <button class="px-3 py-2 border rounded-lg bg-primary text-white">1</button>
+        <button class="px-3 py-2 border rounded-lg">2</button>
+        <button class="px-3 py-2 border rounded-lg">3</button>
+        <button class="px-3 py-2 border rounded-lg">下一页</button>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
