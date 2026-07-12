@@ -1,19 +1,30 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
 
-const router = useRouter()
 const searchText = ref('')
 const filterCategory = ref('')
 const filterStatus = ref('')
 const filterLocation = ref('')
+const filterRecruitment = ref('')
 const showModal = ref(false)
 const editingJd = ref(null)
 const jdList = ref([])
 const loading = ref(true)
+const viewingJd = ref(null)
+const page = ref(1)
+const total = ref(0)
+const pageSize = ref(10)
 
-const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable' })
+const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '' })
+
+// 统计数据
+const stats = computed(() => ({
+  total: jdList.value.length,
+  enabled: jdList.value.filter(j => j.status === 'enable').length,
+  disabled: jdList.value.filter(j => j.status === 'disable').length,
+  categories: [...new Set(jdList.value.map(j => j.category))].filter(Boolean).length,
+}))
 
 async function fetchJds() {
   loading.value = true
@@ -23,28 +34,31 @@ async function fetchJds() {
     if (filterCategory.value) params.set('category', filterCategory.value)
     if (filterStatus.value) params.set('status', filterStatus.value)
     if (filterLocation.value) params.set('location', filterLocation.value)
+    if (filterRecruitment.value) params.set('recruitment_type', filterRecruitment.value)
+    params.set('page', page.value)
+    params.set('page_size', pageSize.value)
     const qs = params.toString()
     const res = await fetch(`/api/jds${qs ? '?' + qs : ''}`)
-    if (res.ok) jdList.value = await res.json()
-  } catch (_) { /* ignore */ }
+    if (res.ok) {
+      const data = await res.json()
+      jdList.value = data.items
+      total.value = data.total
+    }
+  } catch (_) {}
   loading.value = false
 }
 
 onMounted(fetchJds)
 
-// 搜索去抖
 let searchTimer = null
-function onSearchChange() {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(fetchJds, 300)
-}
+function onSearchChange() { clearTimeout(searchTimer); searchTimer = setTimeout(fetchJds, 300) }
 
 const categories = computed(() => [...new Set(jdList.value.map(j => j.category))].filter(Boolean))
 const locations = computed(() => [...new Set(jdList.value.map(j => j.location))].filter(Boolean))
 
 function openCreate() {
   editingJd.value = null
-  form.value = { name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable' }
+  form.value = { name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '' }
   showModal.value = true
 }
 
@@ -54,47 +68,44 @@ function openEdit(jd) {
   showModal.value = true
 }
 
+function viewJd(jd) { viewingJd.value = jd }
+
 async function saveJd() {
   if (!form.value.name.trim()) return
   const payload = { ...form.value }
   try {
     if (editingJd.value) {
-      await fetch(`/api/jds/${editingJd.value.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      await fetch(`/api/jds/${editingJd.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     } else {
-      await fetch('/api/jds', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      await fetch('/api/jds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     }
     showModal.value = false
     await fetchJds()
-  } catch (_) { /* ignore */ }
+  } catch (_) {}
 }
 
 async function removeJd(jd) {
   if (!confirm(`确认删除「${jd.name}」？`)) return
-  try {
-    await fetch(`/api/jds/${jd.id}`, { method: 'DELETE' })
-    await fetchJds()
-  } catch (_) { /* ignore */ }
-}
-
-function createInterview(jd) {
-  const jdText = `岗位名称：${jd.name}\n岗位类别：${jd.category}\n工作地点：${jd.location}\n\n岗位职责：\n${jd.responsibilities}\n\n任职要求：\n${jd.requirements}`
-  localStorage.setItem('interviewmate_selected_jd', jdText)
-  router.push('/interviewee')
+  await fetch(`/api/jds/${jd.id}`, { method: 'DELETE' })
+  await fetchJds()
 }
 
 function resetFilters() {
-  searchText.value = ''
-  filterCategory.value = ''
-  filterStatus.value = ''
-  filterLocation.value = ''
+  searchText.value = ''; filterCategory.value = ''; filterStatus.value = ''; filterLocation.value = ''; filterRecruitment.value = ''
+  page.value = 1
+  fetchJds()
+}
+
+function goPage(p) {
+  page.value = p
+  fetchJds()
+}
+
+const totalPages = computed(() => Math.ceil(total.value / pageSize.value))
+
+function changePageSize(size) {
+  pageSize.value = size
+  page.value = 1
   fetchJds()
 }
 </script>
@@ -106,9 +117,29 @@ function resetFilters() {
     <main class="flex-1 overflow-auto p-6">
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-2xl font-bold text-gray-900">岗位 JD 管理</h2>
-        <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 transition" @click="openCreate">
+        <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 transition text-sm" @click="openCreate">
           <i class="fa fa-plus"></i> 新增岗位JD
         </button>
+      </div>
+
+      <!-- 统计卡片 -->
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
+          <p class="text-2xl font-bold text-[#1677ff]">{{ stats.total }}</p>
+          <p class="text-xs text-gray-500 mt-1">全部 JD</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
+          <p class="text-2xl font-bold text-[#22c55e]">{{ stats.enabled }}</p>
+          <p class="text-xs text-gray-500 mt-1">启用中</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
+          <p class="text-2xl font-bold text-orange-500">{{ stats.disabled }}</p>
+          <p class="text-xs text-gray-500 mt-1">已停用</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
+          <p class="text-2xl font-bold text-purple-500">{{ stats.categories }}</p>
+          <p class="text-xs text-gray-500 mt-1">岗位类别</p>
+        </div>
       </div>
 
       <!-- 搜索筛选 -->
@@ -131,25 +162,30 @@ function resetFilters() {
             <option value="">全部工作地点</option>
             <option v-for="l in locations" :key="l" :value="l">{{ l }}</option>
           </select>
+          <select v-model="filterRecruitment" class="border rounded-lg px-3 py-2 min-w-[120px]" @change="fetchJds">
+            <option value="">全部招聘类型</option>
+            <option value="实习生">实习生</option>
+            <option value="校招">校招</option>
+            <option value="社招">社招</option>
+          </select>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置</button>
         </div>
       </div>
 
       <!-- JD 表格 -->
       <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-        <div v-if="loading" class="text-center py-12 text-gray-400">
-          <i class="fa fa-spinner fa-spin text-2xl mb-2 block"></i>加载中...
-        </div>
+        <div v-if="loading" class="text-center py-12 text-gray-400"><i class="fa fa-spinner fa-spin text-2xl mb-2 block"></i>加载中...</div>
         <table v-else class="w-full">
           <thead class="bg-gray-50">
             <tr>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm w-12">#</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm w-8">#</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">岗位名称</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">岗位类别</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">招聘类型</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">经验要求</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">工作地点</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">岗位职责</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">状态</th>
-              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-44">操作</th>
+              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-36">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -157,28 +193,47 @@ function resetFilters() {
               <td class="px-4 py-3 text-sm text-gray-500">{{ i + 1 }}</td>
               <td class="px-4 py-3 font-medium text-sm">{{ jd.name }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ jd.category }}</td>
+              <td class="px-4 py-3 text-sm">
+                <span :class="{'实习生':'bg-green-100 text-green-600','校招':'bg-blue-100 text-blue-600','社招':'bg-purple-100 text-purple-600'}[jd.recruitment_type] || 'bg-blue-100 text-blue-600'" class="px-2 py-0.5 text-xs rounded font-medium">{{ jd.recruitment_type || '社招' }}</span>
+              </td>
+              <td class="px-4 py-3 text-sm text-gray-600">{{ jd.experience_required || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ jd.location }}</td>
-              <td class="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">{{ jd.responsibilities?.slice(0, 50) }}...</td>
               <td class="px-4 py-3">
-                <span :class="jd.status === 'enable' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'" class="px-2 py-1 text-xs rounded">
-                  {{ jd.status === 'enable' ? '启用' : '停用' }}
-                </span>
+                <span :class="jd.status === 'enable' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'" class="px-2 py-1 text-xs rounded">{{ jd.status === 'enable' ? '启用' : '停用' }}</span>
               </td>
               <td class="px-4 py-3 text-center">
-                <button class="text-[#1677ff] hover:underline text-sm" @click="openEdit(jd)">编辑</button>
-                <button class="text-red-500 hover:underline text-sm ml-2" @click="removeJd(jd)">删除</button>
-                <button v-if="jd.status === 'enable'" class="text-[#22c55e] hover:underline text-sm ml-2" @click="createInterview(jd)">创建面试</button>
+                <div class="flex items-center justify-center gap-1">
+                  <button class="w-8 h-8 rounded-lg text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewJd(jd)"><i class="fa fa-eye"></i></button>
+                  <button class="w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 transition flex items-center justify-center" title="编辑" @click="openEdit(jd)"><i class="fa fa-pencil"></i></button>
+                  <button class="w-8 h-8 rounded-lg text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeJd(jd)"><i class="fa fa-trash-o"></i></button>
+                </div>
               </td>
             </tr>
           </tbody>
         </table>
-        <div v-if="!loading && !jdList.length" class="text-center py-12 text-gray-400">
-          <i class="fa fa-inbox text-3xl mb-2 block"></i>暂无匹配的岗位 JD
-        </div>
+        <div v-if="!loading && !jdList.length" class="text-center py-12 text-gray-400"><i class="fa fa-inbox text-3xl mb-2 block"></i>暂无匹配的岗位 JD</div>
       </div>
 
-      <div class="flex justify-between items-center mt-4 text-sm text-gray-500">
-        <span>共 {{ jdList.length }} 条</span>
+      <!-- 分页 -->
+      <div class="flex justify-between items-center mt-4">
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-gray-500">共 {{ total }} 条</span>
+          <select v-model.number="pageSize" class="border rounded-lg px-2 py-1 text-xs text-gray-500" @change="page = 1; fetchJds()">
+            <option :value="10">10条/页</option>
+            <option :value="20">20条/页</option>
+            <option :value="50">50条/页</option>
+          </select>
+        </div>
+        <div class="flex gap-1">
+          <button :disabled="page <= 1" class="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-30 hover:bg-gray-50" @click="goPage(page - 1)">上一页</button>
+          <button
+            v-for="p in totalPages"
+            :key="p"
+            :class="['px-3 py-1.5 border rounded-lg text-sm', p === page ? 'bg-[#1677ff] text-white border-[#1677ff]' : 'hover:bg-gray-50']"
+            @click="goPage(p)"
+          >{{ p }}</button>
+          <button :disabled="page >= totalPages" class="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-30 hover:bg-gray-50" @click="goPage(page + 1)">下一页</button>
+        </div>
       </div>
     </main>
 
@@ -187,39 +242,61 @@ function resetFilters() {
       <div class="bg-white rounded-2xl w-[600px] max-h-[80vh] overflow-auto p-6 shadow-xl">
         <h3 class="text-lg font-bold mb-5">{{ editingJd ? '编辑岗位JD' : '新增岗位JD' }}</h3>
         <div class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">岗位名称 <span class="text-red-500">*</span></label>
-            <input v-model="form.name" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：后端开发工程师">
+          <div><label class="block text-sm font-medium text-gray-700 mb-1">岗位名称 <span class="text-red-500">*</span></label><input v-model="form.name" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：后端开发工程师"></div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">岗位类别</label><input v-model="form.category" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：技术开发"></div>
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">工作地点</label><input v-model="form.location" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：深圳"></div>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">岗位类别</label>
-              <input v-model="form.category" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：技术开发">
+              <label class="block text-sm font-medium text-gray-700 mb-1">招聘类型</label>
+              <select v-model="form.recruitment_type" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
+                <option value="实习生">实习生</option>
+                <option value="校招">校招</option>
+                <option value="社招">社招</option>
+              </select>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">工作地点</label>
-              <input v-model="form.location" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：深圳">
+              <label class="block text-sm font-medium text-gray-700 mb-1">经验要求</label>
+              <input v-model="form.experience_required" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：3-5年">
             </div>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">岗位职责</label>
-            <textarea v-model="form.responsibilities" rows="4" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="描述岗位职责..."></textarea>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">任职要求</label>
-            <textarea v-model="form.requirements" rows="4" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="描述任职要求..."></textarea>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
-            <select v-model="form.status" class="border rounded-lg px-3 py-2">
-              <option value="enable">启用</option>
-              <option value="disable">停用</option>
-            </select>
-          </div>
+          <div><label class="block text-sm font-medium text-gray-700 mb-1">岗位职责</label><textarea v-model="form.responsibilities" rows="4" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="描述岗位职责..."></textarea></div>
+          <div><label class="block text-sm font-medium text-gray-700 mb-1">任职要求</label><textarea v-model="form.requirements" rows="4" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="描述任职要求..."></textarea></div>
+          <div><label class="block text-sm font-medium text-gray-700 mb-1">状态</label><select v-model="form.status" class="border rounded-lg px-3 py-2"><option value="enable">启用</option><option value="disable">停用</option></select></div>
         </div>
         <div class="flex justify-end gap-3 mt-6">
-          <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200" @click="showModal = false">取消</button>
-          <button class="px-4 py-2 bg-[#1677ff] text-white rounded-lg hover:bg-blue-600" @click="saveJd">保存</button>
+          <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="showModal = false">取消</button>
+          <button class="px-4 py-2 bg-[#1677ff] text-white rounded-lg hover:bg-blue-600 text-sm" @click="saveJd">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 查看 JD 弹窗 -->
+    <div v-if="viewingJd" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" @click.self="viewingJd = null">
+      <div class="bg-white rounded-2xl w-[640px] max-h-[80vh] overflow-auto p-6 shadow-xl">
+        <div class="flex items-center justify-between mb-5">
+          <h3 class="text-lg font-bold">{{ viewingJd.name }}</h3>
+          <span :class="viewingJd.status === 'enable' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'" class="px-2 py-1 text-xs rounded">{{ viewingJd.status === 'enable' ? '启用' : '停用' }}</span>
+        </div>
+        <div class="space-y-4">
+          <div class="flex gap-4 text-sm text-gray-500">
+            <span><i class="fa fa-tag mr-1"></i>{{ viewingJd.category || '-' }}</span>
+            <span><i class="fa fa-map-marker mr-1"></i>{{ viewingJd.location || '-' }}</span>
+            <span :class="{'实习生':'bg-green-100 text-green-600','校招':'bg-blue-100 text-blue-600','社招':'bg-purple-100 text-purple-600'}[viewingJd.recruitment_type]" class="px-2 py-0.5 text-xs rounded font-medium">{{ viewingJd.recruitment_type || '社招' }}</span>
+            <span class="text-gray-500">{{ viewingJd.experience_required ? viewingJd.experience_required + ' 经验' : '' }}</span>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-gray-700 mb-2">岗位职责</h4>
+            <p class="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{{ viewingJd.responsibilities || '暂无' }}</p>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-gray-700 mb-2">任职要求</h4>
+            <p class="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{{ viewingJd.requirements || '暂无' }}</p>
+          </div>
+        </div>
+        <div class="flex justify-end mt-6">
+          <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="viewingJd = null">关闭</button>
         </div>
       </div>
     </div>
