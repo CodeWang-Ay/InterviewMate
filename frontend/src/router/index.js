@@ -9,6 +9,8 @@ import JdManager from '../pages/JdManager.vue'
 import ResumeManager from '../pages/ResumeManager.vue'
 import PlanManager from '../pages/PlanManager.vue'
 import RecordList from '../pages/RecordList.vue'
+import ReportList from '../pages/ReportList.vue'
+import Settings from '../pages/Settings.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -21,6 +23,8 @@ const routes = [
   { path: '/resume-manager', component: ResumeManager },
   { path: '/plan-manager', component: PlanManager },
   { path: '/record-list', component: RecordList },
+  { path: '/report-list', component: ReportList },
+  { path: '/settings', component: Settings },
 ]
 
 const router = createRouter({

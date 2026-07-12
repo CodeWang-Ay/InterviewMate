@@ -10,8 +10,8 @@ const navItems = [
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },
   { icon: 'fa-book', label: '题库中心', path: '/' },
   { icon: 'fa-clipboard', label: '面试记录', path: '/record-list' },
-  { icon: 'fa-bar-chart', label: '面试报告', path: '/report' },
-  { icon: 'fa-cog', label: '设置', path: '/' },
+  { icon: 'fa-bar-chart', label: '面试报告', path: '/report-list' },
+  { icon: 'fa-cog', label: '设置', path: '/settings' },
 ]
 </script>
 
