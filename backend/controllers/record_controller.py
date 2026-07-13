@@ -54,10 +54,17 @@ async def list_records(search: str = "", record_type: str = "", conclusion: str 
         session_id = item["session_id"]
         score = item["score"]
         meta = _resolve_record_meta(data, inferred_meta.get(session_id))
+        mode = data.get("mode", "candidate_interview")
+        is_training = mode == "interviewer_training"
         is_formal = bool(data.get("plan_id") or data.get("jd_filename") or meta.get("jd_name"))
-        rtype = "正式面试" if is_formal else "模拟面试"
-        candidate = meta.get("candidate_name") or (data.get("resume_filename", "").rsplit(".", 1)[0] if data.get("resume_filename") else "未知")
-        position = meta.get("jd_name") or ("面试者模式" if not is_formal else "待定岗位")
+        rtype = "面试官训练" if is_training else ("正式面试" if is_formal else "模拟面试")
+        candidate = (
+            meta.get("candidate_name")
+            or data.get("candidate_name")
+            or data.get("resume_name")
+            or (data.get("resume_filename", "").rsplit(".", 1)[0] if data.get("resume_filename") else "未知")
+        )
+        position = data.get("jd_name") or meta.get("jd_name") or ("面试者模式" if not is_formal else "待定岗位")
         created_at = data.get("created_at", "")
         state = data.get("state", "unknown")
 
@@ -81,7 +88,7 @@ async def list_records(search: str = "", record_type: str = "", conclusion: str 
             "candidate": candidate,
             "position": position,
             "type": rtype,
-            "type_label": "正式面试" if is_formal else "模拟面试",
+            "type_label": rtype,
             "score": score,
             "score_display": f"{score}/100" if score is not None else "-",
             "conclusion": conclusion_label,

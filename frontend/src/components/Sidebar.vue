@@ -23,6 +23,7 @@ function doLogout() {
 
 const navItems = [
   { icon: 'fa-home', label: '首页', path: '/' },
+  { icon: 'fa-comments-o', label: '面试官训练台', path: '/interviewer' },
   { icon: 'fa-file-text', label: '岗位 JD 管理', path: '/jd-manager' },
   { icon: 'fa-id-card-o', label: '简历管理', path: '/resume-manager' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },

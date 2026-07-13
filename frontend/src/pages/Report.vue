@@ -13,12 +13,13 @@ const donutC = 2 * Math.PI * donutR
 
 // ---- 雷达图参数 ----
 const cx = 160, cy = 160, maxR = 130
-const dimNames = ['沟通表达', '技术匹配', '项目经验', '问题解决', '岗位匹配']
 const gridLevels = [20, 40, 60, 80, 100]
+const dimNames = computed(() => report.value?.dimensions?.map(d => d.name) || [])
+const dimCount = computed(() => Math.max(dimNames.value.length, 1))
 
 function radarPoints(scores) {
   return scores.map((s, i) => {
-    const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2
+    const angle = (Math.PI * 2 * i) / dimCount.value - Math.PI / 2
     const r = (s / 100) * maxR
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   })
@@ -27,8 +28,8 @@ function radarPoints(scores) {
 const bgGrids = computed(() => {
   if (!report.value) return []
   return gridLevels.map(level => {
-    const pts = Array.from({ length: 5 }, (_, i) => {
-      const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2
+    const pts = Array.from({ length: dimCount.value }, (_, i) => {
+      const angle = (Math.PI * 2 * i) / dimCount.value - Math.PI / 2
       const r = (level / 100) * maxR
       return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`
     }).join(' ')
@@ -37,15 +38,15 @@ const bgGrids = computed(() => {
 })
 
 const axes = computed(() => {
-  return dimNames.map((_, i) => {
-    const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2
+  return dimNames.value.map((_, i) => {
+    const angle = (Math.PI * 2 * i) / dimCount.value - Math.PI / 2
     return { x: cx + maxR * Math.cos(angle), y: cy + maxR * Math.sin(angle) }
   })
 })
 
 const labels = computed(() => {
-  return dimNames.map((name, i) => {
-    const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2
+  return dimNames.value.map((name, i) => {
+    const angle = (Math.PI * 2 * i) / dimCount.value - Math.PI / 2
     const r = maxR + 28
     return { name, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) + 5 }
   })
@@ -96,7 +97,7 @@ onMounted(async () => {
           </svg>
         </router-link>
         <div class="flex-1">
-          <h1 class="text-white font-semibold text-sm">面试报告</h1>
+          <h1 class="text-white font-semibold text-sm">{{ report?.report_title || '面试报告' }}</h1>
           <p class="text-slate-500 text-xs">{{ report?.created_at?.slice(0, 10) || '' }}</p>
         </div>
       </header>
@@ -201,7 +202,7 @@ onMounted(async () => {
                 </div>
                 <div>
                   <h3 class="text-white font-medium text-sm">面试记录</h3>
-                  <p class="text-slate-500 text-xs">查看完整的面试对话过程</p>
+                  <p class="text-slate-500 text-xs">{{ report?.report_type === 'interviewer_training' ? '查看本轮训练的完整对练过程' : '查看完整的面试对话过程' }}</p>
                 </div>
               </div>
               <svg class="w-4 h-4 text-slate-500 group-hover:text-white group-hover:translate-x-1 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

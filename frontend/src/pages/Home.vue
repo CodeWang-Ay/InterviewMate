@@ -37,16 +37,16 @@ import Sidebar from '../components/Sidebar.vue'
           <div class="w-[100px] h-[100px] rounded-full bg-green-50 flex items-center justify-center mb-4">
             <img class="w-[70px]" src="https://ui-avatars.com/api/?name=面试官&background=e6f9ef&color=22c55e&size=120" alt="面试官">
           </div>
-          <h2 class="text-[26px] font-bold text-gray-900 mb-3">我是面试官</h2>
-          <p class="text-gray-500 text-center mb-6 leading-relaxed">根据JD与简历自动生成面试计划，智能生成问题，记录并总结候选人</p>
+          <h2 class="text-[26px] font-bold text-gray-900 mb-3">面试官训练台</h2>
+          <p class="text-gray-500 text-center mb-6 leading-relaxed">从 JD 库和简历库里拉一组训练组合，让 AI 扮演候选人，帮你练提问、追问和控场</p>
           <ul class="w-full space-y-3 mb-8">
             <li class="flex items-center gap-2 text-gray-600"><i class="fa fa-check text-[#22c55e]"></i><span>岗位&简历匹配分析</span></li>
-            <li class="flex items-center gap-2 text-gray-600"><i class="fa fa-check text-[#22c55e]"></i><span>自动生成面试计划</span></li>
-            <li class="flex items-center gap-2 text-gray-600"><i class="fa fa-check text-[#22c55e]"></i><span>面试记录与评分</span></li>
-            <li class="flex items-center gap-2 text-gray-600"><i class="fa fa-check text-[#22c55e]"></i><span>个性化评估报告</span></li>
+            <li class="flex items-center gap-2 text-gray-600"><i class="fa fa-check text-[#22c55e]"></i><span>模拟不同候选人状态</span></li>
+            <li class="flex items-center gap-2 text-gray-600"><i class="fa fa-check text-[#22c55e]"></i><span>训练追问与项目深挖</span></li>
+            <li class="flex items-center gap-2 text-gray-600"><i class="fa fa-check text-[#22c55e]"></i><span>自动生成训练复盘报告</span></li>
           </ul>
           <router-link to="/interviewer" class="w-full bg-[#22c55e] text-white py-3 rounded-lg text-lg font-medium hover:bg-green-600 transition flex items-center justify-center gap-2 no-underline">
-            创建面试任务 <i class="fa fa-arrow-right"></i>
+            开始训练 <i class="fa fa-arrow-right"></i>
           </router-link>
         </div>
       </div>

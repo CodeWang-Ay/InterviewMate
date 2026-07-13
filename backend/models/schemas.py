@@ -23,3 +23,15 @@ class ChatStart(BaseModel):
 class ChatMessage(BaseModel):
     session_id: str
     message: str
+
+
+class InterviewerTrainingStart(BaseModel):
+    jd_id: int
+    resume_id: int
+    training_mode: str = "结构化面试"
+    candidate_style: str = "标准型"
+
+
+class InterviewerTrainingMessage(BaseModel):
+    session_id: str
+    message: str

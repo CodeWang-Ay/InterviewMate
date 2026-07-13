@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../pages/Home.vue'
 import Interviewer from '../pages/Interviewer.vue'
+import InterviewerTrainChat from '../pages/InterviewerTrainChat.vue'
 import Interviewee from '../pages/Interviewee.vue'
 import Chat from '../pages/Chat.vue'
 import Report from '../pages/Report.vue'
@@ -20,6 +21,7 @@ import UserInterview from '../pages/UserInterview.vue'
 const routes = [
   { path: '/', component: Home },
   { path: '/interviewer', component: Interviewer },
+  { path: '/interviewer/chat', component: InterviewerTrainChat },
   { path: '/interviewee', component: Interviewee },
   { path: '/chat', component: Chat },
   { path: '/report', component: Report },
@@ -119,7 +121,7 @@ router.beforeEach(async (to, from) => {
   if (candidatePages.includes(to.path) && role && role !== 'candidate') {
     return { path: '/' }
   }
-  const adminPages = ['/interviewer', '/interviewee', '/jd-manager', '/resume-manager', '/plan-manager', '/report', '/interview-record', '/record-list', '/report-list', '/interview-archive', '/settings', '/user-center']
+  const adminPages = ['/interviewer', '/interviewer/chat', '/interviewee', '/jd-manager', '/resume-manager', '/plan-manager', '/report', '/interview-record', '/record-list', '/report-list', '/interview-archive', '/settings', '/user-center']
   if (adminPages.includes(to.path)) {
     if (role !== 'admin') {
       try { window.alert('仅管理员可查看面试记录和面试报告') } catch (_) {}

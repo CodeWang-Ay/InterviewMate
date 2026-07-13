@@ -7,6 +7,11 @@ from backend.repositories.interview_repo import load_record, save_report
 
 def generate_report(session_id: str) -> dict:
     record = load_record(session_id)
+    if record.get("mode") == "interviewer_training":
+        report = _generate_interviewer_training_report(session_id, record)
+        save_report(session_id, report)
+        return report
+
     history = record.get("history", [])
     questions = record.get("questions", [])
 
@@ -132,3 +137,130 @@ def generate_report(session_id: str) -> dict:
 
     save_report(session_id, report)
     return report
+
+
+def _generate_interviewer_training_report(session_id: str, record: dict) -> dict:
+    history = record.get("history", [])
+    interviewer_msgs = [item for item in history if item.get("role") == "interviewer"]
+    candidate_msgs = [item for item in history if item.get("role") == "candidate"]
+    jd_text = (record.get("persona", {}) or {}).get("jd_text", "")
+    training_mode = record.get("training_mode", "结构化面试")
+    candidate_name = record.get("candidate_name") or record.get("resume_name") or "候选人"
+    jd_name = record.get("jd_name", "目标岗位")
+
+    interviewer_texts = [item.get("content", "") for item in interviewer_msgs]
+    joined = " ".join(interviewer_texts).lower()
+    avg_len = sum(len(text) for text in interviewer_texts) / max(len(interviewer_texts), 1)
+
+    jd_keywords = []
+    for token in ["项目", "架构", "性能", "协作", "业务", "优化", "系统", "AI", "大模型", "Python", "Java", "Vue", "React", "SQL"]:
+        if token.lower() in jd_text.lower():
+            jd_keywords.append(token)
+    if not jd_keywords:
+        jd_keywords = ["项目", "技术", "业务", "协作"]
+
+    matched_keywords = sum(1 for token in jd_keywords if token.lower() in joined)
+    keyword_coverage = matched_keywords / max(len(jd_keywords), 1)
+    coverage_score = max(35, min(95, int(keyword_coverage * 100)))
+    if coverage_score >= 80:
+        coverage_comment = "提问已经覆盖了岗位中的关键能力点，训练聚焦度比较高。"
+    elif coverage_score >= 60:
+        coverage_comment = "已经触及部分核心要求，但还可以更有意识地围绕 JD 关键词展开。"
+    else:
+        coverage_comment = "提问与岗位要求的绑定还不够紧，建议先提炼 JD 里的关键考察项再发问。"
+
+    followup_hits = sum(
+        1 for text in interviewer_texts
+        if any(keyword in text for keyword in ["为什么", "具体", "展开", "细说", "举例", "怎么做", "怎么解决", "如果再来一次"])
+    )
+    followup_ratio = followup_hits / max(len(interviewer_texts), 1)
+    depth_score = max(30, min(95, int(45 + followup_ratio * 45)))
+    if depth_score >= 80:
+        depth_comment = "追问意识比较强，能够把候选人的回答继续往细节和证据上推进。"
+    elif depth_score >= 60:
+        depth_comment = "有一定追问动作，但还可以更稳定地把泛回答拉回到真实案例。"
+    else:
+        depth_comment = "当前更像是顺序发问，追问深度偏弱，建议多追到动作、决策和结果层。"
+
+    scenario_hits = sum(
+        1 for text in interviewer_texts
+        if any(keyword in text for keyword in ["项目", "案例", "冲突", "挑战", "结果", "指标", "数据", "上线", "复盘"])
+    )
+    scenario_score = max(30, min(95, int(35 + scenario_hits * 8)))
+    if scenario_score >= 80:
+        scenario_comment = "你比较关注真实场景和量化结果，这很像成熟面试官的发问方式。"
+    elif scenario_score >= 60:
+        scenario_comment = "已经开始引导候选人讲案例，下一步可以继续追问背景、行动和结果。"
+    else:
+        scenario_comment = "场景化提问偏少，建议多让候选人用项目、冲突、指标和结果来证明自己。"
+
+    rhythm_base = min(len(interviewer_msgs), len(candidate_msgs))
+    rhythm_score = max(40, min(95, int(50 + min(rhythm_base, 8) * 5 + min(avg_len, 80) / 10)))
+    if rhythm_score >= 80:
+        rhythm_comment = "整体节奏自然，既没有太散，也没有过早切题结束。"
+    elif rhythm_score >= 60:
+        rhythm_comment = "节奏基本稳定，但可以在开场、主问题、追问、收束这几个段落上再更清晰。"
+    else:
+        rhythm_comment = "对话节奏略显生硬，建议先搭框架，再逐步推进到重点考察项。"
+
+    openness_hits = sum(
+        1 for text in interviewer_texts
+        if any(keyword in text for keyword in ["请介绍", "请分享", "能不能", "你是怎么", "当时", "后来"])
+    )
+    precision_hits = sum(
+        1 for text in interviewer_texts
+        if any(keyword in text for keyword in ["具体", "数据", "指标", "多久", "多少", "谁来", "负责哪部分"])
+    )
+    structure_score = max(35, min(95, int(40 + openness_hits * 5 + precision_hits * 5)))
+    if structure_score >= 80:
+        structure_comment = "提问既开放又有收口，比较像一场有结构的正式面谈。"
+    elif structure_score >= 60:
+        structure_comment = "问题结构基本成型，但还可以更明确地区分开场题、能力题和压力追问题。"
+    else:
+        structure_comment = "问题结构还比较散，建议先按考察维度列一个提问路径再进入训练。"
+
+    overall_score = int((coverage_score + depth_score + scenario_score + rhythm_score + structure_score) / 5)
+
+    suggestions = []
+    if coverage_score < 75:
+        suggestions.append("先从 JD 中摘出 4 到 6 个核心能力点，把每个能力点对应到至少 1 个问题。")
+    if depth_score < 75:
+        suggestions.append("对每个关键回答至少补 1 个追问，优先追“为什么这么做”和“结果怎么证明”。")
+    if scenario_score < 75:
+        suggestions.append("多让候选人讲真实项目，尽量追到背景、任务、行动、结果四个层次。")
+    if structure_score < 75:
+        suggestions.append("把整场训练拆成开场暖场、核心能力、项目深挖、收尾反问四段，会更稳。")
+    if not suggestions:
+        suggestions.append("这轮训练已经比较成熟了，下一步可以尝试更高压或更模糊回答型候选人。")
+
+    duration = "未知"
+    if record.get("created_at") and record.get("completed_at"):
+        try:
+            start = datetime.fromisoformat(record["created_at"])
+            end = datetime.fromisoformat(record["completed_at"])
+            duration = f"{max(1, int((end - start).total_seconds() / 60))} 分钟"
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "session_id": session_id,
+        "report_type": "interviewer_training",
+        "report_title": "面试官训练复盘",
+        "candidate_name": candidate_name,
+        "jd_name": jd_name,
+        "training_mode": training_mode,
+        "duration": duration,
+        "total_questions": len(interviewer_msgs),
+        "answered_questions": len(candidate_msgs),
+        "overall_score": overall_score,
+        "created_at": record.get("created_at", ""),
+        "dimensions": [
+            {"name": "岗位覆盖", "score": coverage_score, "comment": coverage_comment},
+            {"name": "追问深度", "score": depth_score, "comment": depth_comment},
+            {"name": "案例挖掘", "score": scenario_score, "comment": scenario_comment},
+            {"name": "面试节奏", "score": rhythm_score, "comment": rhythm_comment},
+            {"name": "提问结构", "score": structure_score, "comment": structure_comment},
+        ],
+        "history": history,
+        "suggestions": suggestions,
+    }

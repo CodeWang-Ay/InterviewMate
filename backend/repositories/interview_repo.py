@@ -11,14 +11,14 @@ def save_record(session_id: str):
     session = chat_sessions.get(session_id)
     if not session:
         return
-    candidate_name = ""
-    jd_name = ""
-    interview_round = ""
-    workflow_name = ""
-    workflow_id = ""
-    stage_order = 1
-    stage_count = 1
-    candidate_username = ""
+    candidate_name = session.get("candidate_name") or session.get("resume_name") or ""
+    jd_name = session.get("jd_name") or ""
+    interview_round = session.get("interview_round") or ""
+    workflow_name = session.get("workflow_name") or ""
+    workflow_id = session.get("workflow_id") or ""
+    stage_order = session.get("stage_order", 1)
+    stage_count = session.get("stage_count", 1)
+    candidate_username = session.get("candidate_username") or ""
     plan_id = session.get("plan_id")
     if plan_id:
         try:
@@ -38,6 +38,7 @@ def save_record(session_id: str):
     record = {
         "session_id": session_id,
         "plan_id": plan_id,
+        "mode": session.get("mode", "candidate_interview"),
         "candidate_name": candidate_name,
         "jd_name": jd_name,
         "interview_round": interview_round,
@@ -51,6 +52,12 @@ def save_record(session_id: str):
         "questions": session.get("questions", []),
         "state": session.get("state"),
         "question_index": session.get("question_index", 0),
+        "jd_id": session.get("jd_id"),
+        "resume_id": session.get("resume_id"),
+        "training_mode": session.get("training_mode", ""),
+        "candidate_style": session.get("candidate_style", ""),
+        "resume_name": session.get("resume_name", ""),
+        "persona": session.get("persona", {}),
         "history": session.get("history", []),
         "created_at": session.get("created_at"),
         "updated_at": datetime.now().isoformat(),
@@ -85,12 +92,27 @@ def restore_session(session_id: str) -> dict | None:
     if not record or record.get("state") == "COMPLETED":
         return None
     chat_sessions[session_id] = {
+        "mode": record.get("mode", "candidate_interview"),
         "jd_filename": record.get("jd_filename", ""),
         "resume_filename": record.get("resume_filename", ""),
         "plan_id": record.get("plan_id"),
         "state": record.get("state", "READY_CHECK"),
         "question_index": record.get("question_index", 0),
         "questions": record.get("questions", []),
+        "jd_id": record.get("jd_id"),
+        "resume_id": record.get("resume_id"),
+        "training_mode": record.get("training_mode", ""),
+        "candidate_style": record.get("candidate_style", ""),
+        "candidate_name": record.get("candidate_name", ""),
+        "resume_name": record.get("resume_name", ""),
+        "jd_name": record.get("jd_name", ""),
+        "interview_round": record.get("interview_round", ""),
+        "workflow_name": record.get("workflow_name", ""),
+        "workflow_id": record.get("workflow_id", ""),
+        "stage_order": record.get("stage_order", 1),
+        "stage_count": record.get("stage_count", 1),
+        "candidate_username": record.get("candidate_username", ""),
+        "persona": record.get("persona", {}),
         "history": record.get("history", []),
         "created_at": record.get("created_at"),
     }
