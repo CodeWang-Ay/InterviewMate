@@ -125,6 +125,104 @@ const focusQueue = computed(() => {
 const recentResumes = computed(() => resumes.value.slice(0, 5))
 const recentArchive = computed(() => records.value.slice(0, 5))
 
+const funnelData = computed(() => {
+  const stages = [
+    { label: '在线岗位', value: jdStats.value.enabled, color: 'from-[#2f6df6] to-[#78a0ff]' },
+    { label: '简历入库', value: resumeStats.value.total, color: 'from-[#17a070] to-[#54d1a2]' },
+    { label: '已解析简历', value: resumeStats.value.parsed, color: 'from-[#7a57f6] to-[#b79dff]' },
+    { label: '面试流程', value: workflowOverview.value.length, color: 'from-[#f59f0b] to-[#f7c767]' },
+    { label: '归档沉淀', value: records.value.length, color: 'from-[#ef6a5b] to-[#f7a18b]' },
+  ]
+  const max = Math.max(...stages.map(item => item.value), 1)
+  return stages.map((item, index) => ({
+    ...item,
+    width: Math.max(28, Math.round((item.value / max) * 100)),
+    ratio: index === 0 ? 100 : Math.round((item.value / Math.max(stages[index - 1].value || 1, 1)) * 100),
+  }))
+})
+
+const trendData = computed(() => {
+  const dayMap = new Map()
+  const labels = []
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const date = new Date()
+    date.setHours(0, 0, 0, 0)
+    date.setDate(date.getDate() - offset)
+    const key = date.toISOString().slice(0, 10)
+    const label = `${date.getMonth() + 1}/${date.getDate()}`
+    labels.push(label)
+    dayMap.set(key, { key, label, resumes: 0, plans: 0, records: 0 })
+  }
+
+  for (const item of resumes.value) {
+    const key = String(item.created_at || '').slice(0, 10)
+    if (dayMap.has(key)) dayMap.get(key).resumes += 1
+  }
+  for (const item of plans.value) {
+    const key = String(item.created_at || '').slice(0, 10)
+    if (dayMap.has(key)) dayMap.get(key).plans += 1
+  }
+  for (const item of records.value) {
+    const key = String(item.created_at || '').slice(0, 10)
+    if (dayMap.has(key)) dayMap.get(key).records += 1
+  }
+
+  const series = [...dayMap.values()].map(item => ({
+    ...item,
+    total: item.resumes + item.plans + item.records,
+  }))
+  const max = Math.max(...series.map(item => item.total), 1)
+  return { series, max, labels }
+})
+
+const trendPath = computed(() => {
+  const { series, max } = trendData.value
+  if (!series.length) return ''
+  const width = 360
+  const height = 160
+  return series.map((item, index) => {
+    const x = series.length === 1 ? width / 2 : (index / (series.length - 1)) * width
+    const y = height - (item.total / max) * 128 - 10
+    return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
+  }).join(' ')
+})
+
+const trendAreaPath = computed(() => {
+  const { series } = trendData.value
+  if (!series.length) return ''
+  const width = 360
+  const height = 160
+  const line = series.map((item, index) => {
+    const x = series.length === 1 ? width / 2 : (index / (series.length - 1)) * width
+    const y = height - (item.total / trendData.value.max) * 128 - 10
+    return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
+  }).join(' ')
+  return `${line} L 360 160 L 0 160 Z`
+})
+
+const pipelineSegments = computed(() => {
+  const parts = [
+    { label: '待发起', value: planStats.value.waiting, color: '#2f6df6' },
+    { label: '进行中', value: planStats.value.running, color: '#1f8f61' },
+    { label: '已完成', value: planStats.value.finished, color: '#7a57f6' },
+  ]
+  const total = Math.max(parts.reduce((sum, item) => sum + item.value, 0), 1)
+  let offset = 0
+  return {
+    total,
+    items: parts.map(item => {
+      const length = (item.value / total) * 339.292
+      const result = {
+        ...item,
+        dasharray: `${length} ${339.292 - length}`,
+        dashoffset: -offset,
+      }
+      offset += length
+      return result
+    }),
+  }
+})
+
 const topStats = computed(() => [
   {
     label: '在线岗位',
@@ -226,8 +324,27 @@ onMounted(loadDashboard)
     <Sidebar />
 
     <main class="flex-1 overflow-y-auto">
-      <div class="mx-auto max-w-[1600px] px-7 py-7">
-        <section class="overflow-hidden rounded-[30px] border border-[#d7e5fb] bg-white shadow-[0_22px_60px_rgba(80,112,178,0.12)]">
+      <div class="mx-auto max-w-[1600px] px-7 py-8">
+        <div class="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+          <section
+            v-for="item in topStats"
+            :key="item.label"
+            class="rounded-[24px] border border-[#dce7fb] bg-white px-5 py-5 shadow-[0_14px_36px_rgba(80,112,178,0.10)]"
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm font-medium text-[#7b88a3]">{{ item.label }}</div>
+                <div class="mt-3 text-[34px] font-bold text-[#18233e]">{{ loading ? '-' : item.value }}</div>
+                <div class="mt-2 text-sm text-[#7b88a3]">{{ item.sub }}</div>
+              </div>
+              <div :class="[item.bg, item.tone]" class="flex h-14 w-14 items-center justify-center rounded-2xl text-[24px]">
+                <i :class="['fa', item.icon]"></i>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section class="mt-7 overflow-hidden rounded-[30px] border border-[#d7e5fb] bg-white shadow-[0_22px_60px_rgba(80,112,178,0.12)]">
           <div class="grid gap-0 xl:grid-cols-[1.3fr_0.7fr]">
             <div class="bg-[linear-gradient(135deg,#17305f_0%,#2257ca_58%,#7ea4ff_100%)] px-8 py-8 text-white">
               <div class="inline-flex items-center gap-2 rounded-full bg-white/12 px-4 py-2 text-sm font-semibold tracking-[0.08em] text-white/90">
@@ -293,30 +410,167 @@ onMounted(loadDashboard)
           </div>
         </section>
 
-        <div v-if="error" class="mt-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-600">
+        <div v-if="error" class="mt-7 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-600">
           {{ error }}
         </div>
 
-        <div class="mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-          <section
-            v-for="item in topStats"
-            :key="item.label"
-            class="rounded-[24px] border border-[#dce7fb] bg-white px-5 py-5 shadow-[0_14px_36px_rgba(80,112,178,0.10)]"
-          >
-            <div class="flex items-center justify-between">
+        <div class="mt-7 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
+          <section class="rounded-[28px] border border-[#dce7fb] bg-white px-6 py-6 shadow-[0_14px_36px_rgba(80,112,178,0.10)]">
+            <div class="flex items-start justify-between gap-4">
               <div>
-                <div class="text-sm font-medium text-[#7b88a3]">{{ item.label }}</div>
-                <div class="mt-3 text-[34px] font-bold text-[#18233e]">{{ loading ? '-' : item.value }}</div>
-                <div class="mt-2 text-sm text-[#7b88a3]">{{ item.sub }}</div>
+                <div class="text-sm font-semibold text-[#3970e9]">Pipeline View</div>
+                <h2 class="mt-2 text-[28px] font-bold text-[#18233e]">流程健康度</h2>
               </div>
-              <div :class="[item.bg, item.tone]" class="flex h-14 w-14 items-center justify-center rounded-2xl text-[24px]">
-                <i :class="['fa', item.icon]"></i>
+              <div class="text-right">
+                <div class="text-[34px] font-bold text-[#18233e]">{{ pipelineSegments.total }}</div>
+                <div class="text-sm text-[#75839c]">总流程环节</div>
+              </div>
+            </div>
+
+            <div class="mt-6 grid gap-6 lg:grid-cols-[220px_1fr] lg:items-center">
+              <div class="flex items-center justify-center">
+                <div class="relative h-[180px] w-[180px]">
+                  <svg viewBox="0 0 120 120" class="h-full w-full -rotate-90">
+                    <circle cx="60" cy="60" r="54" fill="none" stroke="#e8eefb" stroke-width="12" />
+                    <circle
+                      v-for="item in pipelineSegments.items"
+                      :key="item.label"
+                      cx="60"
+                      cy="60"
+                      r="54"
+                      fill="none"
+                      :stroke="item.color"
+                      stroke-width="12"
+                      stroke-linecap="round"
+                      :stroke-dasharray="item.dasharray"
+                      :stroke-dashoffset="item.dashoffset"
+                    />
+                  </svg>
+                  <div class="absolute inset-0 flex flex-col items-center justify-center">
+                    <div class="text-[34px] font-bold text-[#18233e]">{{ planStats.waiting + planStats.running }}</div>
+                    <div class="mt-1 text-sm text-[#75839c]">活跃中</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-4">
+                <div
+                  v-for="item in pipelineSegments.items"
+                  :key="item.label"
+                  class="rounded-2xl border border-[#e3ecfb] bg-[#fbfdff] px-4 py-4"
+                >
+                  <div class="flex items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                      <span class="h-3 w-3 rounded-full" :style="{ backgroundColor: item.color }"></span>
+                      <span class="text-sm font-semibold text-[#1d2941]">{{ item.label }}</span>
+                    </div>
+                    <span class="text-sm font-semibold text-[#6d7b95]">{{ item.value }}</span>
+                  </div>
+                  <div class="mt-3 h-2 overflow-hidden rounded-full bg-[#e8eefb]">
+                    <div class="h-full rounded-full" :style="{ width: `${Math.max(8, (item.value / pipelineSegments.total) * 100)}%`, backgroundColor: item.color }"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="rounded-[28px] border border-[#dce7fb] bg-white px-6 py-6 shadow-[0_14px_36px_rgba(80,112,178,0.10)]">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="text-sm font-semibold text-[#3970e9]">Activity Trend</div>
+                <h2 class="mt-2 text-[28px] font-bold text-[#18233e]">近 7 天活跃趋势</h2>
+              </div>
+              <div class="rounded-full bg-[#f3f7ff] px-4 py-2 text-sm font-semibold text-[#62718c]">
+                简历 + 流程 + 归档
+              </div>
+            </div>
+
+            <div class="mt-6 rounded-[26px] border border-[#e3ecfb] bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9ff_100%)] p-5">
+              <svg viewBox="0 0 360 180" class="h-[220px] w-full">
+                <defs>
+                  <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stop-color="#2f6df6" stop-opacity="0.28" />
+                    <stop offset="100%" stop-color="#2f6df6" stop-opacity="0.03" />
+                  </linearGradient>
+                </defs>
+                <line v-for="level in 4" :key="level" x1="0" :y1="level * 36" x2="360" :y2="level * 36" stroke="#e5edfb" stroke-dasharray="4 6" />
+                <path :d="trendAreaPath" fill="url(#trendFill)" />
+                <path :d="trendPath" fill="none" stroke="#2f6df6" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+                <g v-for="(item, index) in trendData.series" :key="item.key">
+                  <circle
+                    :cx="trendData.series.length === 1 ? 180 : (index / (trendData.series.length - 1)) * 360"
+                    :cy="160 - (item.total / trendData.max) * 128 - 10"
+                    r="5"
+                    fill="#ffffff"
+                    stroke="#2f6df6"
+                    stroke-width="3"
+                  />
+                  <text
+                    :x="trendData.series.length === 1 ? 180 : (index / (trendData.series.length - 1)) * 360"
+                    y="176"
+                    text-anchor="middle"
+                    font-size="11"
+                    fill="#8090aa"
+                  >
+                    {{ item.label }}
+                  </text>
+                </g>
+              </svg>
+
+              <div class="mt-4 grid gap-3 md:grid-cols-3">
+                <div
+                  v-for="item in trendData.series.slice(-3)"
+                  :key="item.key"
+                  class="rounded-2xl bg-white px-4 py-3 shadow-sm"
+                >
+                  <div class="text-xs font-semibold uppercase tracking-[0.12em] text-[#8a97ae]">{{ item.label }}</div>
+                  <div class="mt-2 text-[24px] font-bold text-[#18233e]">{{ item.total }}</div>
+                  <div class="mt-1 text-sm text-[#73839d]">简历 {{ item.resumes }} · 流程 {{ item.plans }} · 归档 {{ item.records }}</div>
+                </div>
               </div>
             </div>
           </section>
         </div>
 
-        <div class="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div class="mt-7 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <section class="rounded-[28px] border border-[#dce7fb] bg-white px-6 py-6 shadow-[0_14px_36px_rgba(80,112,178,0.10)]">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="text-sm font-semibold text-[#3970e9]">Hiring Funnel</div>
+                <h2 class="mt-2 text-[28px] font-bold text-[#18233e]">招聘漏斗</h2>
+              </div>
+              <div class="text-sm text-[#75839c]">从岗位到归档的流动</div>
+            </div>
+
+            <div class="mt-6 space-y-4">
+              <div
+                v-for="item in funnelData"
+                :key="item.label"
+                class="rounded-[24px] border border-[#e3ecfb] bg-[#fbfdff] px-4 py-4"
+              >
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <div class="text-sm font-semibold text-[#1d2941]">{{ item.label }}</div>
+                    <div class="mt-1 text-xs text-[#7d8ba5]">较上一层保留 {{ item.ratio }}%</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-[24px] font-bold text-[#18233e]">{{ item.value }}</div>
+                  </div>
+                </div>
+                <div class="mt-4 flex justify-center">
+                  <div class="w-full max-w-[420px]">
+                    <div class="h-[7px] overflow-hidden rounded-full bg-[#e8eefb]">
+                      <div
+                        :class="['h-full rounded-full bg-gradient-to-r', item.color]"
+                        :style="{ width: `${Math.max(18, item.width)}%` }"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section class="rounded-[28px] border border-[#dce7fb] bg-white px-6 py-6 shadow-[0_14px_36px_rgba(80,112,178,0.10)]">
             <div class="flex items-center justify-between gap-4">
               <div>
@@ -376,7 +630,9 @@ onMounted(loadDashboard)
               </article>
             </div>
           </section>
+        </div>
 
+        <div class="mt-7 grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
           <section class="rounded-[28px] border border-[#dce7fb] bg-white px-6 py-6 shadow-[0_14px_36px_rgba(80,112,178,0.10)]">
             <div class="flex items-center justify-between gap-4">
               <div>
@@ -385,7 +641,7 @@ onMounted(loadDashboard)
               </div>
             </div>
 
-            <div class="mt-6 grid gap-4 md:grid-cols-2">
+            <div class="mt-6 grid gap-4">
               <router-link
                 v-for="link in quickLinks"
                 :key="link.title"
@@ -403,9 +659,7 @@ onMounted(loadDashboard)
               </router-link>
             </div>
           </section>
-        </div>
 
-        <div class="mt-6 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
           <section class="rounded-[28px] border border-[#dce7fb] bg-white px-6 py-6 shadow-[0_14px_36px_rgba(80,112,178,0.10)]">
             <div class="flex items-center justify-between gap-4">
               <div>
