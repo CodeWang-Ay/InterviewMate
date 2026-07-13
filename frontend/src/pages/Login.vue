@@ -12,6 +12,7 @@ const isCandidateLogin = computed(() => route.path === '/user/login')
 
 onMounted(() => {
   username.value = String(route.query.username || '')
+  password.value = String(route.query.password || '')
 })
 
 async function doLogin() {

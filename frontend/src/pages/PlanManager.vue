@@ -322,6 +322,7 @@ function launchLoginUrl(plan) {
   const query = new URLSearchParams({
     redirect: '/user',
     username: plan.candidate_username || '',
+    password: plan.candidate_password || '',
   }).toString()
   return `${origin}/user/login?${query}`
 }

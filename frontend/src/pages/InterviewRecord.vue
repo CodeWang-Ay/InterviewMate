@@ -7,6 +7,26 @@ const history = ref([])
 const loading = ref(true)
 const chatBox = ref(null)
 
+function withTimestamp(message) {
+  return {
+    ...message,
+    timestamp: message.timestamp || message.created_at || '',
+  }
+}
+
+function formatMessageTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mi = String(date.getMinutes()).padStart(2, '0')
+  const ss = String(date.getSeconds()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
+}
+
 onMounted(async () => {
   const sid = route.query.session_id
   if (!sid) { loading.value = false; return }
@@ -14,7 +34,7 @@ onMounted(async () => {
     const res = await fetch(`/api/report/${sid}`)
     if (res.ok) {
       const data = await res.json()
-      history.value = data.history || []
+      history.value = Array.isArray(data.history) ? data.history.map(withTimestamp) : []
     }
   } catch (_) { /* ignore */ }
   loading.value = false
@@ -64,13 +84,23 @@ onMounted(async () => {
             </div>
             <div
               :class="[
-                'rounded-2xl px-4 py-2.5 max-w-[70%] text-sm leading-relaxed whitespace-pre-wrap',
-                msg.role === 'interviewer'
-                  ? 'bg-slate-700/80 text-slate-200 rounded-tl-sm'
-                  : 'bg-emerald-600 text-white rounded-tr-sm'
+                'flex flex-col gap-1.5 max-w-[70%]',
+                msg.role === 'candidate' ? 'items-end' : 'items-start'
               ]"
             >
-              {{ msg.content }}
+              <div
+                :class="[
+                  'rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap shadow-sm',
+                  msg.role === 'interviewer'
+                    ? 'bg-slate-700/80 text-slate-200 rounded-tl-sm'
+                    : 'bg-emerald-600 text-white rounded-tr-sm'
+                ]"
+              >
+                {{ msg.content }}
+              </div>
+              <div v-if="formatMessageTime(msg.timestamp)" :class="['px-1 text-sm font-semibold tracking-normal', msg.role === 'candidate' ? 'text-emerald-200' : 'text-slate-300']">
+                {{ formatMessageTime(msg.timestamp) }}
+              </div>
             </div>
             <div v-if="msg.role === 'candidate'" class="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center flex-shrink-0 ml-2 mt-1">
               <span class="text-white text-xs font-bold">我</span>

@@ -7,6 +7,18 @@ from backend.services.file_service import read_jd, extract_questions_from_jd
 from backend.repositories import plan_repo
 
 
+def _now_iso() -> str:
+    return datetime.now().isoformat()
+
+
+def _history_message(role: str, content: str) -> dict:
+    return {
+        "role": role,
+        "content": content,
+        "timestamp": _now_iso(),
+    }
+
+
 def start_session(jd_filename: str = "", resume_filename: str = "", plan_id: int | None = None) -> tuple[str, str, str, list[dict]]:
     plan = plan_repo.get_by_id(plan_id) if plan_id else None
     if plan and plan.get("active_session_id"):
@@ -35,7 +47,7 @@ def start_session(jd_filename: str = "", resume_filename: str = "", plan_id: int
         "question_index": 0,
         "questions": questions,
         "history": [],
-        "created_at": datetime.now().isoformat(),
+        "created_at": _now_iso(),
     }
 
     if plan:
@@ -46,7 +58,7 @@ def start_session(jd_filename: str = "", resume_filename: str = "", plan_id: int
         )
     else:
         opening = "你好！感谢你来参加今天的面试。我是今天的面试官，将根据岗位要求向你提几个问题。请问你准备好了吗？"
-    chat_sessions[session_id]["history"].append({"role": "interviewer", "content": opening})
+    chat_sessions[session_id]["history"].append(_history_message("interviewer", opening))
 
     print(f"[会话 {session_id}] 面试开始，共 {len(questions)} 个问题")
     print(f"面试官: {opening}")
@@ -89,7 +101,7 @@ def process_message(session_id: str, user_msg: str) -> tuple[str, str]:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="会话不存在或已过期")
 
-    session["history"].append({"role": "candidate", "content": user_msg})
+    session["history"].append(_history_message("candidate", user_msg))
     print(f"[会话 {session_id}] 候选人: {user_msg}")
 
     reply = ""
@@ -120,7 +132,7 @@ def process_message(session_id: str, user_msg: str) -> tuple[str, str]:
     elif session["state"] == "COMPLETED":
         reply = "面试已经结束了，感谢你的参与！如有任何问题，可以联系我们的 HR 团队。"
 
-    session["history"].append({"role": "interviewer", "content": reply})
+    session["history"].append(_history_message("interviewer", reply))
     print(f"[会话 {session_id}] 面试官: {reply}")
 
     return reply, session["state"]

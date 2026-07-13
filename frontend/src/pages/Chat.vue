@@ -13,6 +13,24 @@ const role = ref(safeGetLocalStorage('role', 'user'))
 const isAdmin = computed(() => role.value === 'admin')
 const backPath = computed(() => isAdmin.value ? '/interviewee' : '/user')
 
+function nowIso() {
+  return new Date().toISOString()
+}
+
+function withTimestamp(message) {
+  return {
+    ...message,
+    timestamp: message.timestamp || message.created_at || '',
+  }
+}
+
+function formatMessageTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`
+}
+
 function safeGetLocalStorage(key, fallback = '') {
   try {
     return window.localStorage?.getItem(key) || fallback
@@ -26,7 +44,7 @@ onMounted(async () => {
   const resume = route.query.resume
   const planId = route.query.plan_id
   if (!planId && (!jd || !resume)) {
-    messages.value.push({ role: 'system', content: '缺少 JD 或简历参数，请返回重新生成面试计划。' })
+    messages.value.push(withTimestamp({ role: 'system', content: '缺少 JD 或简历参数，请返回重新生成面试计划。', timestamp: nowIso() }))
     return
   }
   try {
@@ -38,19 +56,19 @@ onMounted(async () => {
     const data = await res.json()
     sessionId.value = data.session_id
     messages.value = Array.isArray(data.history) && data.history.length
-      ? data.history
-      : [{ role: 'interviewer', content: data.message }]
+      ? data.history.map(withTimestamp)
+      : [withTimestamp({ role: 'interviewer', content: data.message, timestamp: nowIso() })]
     state.value = data.state
     await scrollDown()
   } catch (e) {
-    messages.value.push({ role: 'system', content: '启动面试失败: ' + e.message })
+    messages.value.push(withTimestamp({ role: 'system', content: '启动面试失败: ' + e.message, timestamp: nowIso() }))
   }
 })
 
 async function sendMessage() {
   const text = input.value.trim()
   if (!text || sending.value || state.value === 'COMPLETED') return
-  messages.value.push({ role: 'candidate', content: text })
+  messages.value.push(withTimestamp({ role: 'candidate', content: text, timestamp: nowIso() }))
   input.value = ''
   sending.value = true
   await scrollDown()
@@ -62,11 +80,11 @@ async function sendMessage() {
       body: JSON.stringify({ session_id: sessionId.value, message: text }),
     })
     const data = await res.json()
-    messages.value.push({ role: 'interviewer', content: data.message })
+    messages.value.push(withTimestamp({ role: 'interviewer', content: data.message, timestamp: nowIso() }))
     state.value = data.state
     await scrollDown()
   } catch (e) {
-    messages.value.push({ role: 'system', content: '发送失败: ' + e.message })
+    messages.value.push(withTimestamp({ role: 'system', content: '发送失败: ' + e.message, timestamp: nowIso() }))
   } finally {
     sending.value = false
   }
@@ -123,15 +141,35 @@ function onKeydown(e) {
 
           <div
             :class="[
-              'rounded-2xl px-4 py-3 max-w-[75%] text-sm leading-relaxed whitespace-pre-wrap',
-              msg.role === 'interviewer'
-                ? 'bg-slate-700/80 text-slate-200 rounded-tl-sm'
-                : msg.role === 'candidate'
-                  ? 'bg-emerald-600 text-white rounded-tr-sm'
-                  : 'bg-red-900/50 text-red-300 text-xs'
+              'flex flex-col gap-1.5 max-w-[75%]',
+              msg.role === 'candidate' ? 'items-end' : 'items-start'
             ]"
           >
-            {{ msg.content }}
+            <div
+              :class="[
+                'rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-sm',
+                msg.role === 'interviewer'
+                  ? 'bg-slate-700/80 text-slate-200 rounded-tl-sm'
+                  : msg.role === 'candidate'
+                    ? 'bg-emerald-600 text-white rounded-tr-sm'
+                    : 'bg-red-900/50 text-red-200 text-sm'
+              ]"
+            >
+              {{ msg.content }}
+            </div>
+            <div
+              v-if="formatMessageTime(msg.timestamp)"
+              :class="[
+                'px-1 text-sm font-semibold tracking-normal',
+                msg.role === 'candidate'
+                  ? 'text-emerald-200'
+                  : msg.role === 'system'
+                    ? 'text-red-200'
+                    : 'text-slate-300'
+              ]"
+            >
+              {{ formatMessageTime(msg.timestamp) }}
+            </div>
           </div>
 
           <!-- Candidate avatar -->
