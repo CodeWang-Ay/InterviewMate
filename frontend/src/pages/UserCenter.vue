@@ -17,6 +17,7 @@ const phone = ref(getStore('phone'))
 const company = ref(getStore('company'))
 const bio = ref(getStore('bio'))
 const createdAt = ref(getStore('created_at', '近期'))
+const role = ref(getStore('role', 'user'))
 
 // 头像
 const uploading = ref(false)
@@ -41,13 +42,18 @@ const stats = ref({ interviews: 0, avgScore: 0, resumes: 0, reports: 0 })
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/records')
+    const res = await fetch(role.value === 'admin' ? '/api/records' : '/api/plans/my')
     if (res.ok) {
       const data = await res.json()
-      stats.value.interviews = data.length
-      const scores = data.filter((r) => r.score !== null).map((r) => r.score)
-      stats.value.avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
-      stats.value.reports = data.filter((r) => r.score !== null).length
+      if (role.value === 'admin') {
+        stats.value.interviews = data.length
+        const scores = data.filter((r) => r.score !== null).map((r) => r.score)
+        stats.value.avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
+        stats.value.reports = data.filter((r) => r.score !== null).length
+      } else {
+        stats.value.interviews = Array.isArray(data) ? data.length : 0
+        stats.value.reports = Array.isArray(data) ? data.filter((plan) => plan.status === 'finish').length : 0
+      }
     }
   } catch (_) { /* ignore */ }
 })

@@ -1,9 +1,10 @@
 import json
 import os
 
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from pydantic import BaseModel
 
+from backend.controllers.auth_controller import require_admin
 from backend.config import UPLOAD_DIR
 from backend.repositories import resume_repo, upload_repo
 from backend.services.file_service import parse_resume
@@ -22,12 +23,12 @@ class ResumeUpdate(BaseModel):
 
 
 @router.get("")
-async def list_resumes(search: str = "", parse_status: str = "", experience_years: str = ""):
+async def list_resumes(search: str = "", parse_status: str = "", experience_years: str = "", _: dict = Depends(require_admin)):
     return resume_repo.list_all(search, parse_status, experience_years)
 
 
 @router.get("/{rid}")
-async def get_resume(rid: int):
+async def get_resume(rid: int, _: dict = Depends(require_admin)):
     r = resume_repo.get_by_id(rid)
     if not r:
         raise HTTPException(status_code=404, detail="简历不存在")
@@ -35,7 +36,7 @@ async def get_resume(rid: int):
 
 
 @router.post("/upload")
-async def upload_resume_file(file: UploadFile = File(...), jd_id: int = 0):
+async def upload_resume_file(file: UploadFile = File(...), jd_id: int = 0, _: dict = Depends(require_admin)):
     ext = upload_repo.validate(file)
     filename = await upload_repo.save(file, "resume", ext)
     jd_name = ""
@@ -57,7 +58,7 @@ async def upload_resume_file(file: UploadFile = File(...), jd_id: int = 0):
 
 
 @router.put("/{rid}")
-async def update_resume(rid: int, body: ResumeUpdate):
+async def update_resume(rid: int, body: ResumeUpdate, _: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     r = resume_repo.update(rid, data)
     if not r:
@@ -66,7 +67,7 @@ async def update_resume(rid: int, body: ResumeUpdate):
 
 
 @router.get("/{rid}/raw")
-async def get_resume_raw(rid: int):
+async def get_resume_raw(rid: int, _: dict = Depends(require_admin)):
     r = resume_repo.get_by_id(rid)
     if not r or not r.get("file_path"):
         raise HTTPException(status_code=404, detail="无文件内容")
@@ -82,7 +83,7 @@ async def get_resume_raw(rid: int):
 
 
 @router.delete("/{rid}")
-async def delete_resume(rid: int):
+async def delete_resume(rid: int, _: dict = Depends(require_admin)):
     r = resume_repo.get_by_id(rid)
     if r:
         fp = r.get("file_path")
@@ -96,7 +97,7 @@ async def delete_resume(rid: int):
 
 
 @router.post("/{rid}/parse")
-async def parse_resume_api(rid: int):
+async def parse_resume_api(rid: int, _: dict = Depends(require_admin)):
     r = resume_repo.get_by_id(rid)
     if not r:
         raise HTTPException(status_code=404, detail="简历不存在")

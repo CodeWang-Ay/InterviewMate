@@ -5,9 +5,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from backend.controllers.auth_controller import get_current_user
+from backend.controllers.auth_controller import get_current_candidate, require_admin
+from backend.repositories import candidate_repo
 from backend.repositories import plan_repo
-from backend.repositories import user_repo
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
 
@@ -44,17 +44,17 @@ class WorkflowCreate(BaseModel):
 
 
 @router.get("")
-async def list_plans(search: str = "", status: str = ""):
+async def list_plans(search: str = "", status: str = "", _: dict = Depends(require_admin)):
     return plan_repo.list_all(search, status)
 
 
 @router.get("/my")
-async def my_plans(username: str = Depends(get_current_user)):
+async def my_plans(username: str = Depends(get_current_candidate)):
     return plan_repo.list_by_candidate_username(username)
 
 
 @router.get("/{pid}")
-async def get_plan(pid: int):
+async def get_plan(pid: int, _: dict = Depends(require_admin)):
     p = plan_repo.get_by_id(pid)
     if not p:
         raise HTTPException(status_code=404, detail="计划不存在")
@@ -62,7 +62,7 @@ async def get_plan(pid: int):
 
 
 @router.post("")
-async def create_plan(body: PlanUpdate):
+async def create_plan(body: PlanUpdate, _: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     username, password = _ensure_candidate_account(data)
     data["candidate_username"] = username
@@ -71,7 +71,7 @@ async def create_plan(body: PlanUpdate):
 
 
 @router.post("/workflow")
-async def create_workflow(body: WorkflowCreate):
+async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)):
     if not body.stages:
         raise HTTPException(status_code=400, detail="流程至少需要一个面试环节")
 
@@ -105,7 +105,7 @@ async def create_workflow(body: WorkflowCreate):
 
 
 @router.put("/{pid}")
-async def update_plan(pid: int, body: PlanUpdate):
+async def update_plan(pid: int, body: PlanUpdate, _: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     p = plan_repo.update(pid, data)
     if not p:
@@ -114,7 +114,7 @@ async def update_plan(pid: int, body: PlanUpdate):
 
 
 @router.delete("/{pid}")
-async def delete_plan(pid: int):
+async def delete_plan(pid: int, _: dict = Depends(require_admin)):
     if not plan_repo.delete(pid):
         raise HTTPException(status_code=404, detail="计划不存在")
     return {"status": "ok"}
@@ -129,7 +129,7 @@ def _ensure_candidate_account(data: dict) -> tuple[str, str]:
     password = f"IM{secrets.token_hex(3)}"
     for _ in range(10):
         username = f"{base}{secrets.randbelow(9000) + 1000}"
-        result = user_repo.register(username, password, data.get("candidate_name", "") or username)
+        result = candidate_repo.register(username, password, data.get("candidate_name", "") or username)
         if result:
             return username, password
     raise HTTPException(status_code=500, detail="候选人账号生成失败，请重试")

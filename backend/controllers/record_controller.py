@@ -1,16 +1,17 @@
 import json
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.config import INTERVIEW_DIR
+from backend.controllers.auth_controller import require_admin
 from backend.repositories import plan_repo
 
 router = APIRouter(prefix="/api/records", tags=["records"])
 
 
 @router.get("")
-async def list_records(search: str = "", record_type: str = "", conclusion: str = ""):
+async def list_records(search: str = "", record_type: str = "", conclusion: str = "", _: dict = Depends(require_admin)):
     records = []
     if not os.path.exists(INTERVIEW_DIR):
         return records
@@ -186,7 +187,7 @@ def _get_conclusion(score) -> str:
 
 
 @router.delete("/{session_id}")
-async def delete_record(session_id: str):
+async def delete_record(session_id: str, _: dict = Depends(require_admin)):
     removed = False
     for suffix in (".json", "_report.json"):
         path = os.path.join(INTERVIEW_DIR, f"{session_id}{suffix}")

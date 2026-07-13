@@ -20,7 +20,8 @@ async function doLogin() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch('/api/auth/login', {
+    const endpoint = isCandidateLogin.value ? '/api/auth/candidate-login' : '/api/auth/login'
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: username.value.trim(), password: password.value }),
@@ -90,7 +91,7 @@ async function doLogin() {
           {{ loading ? '登录中...' : '登 录' }}
         </button>
 
-        <p class="text-center text-sm text-gray-500 mt-5">
+        <p v-if="!isCandidateLogin" class="text-center text-sm text-gray-500 mt-5">
           还没有账号？
           <router-link to="/register" class="text-[#1677ff] hover:underline font-medium">立即注册</router-link>
         </p>

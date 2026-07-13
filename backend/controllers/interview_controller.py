@@ -1,7 +1,8 @@
 import json
 
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 
+from backend.controllers.auth_controller import require_admin
 from backend.models.schemas import JDContent, ResumeParse, PlanGenerate
 from backend.repositories.upload_repo import validate, save, save_text
 from backend.services.file_service import parse_resume, read_jd, extract_questions_from_jd
@@ -15,7 +16,7 @@ async def health():
 
 
 @router.post("/save/jd")
-async def save_jd(body: JDContent):
+async def save_jd(body: JDContent, _: dict = Depends(require_admin)):
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="JD 内容不能为空")
     filename = save_text(body.content, "jd")
@@ -23,14 +24,14 @@ async def save_jd(body: JDContent):
 
 
 @router.post("/upload/resume")
-async def upload_resume(file: UploadFile = File(...)):
+async def upload_resume(file: UploadFile = File(...), _: dict = Depends(require_admin)):
     ext = validate(file)
     filename = await save(file, "resume", ext)
     return {"filename": filename, "original_name": file.filename, "status": "ok"}
 
 
 @router.post("/parse/resume")
-async def api_parse_resume(body: ResumeParse):
+async def api_parse_resume(body: ResumeParse, _: dict = Depends(require_admin)):
     result = parse_resume(body.resume_filename)
     print("=" * 60)
     print("【简历解析结果】")
@@ -42,7 +43,7 @@ async def api_parse_resume(body: ResumeParse):
 
 
 @router.post("/generate/plan")
-async def generate_plan(body: PlanGenerate):
+async def generate_plan(body: PlanGenerate, _: dict = Depends(require_admin)):
     jd_text = read_jd(body.jd_filename)
     result = parse_resume(body.resume_filename)
     resume_text = result["raw"]

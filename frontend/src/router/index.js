@@ -43,20 +43,84 @@ const router = createRouter({
   routes,
 })
 
+let sessionCheckedToken = ''
+let sessionCheckedRole = ''
+let pendingSessionCheck = null
+
+function clearLocalAuth() {
+  try {
+    localStorage.removeItem('token')
+    localStorage.removeItem('username')
+    localStorage.removeItem('nickname')
+    localStorage.removeItem('avatar')
+    localStorage.removeItem('role')
+    localStorage.removeItem('email')
+    localStorage.removeItem('phone')
+    localStorage.removeItem('company')
+    localStorage.removeItem('bio')
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function ensureSessionValid(token) {
+  if (!token) return { ok: false }
+  if (token === sessionCheckedToken) return { ok: true, role: sessionCheckedRole }
+  if (pendingSessionCheck) return pendingSessionCheck
+
+  pendingSessionCheck = fetch('/api/auth/session', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+    .then(async (res) => {
+      if (!res.ok) return { ok: false }
+      const data = await res.json().catch(() => ({}))
+      const role = data.role || ''
+      sessionCheckedToken = token
+      sessionCheckedRole = role
+      try {
+        if (role) localStorage.setItem('role', role)
+        if (data.username) localStorage.setItem('username', data.username)
+        if (data.nickname) localStorage.setItem('nickname', data.nickname)
+      } catch (_) {
+        // ignore
+      }
+      return { ok: true, role }
+    })
+    .finally(() => {
+      pendingSessionCheck = null
+    })
+
+  return pendingSessionCheck
+}
+
 // 路由守卫：未登录跳转登录页
-router.beforeEach((to, from) => {
+router.beforeEach(async (to, from) => {
   const publicPages = ['/login', '/user/login', '/register']
   let token = ''
+  let role = ''
   try { token = localStorage.getItem('token') || '' } catch (_) {}
+  try { role = localStorage.getItem('role') || '' } catch (_) {}
   if (!token && !publicPages.includes(to.path)) {
     const loginPath = to.path.startsWith('/user') ? '/user/login' : '/login'
     return { path: loginPath, query: { redirect: to.fullPath } }
   }
-  // 仅管理员可访问面试报告和面试记录
-  const adminPages = ['/report', '/interview-record', '/record-list', '/report-list', '/interview-archive']
+  if (token && !publicPages.includes(to.path)) {
+    const session = await ensureSessionValid(token)
+    if (!session.ok) {
+      clearLocalAuth()
+      sessionCheckedToken = ''
+      sessionCheckedRole = ''
+      const loginPath = to.path.startsWith('/user') ? '/user/login' : '/login'
+      return { path: loginPath, query: { redirect: to.fullPath } }
+    }
+    role = session.role || role
+  }
+  const candidatePages = ['/user']
+  if (candidatePages.includes(to.path) && role && role !== 'candidate') {
+    return { path: '/' }
+  }
+  const adminPages = ['/interviewer', '/interviewee', '/jd-manager', '/resume-manager', '/plan-manager', '/report', '/interview-record', '/record-list', '/report-list', '/interview-archive', '/settings', '/user-center']
   if (adminPages.includes(to.path)) {
-    let role = ''
-    try { role = localStorage.getItem('role') || 'user' } catch (_) {}
     if (role !== 'admin') {
       try { window.alert('仅管理员可查看面试记录和面试报告') } catch (_) {}
       return from.path ? false : { path: '/' }

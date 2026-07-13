@@ -28,6 +28,7 @@ def init_db():
                 username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 nickname TEXT DEFAULT '',
+                role TEXT DEFAULT 'user',
                 avatar TEXT DEFAULT '',
                 email TEXT DEFAULT '',
                 phone TEXT DEFAULT '',
@@ -38,14 +39,16 @@ def init_db():
         """)
         # 兼容旧表：添加 avatar 列
         cols = [c[1] for c in conn.execute("PRAGMA table_info(users)").fetchall()]
-        for col in ["avatar", "email", "phone", "company", "bio"]:
+        for col in ["role", "avatar", "email", "phone", "company", "bio"]:
             if col not in cols:
-                conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT ''")
+                default = "'user'" if col == "role" else "''"
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT {default}")
         # 默认管理员
         conn.execute(
-            "INSERT OR IGNORE INTO users (username, password_hash, nickname) VALUES (?,?,?)",
-            ("admin", _hash("admin123"), "管理员"),
+            "INSERT OR IGNORE INTO users (username, password_hash, nickname, role) VALUES (?,?,?,?)",
+            ("admin", _hash("admin123"), "管理员", "admin"),
         )
+        conn.execute("UPDATE users SET role='admin' WHERE username='admin'")
 
 
 def register(username: str, password: str, nickname: str = "") -> dict | None:
@@ -81,7 +84,7 @@ def login(username: str, password: str) -> dict | None:
         "phone": row["phone"] or "",
         "company": row["company"] or "",
         "bio": row["bio"] or "",
-        "role": row["role"] or "user",
+        "role": row["role"] if "role" in row.keys() and row["role"] else "user",
     }
 
 
