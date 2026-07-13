@@ -13,6 +13,7 @@ def save_record(session_id: str):
         return
     record = {
         "session_id": session_id,
+        "plan_id": session.get("plan_id"),
         "jd_filename": session.get("jd_filename"),
         "resume_filename": session.get("resume_filename"),
         "questions": session.get("questions", []),
@@ -20,7 +21,8 @@ def save_record(session_id: str):
         "question_index": session.get("question_index", 0),
         "history": session.get("history", []),
         "created_at": session.get("created_at"),
-        "completed_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+        "completed_at": datetime.now().isoformat() if session.get("state") == "COMPLETED" else None,
     }
     filepath = os.path.join(INTERVIEW_DIR, f"{session_id}.json")
     with open(filepath, "w", encoding="utf-8") as f:
@@ -34,6 +36,33 @@ def load_record(session_id: str) -> dict:
         raise HTTPException(status_code=404, detail="面试记录不存在")
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_record_if_exists(session_id: str) -> dict | None:
+    filepath = os.path.join(INTERVIEW_DIR, f"{session_id}.json")
+    if not os.path.exists(filepath):
+        return None
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def restore_session(session_id: str) -> dict | None:
+    if session_id in chat_sessions:
+        return chat_sessions[session_id]
+    record = load_record_if_exists(session_id)
+    if not record or record.get("state") == "COMPLETED":
+        return None
+    chat_sessions[session_id] = {
+        "jd_filename": record.get("jd_filename", ""),
+        "resume_filename": record.get("resume_filename", ""),
+        "plan_id": record.get("plan_id"),
+        "state": record.get("state", "READY_CHECK"),
+        "question_index": record.get("question_index", 0),
+        "questions": record.get("questions", []),
+        "history": record.get("history", []),
+        "created_at": record.get("created_at"),
+    }
+    return chat_sessions[session_id]
 
 
 def save_report(session_id: str, report: dict):

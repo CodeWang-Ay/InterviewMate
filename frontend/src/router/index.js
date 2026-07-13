@@ -56,7 +56,8 @@ router.beforeEach((to, from) => {
     let role = ''
     try { role = localStorage.getItem('role') || 'user' } catch (_) {}
     if (role !== 'admin') {
-      return from.path || '/'
+      try { window.alert('仅管理员可查看面试记录和面试报告') } catch (_) {}
+      return from.path ? false : { path: '/' }
     }
   }
 })

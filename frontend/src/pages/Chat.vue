@@ -37,7 +37,9 @@ onMounted(async () => {
     })
     const data = await res.json()
     sessionId.value = data.session_id
-    messages.value.push({ role: 'interviewer', content: data.message })
+    messages.value = Array.isArray(data.history) && data.history.length
+      ? data.history
+      : [{ role: 'interviewer', content: data.message }]
     state.value = data.state
     await scrollDown()
   } catch (e) {
@@ -91,7 +93,7 @@ function onKeydown(e) {
     <div class="w-full max-w-6xl h-[75vh] bg-slate-900/60 backdrop-blur-sm border border-slate-700/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="flex-shrink-0 border-b border-slate-700/50 px-5 py-3 flex items-center gap-3 bg-slate-800/30 rounded-t-2xl">
-        <router-link to="/interviewee" class="text-slate-400 hover:text-white transition-colors">
+        <router-link :to="backPath" class="text-slate-400 hover:text-white transition-colors">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
           </svg>

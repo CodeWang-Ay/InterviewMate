@@ -32,7 +32,7 @@ def init_db():
             )
         """)
         cols = [c[1] for c in conn.execute("PRAGMA table_info(plans)").fetchall()]
-        text_cols = ["interview_round", "candidate_username", "candidate_password", "workflow_id", "workflow_name"]
+        text_cols = ["interview_round", "candidate_username", "candidate_password", "workflow_id", "workflow_name", "active_session_id"]
         for col in text_cols:
             if col not in cols:
                 conn.execute(f"ALTER TABLE plans ADD COLUMN {col} TEXT DEFAULT ''")
@@ -66,10 +66,19 @@ def list_all(search: str = "", status: str = "") -> list[dict]:
         params.extend([p, p])
     sql += " ORDER BY id DESC"
     with _conn() as conn:
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    _reconcile_workflows(rows)
+    with _conn() as conn:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
 def list_by_candidate_username(username: str) -> list[dict]:
+    with _conn() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM plans WHERE candidate_username=? ORDER BY workflow_id DESC, stage_order ASC, id ASC",
+            (username,),
+        ).fetchall()]
+    _reconcile_workflows(rows)
     with _conn() as conn:
         rows = conn.execute(
             "SELECT * FROM plans WHERE candidate_username=? ORDER BY workflow_id DESC, stage_order ASC, id ASC",
@@ -82,6 +91,17 @@ def get_by_id(pid: int) -> dict | None:
     with _conn() as conn:
         row = conn.execute("SELECT * FROM plans WHERE id=?", (pid,)).fetchone()
         return dict(row) if row else None
+
+
+def list_by_workflow_id(workflow_id: str) -> list[dict]:
+    if not workflow_id:
+        return []
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM plans WHERE workflow_id=? ORDER BY stage_order ASC, id ASC",
+            (workflow_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def create(data: dict) -> dict:
@@ -108,7 +128,7 @@ def update(pid: int, data: dict) -> dict | None:
         return None
     allowed = ["candidate_name", "jd_name", "interview_round", "match_score", "question_count", "status",
                "jd_filename", "resume_filename", "questions", "candidate_username", "candidate_password",
-               "workflow_id", "workflow_name", "stage_order", "stage_count"]
+               "workflow_id", "workflow_name", "stage_order", "stage_count", "active_session_id"]
     sets = [f"{f}=?" for f in allowed if f in data]
     vals = [data[f] for f in allowed if f in data]
     if not sets:
@@ -117,6 +137,52 @@ def update(pid: int, data: dict) -> dict | None:
     with _conn() as conn:
         conn.execute(f"UPDATE plans SET {', '.join(sets)} WHERE id=?", vals)
     return get_by_id(pid)
+
+
+def activate_next_stage(pid: int) -> dict | None:
+    current = get_by_id(pid)
+    if not current or not current.get("workflow_id"):
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM plans WHERE workflow_id=? AND stage_order>? AND status='pending' ORDER BY stage_order ASC, id ASC LIMIT 1",
+            (current["workflow_id"], current.get("stage_order", 0)),
+        ).fetchone()
+        if not row:
+            return None
+        next_id = row["id"]
+        conn.execute("UPDATE plans SET status='wait' WHERE id=?", (next_id,))
+    return get_by_id(next_id)
+
+
+def _reconcile_workflows(rows: list[dict]) -> None:
+    workflow_ids = {row.get("workflow_id") for row in rows if row.get("workflow_id")}
+    for workflow_id in workflow_ids:
+        _reconcile_workflow_status(workflow_id)
+
+
+def _reconcile_workflow_status(workflow_id: str) -> None:
+    plans = list_by_workflow_id(workflow_id)
+    if not plans:
+        return
+
+    updates: list[tuple[str, int]] = []
+    for index, plan in enumerate(plans):
+        status = plan.get("status") or "pending"
+        if index == 0:
+            expected = "wait" if status == "pending" else status
+        else:
+            prev_status = plans[index - 1].get("status")
+            expected = "wait" if prev_status == "finish" else "pending"
+            if status in {"finish", "running", "cancel"}:
+                expected = status
+        if status != expected:
+            updates.append((expected, plan["id"]))
+            plan["status"] = expected
+
+    if updates:
+        with _conn() as conn:
+            conn.executemany("UPDATE plans SET status=? WHERE id=?", updates)
 
 
 def delete(pid: int) -> bool:

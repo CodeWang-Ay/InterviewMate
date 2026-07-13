@@ -1,7 +1,7 @@
 import json
 import os
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from backend.config import INTERVIEW_DIR
 
@@ -82,3 +82,16 @@ def _get_conclusion(score) -> str:
         return "待定观察"
     else:
         return "不予录用"
+
+
+@router.delete("/{session_id}")
+async def delete_record(session_id: str):
+    removed = False
+    for suffix in (".json", "_report.json"):
+        path = os.path.join(INTERVIEW_DIR, f"{session_id}{suffix}")
+        if os.path.exists(path):
+            os.remove(path)
+            removed = True
+    if not removed:
+        raise HTTPException(status_code=404, detail="面试记录不存在")
+    return {"status": "ok"}

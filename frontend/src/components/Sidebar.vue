@@ -11,6 +11,7 @@ function getStore(key, fallback = '') {
 
 const nickname = ref(getStore('nickname', '用户'))
 const avatarUrl = ref(getStore('avatar', ''))
+const role = ref(getStore('role', 'user'))
 if (!avatarUrl.value) {
   avatarUrl.value = `https://ui-avatars.com/api/?name=${encodeURIComponent(nickname.value)}&background=1677ff&color=fff`
 }
@@ -26,10 +27,12 @@ const navItems = [
   { icon: 'fa-id-card-o', label: '简历管理', path: '/resume-manager' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },
   { icon: 'fa-book', label: '题库中心', path: '/' },
-  { icon: 'fa-clipboard', label: '面试记录', path: '/record-list' },
-  { icon: 'fa-bar-chart', label: '面试报告', path: '/report-list' },
+  { icon: 'fa-clipboard', label: '面试记录', path: '/record-list', adminOnly: true },
+  { icon: 'fa-bar-chart', label: '面试报告', path: '/report-list', adminOnly: true },
   { icon: 'fa-cog', label: '设置', path: '/settings' },
 ]
+
+const visibleNavItems = navItems.filter((item) => !item.adminOnly || role.value === 'admin')
 </script>
 
 <template>
@@ -43,7 +46,7 @@ const navItems = [
     <!-- 导航菜单 -->
     <nav class="flex-1 space-y-1">
       <router-link
-        v-for="item in navItems"
+        v-for="item in visibleNavItems"
         :key="item.label"
         :to="item.path"
         :class="[

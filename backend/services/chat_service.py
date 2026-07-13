@@ -2,12 +2,21 @@ import uuid
 from datetime import datetime
 
 from backend.config import chat_sessions
+from backend.repositories.interview_repo import restore_session
 from backend.services.file_service import read_jd, extract_questions_from_jd
 from backend.repositories import plan_repo
 
 
-def start_session(jd_filename: str = "", resume_filename: str = "", plan_id: int | None = None) -> tuple[str, str, str]:
+def start_session(jd_filename: str = "", resume_filename: str = "", plan_id: int | None = None) -> tuple[str, str, str, list[dict]]:
     plan = plan_repo.get_by_id(plan_id) if plan_id else None
+    if plan and plan.get("active_session_id"):
+        active_session_id = plan.get("active_session_id")
+        restored = restore_session(active_session_id)
+        if restored and restored.get("state") != "COMPLETED":
+            history = restored.get("history", [])
+            last_message = history[-1]["content"] if history else ""
+            return active_session_id, last_message, restored.get("state", "READY_CHECK"), history
+
     if plan:
         questions = _questions_for_plan(plan)
         jd_filename = plan.get("jd_filename", "")
@@ -42,7 +51,10 @@ def start_session(jd_filename: str = "", resume_filename: str = "", plan_id: int
     print(f"[会话 {session_id}] 面试开始，共 {len(questions)} 个问题")
     print(f"面试官: {opening}")
 
-    return session_id, opening, "READY_CHECK"
+    if plan:
+        plan_repo.update(plan["id"], {"active_session_id": session_id})
+
+    return session_id, opening, "READY_CHECK", chat_sessions[session_id]["history"]
 
 
 def _questions_for_plan(plan: dict) -> list[str]:
@@ -98,7 +110,8 @@ def process_message(session_id: str, user_msg: str) -> tuple[str, str]:
         else:
             session["state"] = "COMPLETED"
             if session.get("plan_id"):
-                plan_repo.update(session["plan_id"], {"status": "finish"})
+                plan_repo.update(session["plan_id"], {"status": "finish", "active_session_id": ""})
+                plan_repo.activate_next_stage(session["plan_id"])
             reply = (
                 "好的，所有问题都已经问完了。感谢你今天的参与和真诚的回答！\n\n"
                 "我们会综合评估你的表现，如有后续安排会及时联系你。祝你好运！🍀"

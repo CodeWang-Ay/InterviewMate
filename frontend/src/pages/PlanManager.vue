@@ -19,6 +19,7 @@ const editForm = ref({})
 const savingPlan = ref(false)
 const launchPlan = ref(null)
 const copiedCredentialKey = ref('')
+const previewPlan = ref(null)
 
 const groupedPlanList = computed(() => {
   const map = new Map()
@@ -211,6 +212,14 @@ function openWorkflowGroup(group) {
   editForm.value = {}
 }
 
+async function refreshWorkflowGroup() {
+  await fetchList()
+}
+
+function openPlanPreview(plan) {
+  previewPlan.value = plan
+}
+
 function startEditPlan(plan) {
   editingPlanId.value = plan.id
   editForm.value = {
@@ -337,6 +346,16 @@ async function copyLaunchText(plan) {
 function openCandidateLogin(plan) {
   window.open(launchLoginUrl(plan), '_blank')
 }
+
+const previewQuestions = computed(() => {
+  if (!previewPlan.value?.questions) return []
+  try {
+    const parsed = JSON.parse(previewPlan.value.questions)
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+  } catch (_) {
+    return []
+  }
+})
 </script>
 
 <template>
@@ -494,7 +513,10 @@ function openCandidateLogin(plan) {
             <h3 class="text-lg font-bold text-gray-900">{{ workflowGroup.candidate_name }} · {{ workflowGroup.workflow_name }}</h3>
             <p class="text-sm text-gray-500 mt-1">{{ workflowGroup.jd_name }} · {{ workflowGroup.finished_count }}/{{ workflowGroup.stage_count }} 已完成</p>
           </div>
-          <button class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100" @click="workflowGroup = null"><i class="fa fa-times"></i></button>
+          <div class="flex items-center gap-2">
+            <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50" @click="refreshWorkflowGroup">刷新流程</button>
+            <button class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100" @click="workflowGroup = null"><i class="fa fa-times"></i></button>
+          </div>
         </div>
 
         <div class="px-6 py-4 bg-gray-50 border-b flex flex-wrap items-center gap-6 text-sm">
@@ -533,9 +555,10 @@ function openCandidateLogin(plan) {
                 <span :class="['px-2 py-1 text-xs rounded', statusBadge(plan.status)]">{{ statusLabel(plan.status) }}</span>
               </div>
               <div class="flex items-center gap-2">
-                <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/report', query: { session_id: plan.id } })">预览</button>
+                <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="openPlanPreview(plan)">预览</button>
                 <button class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="startEditPlan(plan)">{{ editingPlanId === plan.id ? '正在编辑' : '编辑' }}</button>
                 <button v-if="['wait', 'running'].includes(plan.status)" class="px-3 py-1.5 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50" @click="createInterview(plan)">发起</button>
+                <span v-else-if="plan.status === 'pending'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-400 text-sm">等待上一轮完成</span>
                 <button v-if="plan.status === 'cancel'" class="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-sm hover:bg-blue-50" @click="updateStatus(plan.id, 'wait')">重新发起</button>
                 <button class="px-3 py-1.5 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50" @click="removePlan(plan.id)">删除</button>
               </div>
@@ -635,6 +658,57 @@ function openCandidateLogin(plan) {
           <div class="flex justify-end gap-2 pt-2">
             <button class="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" @click="copyLaunchText(launchPlan)">复制信息</button>
             <button class="px-4 py-2 rounded-lg bg-[#1677ff] text-white hover:bg-blue-600" @click="openCandidateLogin(launchPlan)">打开候选人登录页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="previewPlan" class="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4" @click.self="previewPlan = null">
+      <div class="bg-white rounded-xl w-full max-w-3xl max-h-[88vh] shadow-xl overflow-hidden flex flex-col">
+        <div class="px-6 py-4 border-b flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-bold text-gray-900">面试计划预览</h3>
+            <p class="text-sm text-gray-500 mt-1">{{ previewPlan.candidate_name }} · {{ previewPlan.interview_round || '面试环节' }}</p>
+          </div>
+          <button class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100" @click="previewPlan = null"><i class="fa fa-times"></i></button>
+        </div>
+
+        <div class="overflow-auto p-6 space-y-5">
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">候选人</div>
+              <div class="font-medium text-gray-900">{{ previewPlan.candidate_name || '-' }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">目标岗位</div>
+              <div class="font-medium text-gray-900">{{ previewPlan.jd_name || '-' }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">流程名称</div>
+              <div class="font-medium text-gray-900">{{ previewPlan.workflow_name || '单轮面试' }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">状态</div>
+              <span :class="['px-2 py-1 text-xs rounded', statusBadge(previewPlan.status)]">{{ statusLabel(previewPlan.status) }}</span>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">轮次</div>
+              <div class="font-medium text-gray-900">{{ previewPlan.interview_round || '-' }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">题目数</div>
+              <div class="font-medium text-gray-900">{{ previewPlan.question_count || 0 }} 道</div>
+            </div>
+          </div>
+
+          <div class="rounded-xl border border-gray-200 overflow-hidden">
+            <div class="px-4 py-3 bg-gray-50 border-b text-sm font-semibold text-gray-800">预设题目</div>
+            <div v-if="previewQuestions.length" class="p-4 space-y-3">
+              <div v-for="(question, index) in previewQuestions" :key="index" class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                <span class="text-[#1677ff] font-medium mr-2">Q{{ index + 1 }}</span>{{ question }}
+              </div>
+            </div>
+            <div v-else class="p-6 text-sm text-gray-400">当前计划还没有预设题目，面试开始时会按默认逻辑生成或使用流程配置。</div>
           </div>
         </div>
       </div>
