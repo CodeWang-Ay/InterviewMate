@@ -23,6 +23,7 @@ const currentRole = computed(() => {
 const storageKey = computed(() => `ai-assistant-history:${currentRole.value}`)
 const panelTitle = computed(() => currentRole.value === 'candidate' ? '面试者 AI 助手' : 'AI 聊天助手')
 const panelSubtitle = computed(() => currentRole.value === 'candidate' ? '聊聊天，或者问问当前面试与流程问题。' : '平时闲聊、梳理想法、顺手问系统问题都可以。')
+const decoder = new TextDecoder('utf-8')
 
 function createMessage(role, content) {
   return {
@@ -96,15 +97,47 @@ async function sendMessage() {
       role: item.role === 'user' ? 'user' : 'assistant',
       content: item.content,
     }))
-    const res = await fetch('/api/assistant/chat', {
+    const assistantMessage = createMessage('assistant', '')
+    messages.value.push(assistantMessage)
+    await scrollToBottom()
+
+    const res = await fetch('/api/assistant/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, history: historyPayload }),
     })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.detail || '助手暂时没接上')
-    messages.value.push(createMessage('assistant', data.message || '我刚刚走神了一下，你再说一遍也行。'))
+    if (!res.ok) {
+      let errText = '助手暂时没接上'
+      try {
+        const data = await res.json()
+        errText = data.detail || errText
+      } catch (_) {
+        // ignore
+      }
+      throw new Error(errText)
+    }
+
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('当前浏览器不支持流式响应')
+
+    let fullText = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      if (!chunk) continue
+      fullText += chunk
+      assistantMessage.content = fullText
+      assistantMessage.timestamp = new Date().toISOString()
+      messages.value = [...messages.value]
+      await scrollToBottom()
+    }
+
+    assistantMessage.content = assistantMessage.content || '我刚刚走神了一下，你再说一遍也行。'
   } catch (err) {
+    if (messages.value[messages.value.length - 1]?.role === 'assistant' && !messages.value[messages.value.length - 1]?.content) {
+      messages.value.pop()
+    }
     messages.value.push(createMessage('assistant', err.message || '助手暂时没接上'))
   } finally {
     loading.value = false
@@ -186,7 +219,7 @@ onMounted(() => {
               </div>
             </div>
 
-            <div v-if="loading" class="flex justify-start">
+            <div v-if="loading && !messages[messages.length - 1]?.content" class="flex justify-start">
               <div class="rounded-[22px] rounded-tl-[8px] border border-[#dfe9fb] bg-white px-4 py-3 text-sm text-[#8b98af]">
                 <span class="inline-flex gap-1.5">
                   <span class="h-2 w-2 animate-bounce rounded-full bg-[#93a6c9]" style="animation-delay: 0ms"></span>
@@ -221,9 +254,9 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="mt-3 flex items-center justify-between">
-            <button class="text-sm font-medium text-[#7c89a2] transition hover:text-[#2f6df6]" @click="clearChat">清空聊天</button>
-            <div class="text-[12px] text-[#9aa7bc]">Enter 发送</div>
+            <div class="mt-3 flex items-center justify-between">
+              <button class="text-sm font-medium text-[#7c89a2] transition hover:text-[#2f6df6]" @click="clearChat">清空聊天</button>
+            <div class="text-[12px] text-[#9aa7bc]">{{ loading ? '流式生成中...' : 'Enter 发送' }}</div>
           </div>
         </div>
       </div>
