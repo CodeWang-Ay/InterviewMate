@@ -8,6 +8,7 @@ import Report from '../pages/Report.vue'
 import InterviewRecord from '../pages/InterviewRecord.vue'
 import JdManager from '../pages/JdManager.vue'
 import ResumeManager from '../pages/ResumeManager.vue'
+import AITools from '../pages/AITools.vue'
 import PlanManager from '../pages/PlanManager.vue'
 import InterviewArchive from '../pages/InterviewArchive.vue'
 import RecordList from '../pages/RecordList.vue'
@@ -28,6 +29,7 @@ const routes = [
   { path: '/interview-record', component: InterviewRecord },
   { path: '/jd-manager', component: JdManager },
   { path: '/resume-manager', component: ResumeManager },
+  { path: '/ai-tools', component: AITools },
   { path: '/plan-manager', component: PlanManager },
   { path: '/interview-archive', component: InterviewArchive },
   { path: '/record-list', component: RecordList },
@@ -121,7 +123,7 @@ router.beforeEach(async (to, from) => {
   if (candidatePages.includes(to.path) && role && role !== 'candidate') {
     return { path: '/' }
   }
-  const adminPages = ['/interviewer', '/interviewer/chat', '/interviewee', '/jd-manager', '/resume-manager', '/plan-manager', '/report', '/interview-record', '/record-list', '/report-list', '/interview-archive', '/settings', '/user-center']
+  const adminPages = ['/interviewer', '/interviewer/chat', '/interviewee', '/jd-manager', '/resume-manager', '/ai-tools', '/plan-manager', '/report', '/interview-record', '/record-list', '/report-list', '/interview-archive', '/settings', '/user-center']
   if (adminPages.includes(to.path)) {
     if (role !== 'admin') {
       try { window.alert('仅管理员可查看面试记录和面试报告') } catch (_) {}

@@ -620,13 +620,13 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         <div class="flex-shrink-0 h-[52px] px-6 border-b flex items-center justify-between">
           <button class="text-[#1677ff] text-sm font-medium hover:text-blue-600" @click="viewingResume = null">编辑候选人</button>
           <div class="flex items-center gap-2">
-            <button
-              class="h-8 px-3 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300"
-              :disabled="!viewingResume.file_path"
-              @click="downloadResume(viewingResume)"
-            >
-              <i class="fa fa-download mr-1"></i>下载简历
-            </button>
+          <button
+            class="h-8 px-3 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300"
+            :disabled="!viewingResume.file_path"
+            @click="downloadResume(viewingResume)"
+          >
+            <i class="fa fa-download mr-1"></i>下载简历
+          </button>
             <button
               v-if="!editingResume"
               class="h-8 px-3 bg-[#1677ff] text-white rounded text-xs hover:bg-blue-600"

@@ -26,6 +26,7 @@ const navItems = [
   { icon: 'fa-comments-o', label: '面试官训练台', path: '/interviewer' },
   { icon: 'fa-file-text', label: '岗位 JD 管理', path: '/jd-manager' },
   { icon: 'fa-id-card-o', label: '简历管理', path: '/resume-manager' },
+  { icon: 'fa-magic', label: 'AI 辅助中心', path: '/ai-tools' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },
   { icon: 'fa-archive', label: '面试档案', path: '/interview-archive', adminOnly: true },
   { icon: 'fa-cog', label: '设置', path: '/settings' },

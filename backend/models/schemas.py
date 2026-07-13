@@ -45,3 +45,8 @@ class AssistantHistoryItem(BaseModel):
 class AssistantChatBody(BaseModel):
     message: str
     history: list[AssistantHistoryItem] = []
+
+
+class ResumeAssistBody(BaseModel):
+    jd_id: int | None = None
+    mode: str = "jd"

@@ -8,6 +8,8 @@ from backend.controllers.auth_controller import require_admin
 from backend.config import UPLOAD_DIR
 from backend.repositories import resume_repo, upload_repo
 from backend.services.file_service import parse_resume
+from backend.services.resume_copilot_service import polish_resume, score_resume
+from backend.models.schemas import ResumeAssistBody
 
 router = APIRouter(prefix="/api/resumes", tags=["resumes"])
 
@@ -120,6 +122,28 @@ async def parse_resume_api(rid: int, _: dict = Depends(require_admin)):
     except Exception as e:
         resume_repo.update(rid, {"parse_status": "fail"})
         raise HTTPException(status_code=500, detail=f"解析失败: {e}")
+
+
+@router.post("/{rid}/score")
+async def score_resume_api(rid: int, body: ResumeAssistBody | None = None, _: dict = Depends(require_admin)):
+    try:
+        return score_resume(rid, body.jd_id if body else None)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"简历评估失败: {exc}") from exc
+
+
+@router.post("/{rid}/polish")
+async def polish_resume_api(rid: int, body: ResumeAssistBody | None = None, _: dict = Depends(require_admin)):
+    try:
+        mode = body.mode if body else "jd"
+        jd_id = body.jd_id if body else None
+        return polish_resume(rid, jd_id, mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"简历润色失败: {exc}") from exc
 
 
 def _format_education(edu_list: list) -> str:

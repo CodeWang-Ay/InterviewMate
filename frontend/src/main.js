@@ -38,6 +38,10 @@ window.fetch = async (input, init = {}) => {
   }
 
   const headers = new Headers(init.headers || request.headers || {})
+  const isFormDataBody = typeof FormData !== 'undefined' && init.body instanceof FormData
+  if (isFormDataBody) {
+    headers.delete('Content-Type')
+  }
   try {
     const token = window.localStorage?.getItem('token') || ''
     if (token && !headers.has('Authorization')) {
