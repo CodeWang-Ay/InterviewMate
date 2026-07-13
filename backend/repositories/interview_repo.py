@@ -11,9 +11,41 @@ def save_record(session_id: str):
     session = chat_sessions.get(session_id)
     if not session:
         return
+    candidate_name = ""
+    jd_name = ""
+    interview_round = ""
+    workflow_name = ""
+    workflow_id = ""
+    stage_order = 1
+    stage_count = 1
+    candidate_username = ""
+    plan_id = session.get("plan_id")
+    if plan_id:
+        try:
+            from backend.repositories import plan_repo
+            plan = plan_repo.get_by_id(plan_id)
+            if plan:
+                candidate_name = plan.get("candidate_name", "")
+                jd_name = plan.get("jd_name", "")
+                interview_round = plan.get("interview_round", "")
+                workflow_name = plan.get("workflow_name", "")
+                workflow_id = plan.get("workflow_id", "")
+                stage_order = plan.get("stage_order", 1)
+                stage_count = plan.get("stage_count", 1)
+                candidate_username = plan.get("candidate_username", "")
+        except Exception:
+            pass
     record = {
         "session_id": session_id,
-        "plan_id": session.get("plan_id"),
+        "plan_id": plan_id,
+        "candidate_name": candidate_name,
+        "jd_name": jd_name,
+        "interview_round": interview_round,
+        "workflow_name": workflow_name,
+        "workflow_id": workflow_id,
+        "stage_order": stage_order,
+        "stage_count": stage_count,
+        "candidate_username": candidate_username,
         "jd_filename": session.get("jd_filename"),
         "resume_filename": session.get("resume_filename"),
         "questions": session.get("questions", []),

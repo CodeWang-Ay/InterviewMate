@@ -15,6 +15,7 @@ const batchWorking = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
 const activeGroup = ref(null)
+const detailTab = ref('records')
 
 function roundKey(record) {
   return `${record.stage_order || 1}::${record.interview_round || '面试'}`
@@ -30,13 +31,12 @@ function summarizeRoundItems(items) {
       return
     }
 
-    const histories = [...current.histories, item]
+    const histories = [...current.histories, item].sort((a, b) =>
+      String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    )
     const nextCount = (current.history_count || 1) + 1
-    if (String(item.created_at || '') > String(current.created_at || '')) {
-      roundMap.set(key, { ...item, history_count: nextCount, histories })
-    } else {
-      roundMap.set(key, { ...current, history_count: nextCount, histories })
-    }
+    const latest = String(item.created_at || '') > String(current.created_at || '') ? item : current
+    roundMap.set(key, { ...latest, history_count: nextCount, histories })
   })
 
   return Array.from(roundMap.values()).sort((a, b) =>
@@ -45,7 +45,7 @@ function summarizeRoundItems(items) {
   )
 }
 
-const groupedRecords = computed(() => {
+const groupedArchives = computed(() => {
   const groups = new Map()
   records.value.forEach((record) => {
     const key = record.workflow_id || record.candidate_username || `${record.candidate}::${record.position}`
@@ -68,16 +68,18 @@ const groupedRecords = computed(() => {
     group.session_count = group.items.reduce((sum, item) => sum + (item.history_count || 1), 0)
     group.latest_created_at = group.items.reduce((latest, item) => !latest || String(item.created_at || '') > String(latest || '') ? item.created_at : latest, '')
     group.finished_count = group.items.filter(item => item.score !== null && item.score !== undefined).length
-    group.latest_score = group.items.find(item => item.score !== null && item.score !== undefined)?.score_display || '-'
-    group.latest_conclusion = group.items.find(item => item.score !== null && item.score !== undefined)?.conclusion || '未知'
+    const scoredItems = group.items.filter(item => item.score !== null && item.score !== undefined)
+    group.latest_score = scoredItems[0]?.score_display || '-'
+    group.latest_conclusion = scoredItems[0]?.conclusion || '未知'
+    group.avg_score = scoredItems.length ? `${Math.round(scoredItems.reduce((sum, item) => sum + Number(item.score || 0), 0) / scoredItems.length)}/100` : '-'
     return group
   }).sort((a, b) => String(b.latest_created_at || '').localeCompare(String(a.latest_created_at || '')))
 })
 
-const totalPages = computed(() => Math.max(1, Math.ceil(groupedRecords.value.length / pageSize.value)))
+const totalPages = computed(() => Math.max(1, Math.ceil(groupedArchives.value.length / pageSize.value)))
 const pagedGroups = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return groupedRecords.value.slice(start, start + pageSize.value)
+  return groupedArchives.value.slice(start, start + pageSize.value)
 })
 const pagedSessionIds = computed(() => pagedGroups.value.flatMap(group => group.items.map(item => item.session_id)))
 const selectedRecords = computed(() => records.value.filter(record => selectedSessionIds.value.has(record.session_id)))
@@ -111,7 +113,7 @@ onMounted(fetchList)
 
 function syncActiveGroup() {
   if (!activeGroup.value) return
-  activeGroup.value = groupedRecords.value.find(group => group.key === activeGroup.value.key) || null
+  activeGroup.value = groupedArchives.value.find(group => group.key === activeGroup.value.key) || null
 }
 
 function toggleBatchMode() {
@@ -145,19 +147,20 @@ function changePageSize(size) {
   page.value = 1
 }
 
-function openGroup(group) {
+function openGroup(group, tab = 'records') {
   activeGroup.value = group
+  detailTab.value = tab
 }
 
 async function removeRecord(sessionId) {
-  if (!confirm('确认删除这条面试记录？')) return
+  if (!confirm('确认删除这条面试档案记录？')) return
   await fetch(`/api/records/${sessionId}`, { method: 'DELETE' })
   await fetchList()
 }
 
 async function deleteSelectedRecords() {
   if (!selectedRecords.value.length) return
-  if (!confirm(`确认删除选中的 ${selectedRecords.value.length} 条面试记录？`)) return
+  if (!confirm(`确认删除选中的 ${selectedRecords.value.length} 条面试档案记录？`)) return
   batchWorking.value = true
   for (const record of selectedRecords.value) {
     await fetch(`/api/records/${record.session_id}`, { method: 'DELETE' }).catch(() => {})
@@ -180,6 +183,12 @@ const scoreColor = (s) => {
   if (s >= 80) return 'text-green-600'
   if (s >= 60) return 'text-yellow-600'
   return 'text-red-600'
+}
+
+const scoreBar = (s) => {
+  if (s >= 80) return 'bg-[#22c55e]'
+  if (s >= 60) return 'bg-yellow-500'
+  return 'bg-red-500'
 }
 
 function stateLabel(state) {
@@ -206,7 +215,10 @@ function resetFilters() {
 
     <main class="flex-1 overflow-auto p-6">
       <div class="flex justify-between items-center mb-6">
-        <h2 class="text-2xl font-bold text-gray-900">面试记录</h2>
+        <div>
+          <h2 class="text-2xl font-bold text-gray-900">面试档案</h2>
+          <p class="text-gray-500 text-sm">把面试记录和面试报告合在一起，按候选人统一查看</p>
+        </div>
         <div class="flex items-center gap-3">
           <button
             :class="['border px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition', batchMode ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50']"
@@ -222,7 +234,7 @@ function resetFilters() {
 
       <div v-if="batchMode" class="bg-white rounded-xl p-4 shadow-sm mb-6 border border-orange-100 flex flex-wrap items-center justify-between gap-3">
         <div class="text-sm text-gray-600">
-          已选择 <span class="font-semibold text-orange-600">{{ selectedRecords.length }}</span> 条面试记录
+          已选择 <span class="font-semibold text-orange-600">{{ selectedRecords.length }}</span> 条面试档案记录
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50" @click="toggleSelectAll">{{ allSelected ? '取消全选' : '全选当前页' }}</button>
@@ -263,10 +275,9 @@ function resetFilters() {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">候选人</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">应聘岗位</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">面试流程</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">进度</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">最新得分</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">结论</th>
-              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-40">操作</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">记录进度</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">报告概览</th>
+              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-52">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -288,24 +299,36 @@ function resetFilters() {
                   </span>
                 </div>
               </td>
-              <td class="px-4 py-3 text-sm text-gray-600">{{ group.finished_count }}/{{ group.round_count }} 已产出记录</td>
-              <td class="px-4 py-3 font-medium text-sm" :class="scoreColor(group.items[0]?.score)">{{ group.latest_score }}</td>
-              <td class="px-4 py-3"><span :class="['px-2 py-1 text-xs rounded', conclusionBadge(group.latest_conclusion)]">{{ group.latest_conclusion }}</span></td>
+              <td class="px-4 py-3 text-sm text-gray-600">{{ group.finished_count }}/{{ group.round_count }} 已产出</td>
+              <td class="px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <span :class="['font-medium text-sm w-16', scoreColor(group.items[0]?.score)]">{{ group.avg_score }}</span>
+                  <div class="w-28 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div :class="['h-full rounded-full', scoreBar(Number.parseInt(group.avg_score) || 0)]" :style="{ width: `${Number.parseInt(group.avg_score) || 0}%` }"></div>
+                  </div>
+                </div>
+                <div class="mt-1">
+                  <span :class="['px-2 py-1 text-xs rounded', conclusionBadge(group.latest_conclusion)]">{{ group.latest_conclusion }}</span>
+                </div>
+              </td>
               <td class="px-4 py-3 text-center">
-                <button class="text-[#1677ff] hover:underline text-sm" @click="openGroup(group)">查看记录</button>
+                <div class="flex items-center justify-center gap-3 text-sm">
+                  <button class="text-[#1677ff] hover:underline" @click="openGroup(group, 'records')">查看记录</button>
+                  <button class="text-violet-600 hover:underline" @click="openGroup(group, 'reports')">查看报告</button>
+                </div>
               </td>
             </tr>
           </tbody>
         </table>
 
-        <div v-if="!loading && !groupedRecords.length" class="text-center py-12 text-gray-400">
-          <i class="fa fa-inbox text-3xl mb-2 block"></i>暂无面试记录
+        <div v-if="!loading && !groupedArchives.length" class="text-center py-12 text-gray-400">
+          <i class="fa fa-folder-open-o text-3xl mb-2 block"></i>暂无面试档案
         </div>
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
         <div class="flex items-center gap-3">
-          <span>共 {{ groupedRecords.length }} 位候选人 / {{ records.length }} 条记录</span>
+          <span>共 {{ groupedArchives.length }} 位候选人 / {{ records.length }} 条档案记录</span>
           <select class="border border-gray-200 rounded-lg px-2 py-1 bg-white" :value="pageSize" @change="changePageSize($event.target.value)">
             <option :value="10">10 条/页</option>
             <option :value="20">20 条/页</option>
@@ -326,13 +349,26 @@ function resetFilters() {
     </main>
 
     <div v-if="activeGroup" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @click.self="activeGroup = null">
-      <div class="bg-white rounded-xl w-full max-w-5xl max-h-[88vh] shadow-xl overflow-hidden flex flex-col">
+      <div class="bg-white rounded-xl w-full max-w-6xl max-h-[88vh] shadow-xl overflow-hidden flex flex-col">
         <div class="px-6 py-4 border-b flex items-center justify-between">
           <div>
             <h3 class="text-lg font-bold text-gray-900">{{ activeGroup.candidate }} · {{ activeGroup.workflow_name }}</h3>
             <p class="text-sm text-gray-500 mt-1">{{ activeGroup.position }} · {{ activeGroup.round_count }} 个面试环节<span v-if="activeGroup.session_count > activeGroup.round_count"> · 共 {{ activeGroup.session_count }} 次会话</span></p>
           </div>
           <button class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100" @click="activeGroup = null"><i class="fa fa-times"></i></button>
+        </div>
+
+        <div class="px-6 pt-4 border-b">
+          <div class="flex gap-2">
+            <button
+              :class="['px-4 py-2 text-sm rounded-t-lg border border-b-0', detailTab === 'records' ? 'bg-blue-50 text-[#1677ff] border-blue-200' : 'bg-gray-50 text-gray-500 border-transparent']"
+              @click="detailTab = 'records'"
+            >面试记录</button>
+            <button
+              :class="['px-4 py-2 text-sm rounded-t-lg border border-b-0', detailTab === 'reports' ? 'bg-violet-50 text-violet-600 border-violet-200' : 'bg-gray-50 text-gray-500 border-transparent']"
+              @click="detailTab = 'reports'"
+            >面试报告</button>
+          </div>
         </div>
 
         <div class="overflow-auto p-6 space-y-4">
@@ -348,14 +384,35 @@ function resetFilters() {
                 <span :class="['px-2 py-1 text-xs rounded', conclusionBadge(item.conclusion)]">{{ item.conclusion }}</span>
               </div>
               <div class="flex items-center gap-2">
-                <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/interview-record', query: { session_id: item.session_id } })">对话回放</button>
-                <button class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="router.push({ path: '/report', query: { session_id: item.session_id } })">查看报告</button>
+                <button v-if="detailTab === 'records'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/interview-record', query: { session_id: item.session_id } })">对话回放</button>
+                <button v-if="detailTab === 'records'" class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="router.push({ path: '/report', query: { session_id: item.session_id } })">查看报告</button>
+                <button v-if="detailTab === 'reports'" class="px-3 py-1.5 rounded-lg border border-violet-200 text-violet-600 text-sm hover:bg-violet-50" @click="router.push({ path: '/report', query: { session_id: item.session_id } })">打开完整报告</button>
+                <button v-if="detailTab === 'reports'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/interview-record', query: { session_id: item.session_id } })">关联记录</button>
                 <button class="px-3 py-1.5 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50" @click="removeRecord(item.session_id)">删除</button>
               </div>
             </div>
-            <div class="px-4 py-3 flex items-center justify-between text-sm">
+
+            <div v-if="detailTab === 'records'" class="px-4 py-3 flex items-center justify-between text-sm">
               <div class="text-gray-600">状态：{{ stateLabel(item.state) }}</div>
               <div :class="['font-medium', scoreColor(item.score)]">综合得分：{{ item.score_display }}</div>
+            </div>
+
+            <div v-else class="px-4 py-4 space-y-3 text-sm">
+              <div class="flex flex-wrap items-center gap-4">
+                <div class="text-gray-600">报告状态：{{ item.score !== null && item.score !== undefined ? '已生成' : '待生成' }}</div>
+                <div :class="['font-medium', scoreColor(item.score)]">综合得分：{{ item.score_display }}</div>
+                <span :class="['px-2 py-1 text-xs rounded', conclusionBadge(item.conclusion)]">{{ item.conclusion }}</span>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-gray-600">
+                <div class="rounded-lg bg-gray-50 px-3 py-3">
+                  <div class="text-xs text-gray-400 mb-1">面试状态</div>
+                  <div>{{ stateLabel(item.state) }}</div>
+                </div>
+                <div class="rounded-lg bg-gray-50 px-3 py-3">
+                  <div class="text-xs text-gray-400 mb-1">最近生成时间</div>
+                  <div>{{ item.created_at?.slice(0, 16) || '-' }}</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

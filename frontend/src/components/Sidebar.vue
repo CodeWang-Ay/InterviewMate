@@ -27,8 +27,7 @@ const navItems = [
   { icon: 'fa-id-card-o', label: '简历管理', path: '/resume-manager' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },
   { icon: 'fa-book', label: '题库中心', path: '/' },
-  { icon: 'fa-clipboard', label: '面试记录', path: '/record-list', adminOnly: true },
-  { icon: 'fa-bar-chart', label: '面试报告', path: '/report-list', adminOnly: true },
+  { icon: 'fa-archive', label: '面试档案', path: '/interview-archive', adminOnly: true },
   { icon: 'fa-cog', label: '设置', path: '/settings' },
 ]
 

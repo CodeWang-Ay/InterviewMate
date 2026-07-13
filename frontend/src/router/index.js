@@ -8,6 +8,7 @@ import InterviewRecord from '../pages/InterviewRecord.vue'
 import JdManager from '../pages/JdManager.vue'
 import ResumeManager from '../pages/ResumeManager.vue'
 import PlanManager from '../pages/PlanManager.vue'
+import InterviewArchive from '../pages/InterviewArchive.vue'
 import RecordList from '../pages/RecordList.vue'
 import ReportList from '../pages/ReportList.vue'
 import Settings from '../pages/Settings.vue'
@@ -26,6 +27,7 @@ const routes = [
   { path: '/jd-manager', component: JdManager },
   { path: '/resume-manager', component: ResumeManager },
   { path: '/plan-manager', component: PlanManager },
+  { path: '/interview-archive', component: InterviewArchive },
   { path: '/record-list', component: RecordList },
   { path: '/report-list', component: ReportList },
   { path: '/settings', component: Settings },
@@ -51,7 +53,7 @@ router.beforeEach((to, from) => {
     return { path: loginPath, query: { redirect: to.fullPath } }
   }
   // 仅管理员可访问面试报告和面试记录
-  const adminPages = ['/report', '/interview-record', '/record-list', '/report-list']
+  const adminPages = ['/report', '/interview-record', '/record-list', '/report-list', '/interview-archive']
   if (adminPages.includes(to.path)) {
     let role = ''
     try { role = localStorage.getItem('role') || 'user' } catch (_) {}

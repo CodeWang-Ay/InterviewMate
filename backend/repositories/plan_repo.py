@@ -104,6 +104,28 @@ def list_by_workflow_id(workflow_id: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def list_by_resume_filename(resume_filename: str) -> list[dict]:
+    if not resume_filename:
+        return []
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM plans WHERE resume_filename=? ORDER BY stage_order ASC, id ASC",
+            (resume_filename,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def find_latest_by_resume_filename(resume_filename: str) -> dict | None:
+    if not resume_filename:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM plans WHERE resume_filename=? ORDER BY id DESC LIMIT 1",
+            (resume_filename,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def create(data: dict) -> dict:
     with _conn() as conn:
         cur = conn.execute(
