@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -9,6 +9,10 @@ const password = ref('')
 const loading = ref(false)
 const error = ref('')
 const isCandidateLogin = computed(() => route.path === '/user/login')
+
+onMounted(() => {
+  username.value = String(route.query.username || '')
+})
 
 async function doLogin() {
   if (!username.value.trim() || !password.value) return

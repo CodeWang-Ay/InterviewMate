@@ -17,6 +17,8 @@ const workflowGroup = ref(null)
 const editingPlanId = ref(null)
 const editForm = ref({})
 const savingPlan = ref(false)
+const launchPlan = ref(null)
+const copiedCredentialKey = ref('')
 
 const groupedPlanList = computed(() => {
   const map = new Map()
@@ -196,8 +198,11 @@ async function deleteSelectedPlans() {
 }
 
 function createInterview(plan) {
-  localStorage.setItem('interviewmate_selected_jd', `岗位：${plan.jd_name}\n候选人：${plan.candidate_name}`)
-  router.push('/interviewee')
+  if (!['wait', 'running'].includes(plan.status)) {
+    alert('当前环节还不能发起，请先确认前序面试是否完成。')
+    return
+  }
+  launchPlan.value = plan
 }
 
 function openWorkflowGroup(group) {
@@ -284,6 +289,53 @@ function resetFilters() {
   filterStatus.value = ''
   page.value = 1
   fetchList()
+}
+
+function credentialText(data) {
+  return `用户名：${data?.candidate_username || '-'}\n密码：${data?.candidate_password || '-'}`
+}
+
+async function copyCredential(data, key) {
+  if (!data?.candidate_username) return
+  try {
+    await navigator.clipboard.writeText(credentialText(data))
+    copiedCredentialKey.value = key
+    window.setTimeout(() => {
+      if (copiedCredentialKey.value === key) copiedCredentialKey.value = ''
+    }, 1500)
+  } catch (_) {
+    alert(credentialText(data))
+  }
+}
+
+function launchLoginUrl(plan) {
+  const origin = window.location.origin
+  const query = new URLSearchParams({
+    redirect: '/user',
+    username: plan.candidate_username || '',
+  }).toString()
+  return `${origin}/user/login?${query}`
+}
+
+async function copyLaunchText(plan) {
+  const text = [
+    `候选人：${plan.candidate_name || '-'}`,
+    `岗位：${plan.jd_name || '-'}`,
+    `环节：${plan.interview_round || '面试'}`,
+    `登录地址：${launchLoginUrl(plan)}`,
+    `用户名：${plan.candidate_username || '-'}`,
+    `密码：${plan.candidate_password || '-'}`,
+  ].join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    alert('候选人登录信息已复制')
+  } catch (_) {
+    alert(text)
+  }
+}
+
+function openCandidateLogin(plan) {
+  window.open(launchLoginUrl(plan), '_blank')
 }
 </script>
 
@@ -379,10 +431,18 @@ function resetFilters() {
                 </div>
               </td>
               <td class="px-4 py-3 text-xs text-gray-600">
-                <div v-if="group.candidate_username" class="font-mono leading-5">
-                  <div>{{ group.candidate_username }}</div>
+                <button
+                  v-if="group.candidate_username"
+                  class="font-mono leading-5 text-left rounded-lg px-2 py-1 -mx-2 hover:bg-blue-50 transition"
+                  title="点击复制账号和密码"
+                  @click="copyCredential(group, `group:${group.key}`)"
+                >
+                  <div class="text-gray-800">{{ group.candidate_username }}</div>
                   <div class="text-gray-400">{{ group.candidate_password }}</div>
-                </div>
+                  <div class="text-[11px] text-[#1677ff] mt-1">
+                    {{ copiedCredentialKey === `group:${group.key}` ? '已复制' : '点击复制账号密码' }}
+                  </div>
+                </button>
                 <span v-else>-</span>
               </td>
               <td class="px-4 py-3 text-sm text-gray-700">
@@ -396,7 +456,7 @@ function resetFilters() {
               <td class="px-4 py-3"><span :class="['px-2 py-1 text-xs rounded', statusBadge(group.status)]">{{ statusLabel(group.status) }}</span></td>
               <td class="px-4 py-3 text-center">
                 <button class="text-[#1677ff] hover:underline text-sm" @click="openWorkflowGroup(group)">查看/编辑</button>
-                <button v-if="group.current_plan" class="text-[#22c55e] hover:underline text-sm ml-2" @click="createInterview(group.current_plan)">发起</button>
+                <button v-if="group.current_plan && ['wait', 'running'].includes(group.current_plan.status)" class="text-[#22c55e] hover:underline text-sm ml-2" @click="createInterview(group.current_plan)">发起</button>
                 <button class="text-red-400 hover:underline text-sm ml-2" @click="removeGroup(group)"><i class="fa fa-trash-o"></i></button>
               </td>
             </tr>
@@ -442,14 +502,23 @@ function resetFilters() {
             <div class="text-gray-400">登录地址</div>
             <div class="font-medium text-[#1677ff]">/user/login</div>
           </div>
-          <div>
+          <button
+            class="text-left rounded-lg px-3 py-2 -mx-3 hover:bg-blue-50 transition"
+            title="点击复制账号和密码"
+            @click="copyCredential(workflowGroup, `workflow:${workflowGroup.key}`)"
+          >
             <div class="text-gray-400">用户名</div>
             <div class="font-mono text-gray-800 select-all">{{ workflowGroup.candidate_username || '-' }}</div>
-          </div>
-          <div>
+          </button>
+          <button
+            class="text-left rounded-lg px-3 py-2 -mx-3 hover:bg-blue-50 transition"
+            title="点击复制账号和密码"
+            @click="copyCredential(workflowGroup, `workflow:${workflowGroup.key}`)"
+          >
             <div class="text-gray-400">密码</div>
             <div class="font-mono text-gray-800 select-all">{{ workflowGroup.candidate_password || '-' }}</div>
-          </div>
+          </button>
+          <div v-if="copiedCredentialKey === `workflow:${workflowGroup.key}`" class="text-[#1677ff]">账号密码已复制</div>
         </div>
 
         <div class="overflow-auto p-6 space-y-4">
@@ -526,6 +595,46 @@ function resetFilters() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="launchPlan" class="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4" @click.self="launchPlan = null">
+      <div class="bg-white rounded-xl w-full max-w-xl shadow-xl overflow-hidden">
+        <div class="px-6 py-4 border-b flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-bold text-gray-900">发起面试</h3>
+            <p class="text-sm text-gray-500 mt-1">{{ launchPlan.candidate_name }} · {{ launchPlan.interview_round || '面试' }}</p>
+          </div>
+          <button class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100" @click="launchPlan = null"><i class="fa fa-times"></i></button>
+        </div>
+
+        <div class="p-6 space-y-4 text-sm">
+          <div class="rounded-xl border border-blue-100 bg-blue-50 p-4 text-blue-700">
+            这个按钮现在用于生成候选人的登录入口信息。把下面这组地址和账号发给候选人，对方登录后会自动进入当前可参加的面试环节。
+          </div>
+
+          <div class="grid grid-cols-1 gap-3">
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">登录地址</div>
+              <div class="text-[#1677ff] break-all">{{ launchLoginUrl(launchPlan) }}</div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="rounded-lg border border-gray-200 p-4">
+                <div class="text-gray-400 mb-1">用户名</div>
+                <div class="font-mono text-gray-900 select-all">{{ launchPlan.candidate_username || '-' }}</div>
+              </div>
+              <div class="rounded-lg border border-gray-200 p-4">
+                <div class="text-gray-400 mb-1">密码</div>
+                <div class="font-mono text-gray-900 select-all">{{ launchPlan.candidate_password || '-' }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button class="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" @click="copyLaunchText(launchPlan)">复制信息</button>
+            <button class="px-4 py-2 rounded-lg bg-[#1677ff] text-white hover:bg-blue-600" @click="openCandidateLogin(launchPlan)">打开候选人登录页</button>
           </div>
         </div>
       </div>
