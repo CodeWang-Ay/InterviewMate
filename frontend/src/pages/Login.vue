@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -8,6 +8,7 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref('')
+const isCandidateLogin = computed(() => route.path === '/user/login')
 
 async function doLogin() {
   if (!username.value.trim() || !password.value) return
@@ -28,7 +29,8 @@ async function doLogin() {
     localStorage.setItem('username', data.username)
     localStorage.setItem('nickname', data.nickname)
     if (data.avatar) localStorage.setItem('avatar', data.avatar)
-    router.push(route.query.redirect || '/')
+    localStorage.setItem('role', data.role || 'user')
+    router.push(route.query.redirect || (isCandidateLogin.value ? '/user' : '/'))
   } catch (e) {
     error.value = e.message
   }
@@ -44,8 +46,8 @@ async function doLogin() {
         <div class="w-14 h-14 bg-[#1677ff] rounded-2xl flex items-center justify-center mx-auto mb-4">
           <span class="text-white font-bold text-2xl">AI</span>
         </div>
-        <h1 class="text-2xl font-bold text-gray-900">AI 面试助手</h1>
-        <p class="text-gray-500 mt-1">登录你的账号</p>
+        <h1 class="text-2xl font-bold text-gray-900">{{ isCandidateLogin ? '候选人面试入口' : 'AI 面试助手' }}</h1>
+        <p class="text-gray-500 mt-1">{{ isCandidateLogin ? '登录后将自动进入你的面试' : '登录你的账号' }}</p>
       </div>
 
       <!-- Login Card -->

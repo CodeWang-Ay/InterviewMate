@@ -81,6 +81,7 @@ def login(username: str, password: str) -> dict | None:
         "phone": row["phone"] or "",
         "company": row["company"] or "",
         "bio": row["bio"] or "",
+        "role": row["role"] or "user",
     }
 
 

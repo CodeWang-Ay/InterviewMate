@@ -14,6 +14,7 @@ import Settings from '../pages/Settings.vue'
 import Login from '../pages/Login.vue'
 import Register from '../pages/Register.vue'
 import UserCenter from '../pages/UserCenter.vue'
+import UserInterview from '../pages/UserInterview.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -29,8 +30,10 @@ const routes = [
   { path: '/report-list', component: ReportList },
   { path: '/settings', component: Settings },
   { path: '/login', component: Login },
+  { path: '/user/login', component: Login },
   { path: '/register', component: Register },
   { path: '/user-center', component: UserCenter },
+  { path: '/user', component: UserInterview },
 ]
 
 const router = createRouter({
@@ -39,12 +42,22 @@ const router = createRouter({
 })
 
 // 路由守卫：未登录跳转登录页
-router.beforeEach((to) => {
-  const publicPages = ['/login', '/register']
+router.beforeEach((to, from) => {
+  const publicPages = ['/login', '/user/login', '/register']
   let token = ''
   try { token = localStorage.getItem('token') || '' } catch (_) {}
   if (!token && !publicPages.includes(to.path)) {
-    return { path: '/login', query: { redirect: to.fullPath } }
+    const loginPath = to.path.startsWith('/user') ? '/user/login' : '/login'
+    return { path: loginPath, query: { redirect: to.fullPath } }
+  }
+  // 仅管理员可访问面试报告和面试记录
+  const adminPages = ['/report', '/interview-record', '/record-list', '/report-list']
+  if (adminPages.includes(to.path)) {
+    let role = ''
+    try { role = localStorage.getItem('role') || 'user' } catch (_) {}
+    if (role !== 'admin') {
+      return from.path || '/'
+    }
   }
 })
 

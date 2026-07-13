@@ -16,7 +16,7 @@ def generate_report(session_id: str) -> dict:
     # 加载 JD 文本
     jd_text = ""
     jd_path = os.path.join(UPLOAD_DIR, "jd", record.get("jd_filename", ""))
-    if os.path.exists(jd_path):
+    if os.path.isfile(jd_path):
         with open(jd_path, "r", encoding="utf-8") as f:
             jd_text = f.read()
 

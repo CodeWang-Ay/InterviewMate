@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
@@ -9,6 +9,17 @@ const state = ref('READY_CHECK')
 const sending = ref(false)
 const sessionId = ref('')
 const chatBox = ref(null)
+const role = ref(safeGetLocalStorage('role', 'user'))
+const isAdmin = computed(() => role.value === 'admin')
+const backPath = computed(() => isAdmin.value ? '/interviewee' : '/user')
+
+function safeGetLocalStorage(key, fallback = '') {
+  try {
+    return window.localStorage?.getItem(key) || fallback
+  } catch (_) {
+    return fallback
+  }
+}
 
 onMounted(async () => {
   const jd = route.query.jd
@@ -162,10 +173,13 @@ function onKeydown(e) {
           </button>
         </div>
         <p v-if="state === 'COMPLETED'" class="text-slate-500 text-xs text-center mt-2">
-          面试已结束 ·
-          <router-link :to="{ path: '/report', query: { session_id: sessionId } }" class="text-emerald-400 hover:text-emerald-300 font-medium ml-1">查看面试报告</router-link>
+          面试已结束
+          <template v-if="isAdmin">
+            ·
+            <router-link :to="{ path: '/report', query: { session_id: sessionId } }" class="text-emerald-400 hover:text-emerald-300 font-medium ml-1">查看面试报告</router-link>
+          </template>
           ·
-          <router-link to="/interviewee" class="text-blue-400 hover:text-blue-300 ml-1">返回</router-link>
+          <router-link :to="backPath" class="text-blue-400 hover:text-blue-300 ml-1">返回</router-link>
         </p>
       </footer>
     </div>

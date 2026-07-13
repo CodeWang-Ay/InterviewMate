@@ -21,8 +21,14 @@ const createdPlan = ref(null)
 const createdWorkflowPlans = computed(() => (createdPlan.value?.plans || []).filter(Boolean))
 const showWorkflowPicker = ref(false)
 const workflowResume = ref(null)
+const workflowBatchMode = ref(false)
 const selectedWorkflowIndex = ref(0)
 const creatingWorkflow = ref(false)
+const batchMode = ref(false)
+const selectedResumeIds = ref(new Set())
+const batchWorking = ref(false)
+const page = ref(1)
+const pageSize = ref(10)
 
 const workflowTemplates = [
   {
@@ -55,12 +61,51 @@ const workflowTemplates = [
 ]
 
 const parseQueue = computed(() => resumeList.value.filter(r => r.file_path && r.parse_status !== 'success'))
+const totalPages = computed(() => Math.max(1, Math.ceil(resumeList.value.length / pageSize.value)))
+const pagedResumeList = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return resumeList.value.slice(start, start + pageSize.value)
+})
+const selectedResumes = computed(() => resumeList.value.filter(r => selectedResumeIds.value.has(r.id)))
+const selectableResumes = computed(() => pagedResumeList.value)
+const allSelected = computed(() => selectableResumes.value.length > 0 && selectableResumes.value.every(r => selectedResumeIds.value.has(r.id)))
+const visiblePages = computed(() => {
+  const total = totalPages.value
+  const start = Math.max(1, page.value - 2)
+  const end = Math.min(total, start + 4)
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+})
 
 function setParsing(rid, value) {
   const next = new Set(parsingIds.value)
   if (value) next.add(rid)
   else next.delete(rid)
   parsingIds.value = next
+}
+
+function setSelectedResume(rid, value) {
+  const next = new Set(selectedResumeIds.value)
+  if (value) next.add(rid)
+  else next.delete(rid)
+  selectedResumeIds.value = next
+}
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  selectedResumeIds.value = new Set()
+}
+
+function toggleSelectAll() {
+  selectedResumeIds.value = allSelected.value ? new Set() : new Set(selectableResumes.value.map(r => r.id))
+}
+
+function setPage(nextPage) {
+  page.value = Math.min(Math.max(1, nextPage), totalPages.value)
+}
+
+function changePageSize(size) {
+  pageSize.value = Number(size)
+  page.value = 1
 }
 
 async function fetchList() {
@@ -72,7 +117,10 @@ async function fetchList() {
     if (filterYears.value) params.set('experience_years', filterYears.value)
     const qs = params.toString()
     const res = await fetch(`/api/resumes${qs ? '?' + qs : ''}`)
-    if (res.ok) resumeList.value = await res.json()
+    if (res.ok) {
+      resumeList.value = await res.json()
+      if (page.value > totalPages.value) page.value = totalPages.value
+    }
   } catch (_) {}
   loading.value = false
 }
@@ -154,6 +202,30 @@ async function parsePendingResumes() {
   if (failed) alert(`简历解析完成，${failed} 份解析失败`)
 }
 
+async function parseSelectedResumes() {
+  const targets = selectedResumes.value.filter(r => r.file_path && r.parse_status !== 'success')
+  if (!targets.length) return
+  batchWorking.value = true
+  for (const item of targets) {
+    await parseResume(item.id, false)
+  }
+  batchWorking.value = false
+  await fetchList()
+}
+
+async function deleteSelectedResumes() {
+  const targets = selectedResumes.value
+  if (!targets.length) return
+  if (!confirm(`确认删除选中的 ${targets.length} 份简历？`)) return
+  batchWorking.value = true
+  for (const item of targets) {
+    await fetch(`/api/resumes/${item.id}`, { method: 'DELETE' }).catch(() => {})
+  }
+  selectedResumeIds.value = new Set()
+  batchWorking.value = false
+  await fetchList()
+}
+
 async function removeResume(rid, name) {
   if (!confirm(`确认删除「${name}」？`)) return
   await fetch(`/api/resumes/${rid}`, { method: 'DELETE' })
@@ -224,35 +296,50 @@ async function createInterviewPlan(resume, round) {
 
 function openWorkflowPicker(resume) {
   workflowResume.value = resume
+  workflowBatchMode.value = false
+  selectedWorkflowIndex.value = 0
+  showWorkflowPicker.value = true
+}
+
+function openBatchWorkflowPicker() {
+  if (!selectedResumes.value.length) return
+  workflowResume.value = null
+  workflowBatchMode.value = true
   selectedWorkflowIndex.value = 0
   showWorkflowPicker.value = true
 }
 
 async function createInterviewWorkflow() {
-  const resume = workflowResume.value
   const template = workflowTemplates[selectedWorkflowIndex.value]
-  if (!resume || !template) return
+  const targets = workflowBatchMode.value ? selectedResumes.value.filter(r => r.parse_status === 'success') : [workflowResume.value].filter(Boolean)
+  if (!targets.length || !template) return
   creatingWorkflow.value = true
   try {
-    const res = await fetch('/api/plans/workflow', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        candidate_name: resume.name || '未命名候选人',
-        jd_name: resume.jd_name || resume.target_position || '待定岗位',
-        workflow_name: template.name,
-        resume_filename: resume.file_path || '',
-        stages: template.stages,
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      alert(err.detail || '创建面试流程失败')
-      return
+    const results = []
+    for (const resume of targets) {
+      const res = await fetch('/api/plans/workflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidate_name: resume.name || '未命名候选人',
+          jd_name: resume.jd_name || resume.target_position || '待定岗位',
+          workflow_name: template.name,
+          resume_filename: resume.file_path || '',
+          stages: template.stages,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(err.detail || '创建面试流程失败')
+        return
+      }
+      results.push(await res.json())
     }
-    createdPlan.value = await res.json()
+    createdPlan.value = results.length === 1 ? results[0] : { workflow_name: template.name, candidate_name: `已为 ${results.length} 位候选人创建流程`, candidate_username: '-', candidate_password: '-', plans: results.flatMap(item => item.plans || []) }
     showWorkflowPicker.value = false
     workflowResume.value = null
+    workflowBatchMode.value = false
+    selectedResumeIds.value = new Set()
   } catch (e) {
     alert('创建面试流程失败: ' + e.message)
   } finally {
@@ -368,7 +455,7 @@ function downloadResume(resume) {
 const statusBadge = (s) => ({ success: 'bg-green-100 text-green-600', wait: 'bg-orange-100 text-orange-600', fail: 'bg-red-100 text-red-600' }[s] || 'bg-gray-100 text-gray-500')
 const statusLabel = (s) => ({ success: '解析成功', wait: '待解析', fail: '解析失败' }[s] || s)
 
-function resetFilters() { searchText.value = ''; filterStatus.value = ''; filterYears.value = ''; fetchList() }
+function resetFilters() { searchText.value = ''; filterStatus.value = ''; filterYears.value = ''; page.value = 1; fetchList() }
 </script>
 
 <template>
@@ -379,6 +466,12 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-2xl font-bold text-gray-900">简历管理</h2>
         <div class="flex items-center gap-3">
+          <button
+            :class="['px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm border', batchMode ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50']"
+            @click="toggleBatchMode"
+          >
+            <i class="fa fa-check-square-o"></i>{{ batchMode ? '退出批量' : '批量管理' }}
+          </button>
           <button
             class="px-5 py-2 rounded-lg flex items-center gap-2 transition text-sm border border-[#1677ff] text-[#1677ff] hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
             :disabled="parsingAll || !parseQueue.length"
@@ -394,20 +487,32 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         </div>
       </div>
 
+      <div v-if="batchMode" class="bg-white rounded-xl p-4 shadow-sm mb-6 border border-orange-100 flex flex-wrap items-center justify-between gap-3">
+        <div class="text-sm text-gray-600">
+          已选择 <span class="font-semibold text-orange-600">{{ selectedResumes.length }}</span> 份简历
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50" @click="toggleSelectAll">{{ allSelected ? '取消全选' : '全选当前页' }}</button>
+          <button class="px-3 py-2 rounded-lg border border-purple-200 text-purple-600 text-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.length" @click="parseSelectedResumes"><i class="fa fa-magic mr-1"></i>批量解析</button>
+          <button class="px-3 py-2 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.some(r => r.parse_status === 'success')" @click="openBatchWorkflowPicker"><i class="fa fa-sitemap mr-1"></i>批量创建流程</button>
+          <button class="px-3 py-2 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.length" @click="deleteSelectedResumes"><i class="fa fa-trash-o mr-1"></i>批量删除</button>
+        </div>
+      </div>
+
       <!-- 搜索筛选 -->
       <div class="bg-white rounded-xl p-5 shadow-sm mb-6">
         <div class="flex flex-wrap gap-4 items-center">
           <div class="w-64 relative">
-            <input v-model="searchText" type="text" placeholder="搜索候选人姓名、技能、期望岗位" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-[#1677ff]" @input="fetchList">
+            <input v-model="searchText" type="text" placeholder="搜索候选人姓名、技能、期望岗位" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-[#1677ff]" @input="page = 1; fetchList()">
             <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
           </div>
-          <select v-model="filterStatus" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="fetchList">
+          <select v-model="filterStatus" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
             <option value="">全部解析状态</option>
             <option value="wait">待解析</option>
             <option value="success">解析成功</option>
             <option value="fail">解析失败</option>
           </select>
-          <select v-model="filterYears" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="fetchList">
+          <select v-model="filterYears" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
             <option value="">全部工作年限</option>
             <option value="应届生">应届生</option>
             <option value="1-3年">1-3年</option>
@@ -424,6 +529,9 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         <table v-else class="w-full">
           <thead class="bg-gray-50">
             <tr>
+              <th v-if="batchMode" class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-10">
+                <input type="checkbox" :checked="allSelected" @change="toggleSelectAll">
+              </th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm w-8">#</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">候选人</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">期望岗位</th>
@@ -437,8 +545,11 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <tr v-for="(r, i) in resumeList" :key="r.id" class="hover:bg-gray-50">
-              <td class="px-4 py-3 text-sm text-gray-500">{{ i + 1 }}</td>
+            <tr v-for="(r, i) in pagedResumeList" :key="r.id" class="hover:bg-gray-50">
+              <td v-if="batchMode" class="px-4 py-3 text-center">
+                <input type="checkbox" :checked="selectedResumeIds.has(r.id)" @change="setSelectedResume(r.id, $event.target.checked)">
+              </td>
+              <td class="px-4 py-3 text-sm text-gray-500">{{ (page - 1) * pageSize + i + 1 }}</td>
               <td class="px-4 py-3 font-medium text-sm">{{ r.name || '未命名' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.target_position || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.education || '-' }}</td>
@@ -480,7 +591,26 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         </div>
       </div>
 
-      <p class="text-sm text-gray-500 mt-4">共 {{ resumeList.length }} 条</p>
+      <div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
+        <div class="flex items-center gap-3">
+          <span>共 {{ resumeList.length }} 条</span>
+          <select class="border border-gray-200 rounded-lg px-2 py-1 bg-white" :value="pageSize" @change="changePageSize($event.target.value)">
+            <option :value="10">10 条/页</option>
+            <option :value="20">20 条/页</option>
+            <option :value="50">50 条/页</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-1">
+          <button class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed" :disabled="page <= 1" @click="setPage(page - 1)">上一页</button>
+          <button
+            v-for="p in visiblePages"
+            :key="p"
+            :class="['min-w-8 px-3 py-1.5 rounded-lg border text-sm', p === page ? 'border-[#1677ff] bg-blue-50 text-[#1677ff]' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50']"
+            @click="setPage(p)"
+          >{{ p }}</button>
+          <button class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed" :disabled="page >= totalPages" @click="setPage(page + 1)">下一页</button>
+        </div>
+      </div>
     </main>
 
     <!-- 查看简历弹窗 - 左右分栏 -->
@@ -708,7 +838,10 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         <div class="px-6 py-5 border-b flex items-center justify-between">
           <div>
             <h3 class="text-lg font-bold text-gray-900">选择面试流程</h3>
-            <p class="text-sm text-gray-500 mt-1">{{ workflowResume?.name || '候选人' }} · {{ workflowResume?.jd_name || workflowResume?.target_position || '待定岗位' }}</p>
+            <p class="text-sm text-gray-500 mt-1">
+              <template v-if="workflowBatchMode">已选择 {{ selectedResumes.length }} 份简历，将为解析成功的简历创建流程</template>
+              <template v-else>{{ workflowResume?.name || '候选人' }} · {{ workflowResume?.jd_name || workflowResume?.target_position || '待定岗位' }}</template>
+            </p>
           </div>
           <button class="text-gray-300 hover:text-gray-500" @click="showWorkflowPicker = false"><i class="fa fa-times text-lg"></i></button>
         </div>

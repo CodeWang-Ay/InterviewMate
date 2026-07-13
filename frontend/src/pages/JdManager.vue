@@ -15,6 +15,9 @@ const viewingJd = ref(null)
 const page = ref(1)
 const total = ref(0)
 const pageSize = ref(10)
+const batchMode = ref(false)
+const selectedJdIds = ref(new Set())
+const batchWorking = ref(false)
 
 const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '' })
 
@@ -57,6 +60,24 @@ function onSearchChange() { clearTimeout(searchTimer); searchTimer = setTimeout(
 
 const categories = computed(() => [...new Set(jdList.value.map(j => j.category))].filter(Boolean))
 const locations = computed(() => [...new Set(jdList.value.map(j => j.location))].filter(Boolean))
+const selectedJds = computed(() => jdList.value.filter(jd => selectedJdIds.value.has(jd.id)))
+const allSelected = computed(() => jdList.value.length > 0 && jdList.value.every(jd => selectedJdIds.value.has(jd.id)))
+
+function setSelectedJd(jdId, value) {
+  const next = new Set(selectedJdIds.value)
+  if (value) next.add(jdId)
+  else next.delete(jdId)
+  selectedJdIds.value = next
+}
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  selectedJdIds.value = new Set()
+}
+
+function toggleSelectAll() {
+  selectedJdIds.value = allSelected.value ? new Set() : new Set(jdList.value.map(jd => jd.id))
+}
 
 function openCreate() {
   editingJd.value = null
@@ -92,6 +113,37 @@ async function removeJd(jd) {
   await fetchJds()
 }
 
+async function updateSelectedStatus(status) {
+  const targets = selectedJds.value
+  if (!targets.length) return
+  batchWorking.value = true
+  for (const jd of targets) {
+    await fetch(`/api/jds/${jd.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }).catch(() => {})
+  }
+  selectedJdIds.value = new Set()
+  batchWorking.value = false
+  await fetchStats()
+  await fetchJds()
+}
+
+async function deleteSelectedJds() {
+  const targets = selectedJds.value
+  if (!targets.length) return
+  if (!confirm(`确认删除选中的 ${targets.length} 个岗位 JD？`)) return
+  batchWorking.value = true
+  for (const jd of targets) {
+    await fetch(`/api/jds/${jd.id}`, { method: 'DELETE' }).catch(() => {})
+  }
+  selectedJdIds.value = new Set()
+  batchWorking.value = false
+  await fetchStats()
+  await fetchJds()
+}
+
 function resetFilters() {
   searchText.value = ''; filterCategory.value = ''; filterStatus.value = ''; filterLocation.value = ''; filterRecruitment.value = ''
   page.value = 1
@@ -119,9 +171,29 @@ function changePageSize(size) {
     <main class="flex-1 overflow-auto p-6">
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-2xl font-bold text-gray-900">岗位 JD 管理</h2>
-        <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 transition text-sm" @click="openCreate">
-          <i class="fa fa-plus"></i> 新增岗位JD
-        </button>
+        <div class="flex items-center gap-3">
+          <button
+            :class="['px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm border', batchMode ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50']"
+            @click="toggleBatchMode"
+          >
+            <i class="fa fa-check-square-o"></i>{{ batchMode ? '退出批量' : '批量管理' }}
+          </button>
+          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 transition text-sm" @click="openCreate">
+            <i class="fa fa-plus"></i> 新增岗位JD
+          </button>
+        </div>
+      </div>
+
+      <div v-if="batchMode" class="bg-white rounded-xl p-4 shadow-sm mb-6 border border-orange-100 flex flex-wrap items-center justify-between gap-3">
+        <div class="text-sm text-gray-600">
+          已选择 <span class="font-semibold text-orange-600">{{ selectedJds.length }}</span> 个岗位 JD
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50" @click="toggleSelectAll">{{ allSelected ? '取消全选' : '全选当前页' }}</button>
+          <button class="px-3 py-2 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedJds.length" @click="updateSelectedStatus('enable')"><i class="fa fa-check-circle mr-1"></i>批量启用</button>
+          <button class="px-3 py-2 rounded-lg border border-orange-200 text-orange-600 text-sm hover:bg-orange-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedJds.length" @click="updateSelectedStatus('disable')"><i class="fa fa-pause-circle mr-1"></i>批量停用</button>
+          <button class="px-3 py-2 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedJds.length" @click="deleteSelectedJds"><i class="fa fa-trash-o mr-1"></i>批量删除</button>
+        </div>
       </div>
 
       <!-- 统计卡片 -->
@@ -184,6 +256,9 @@ function changePageSize(size) {
         <table v-else class="w-full">
           <thead class="bg-gray-50">
             <tr>
+              <th v-if="batchMode" class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-10">
+                <input type="checkbox" :checked="allSelected" @change="toggleSelectAll">
+              </th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm w-8">#</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">岗位名称</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">岗位类别</th>
@@ -196,6 +271,9 @@ function changePageSize(size) {
           </thead>
           <tbody class="divide-y divide-gray-100">
             <tr v-for="(jd, i) in jdList" :key="jd.id" class="hover:bg-gray-50">
+              <td v-if="batchMode" class="px-4 py-3 text-center">
+                <input type="checkbox" :checked="selectedJdIds.has(jd.id)" @change="setSelectedJd(jd.id, $event.target.checked)">
+              </td>
               <td class="px-4 py-3 text-sm text-gray-500">{{ i + 1 }}</td>
               <td class="px-4 py-3 font-medium text-sm">{{ jd.name }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ jd.category }}</td>
