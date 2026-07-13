@@ -14,6 +14,7 @@ from backend.controllers.plan_controller import router as plan_router
 from backend.controllers.record_controller import router as record_router
 from backend.controllers.auth_controller import router as auth_router
 from backend.controllers.interviewer_training_controller import router as interviewer_training_router
+from backend.controllers.assistant_controller import router as assistant_router
 from backend.repositories.admin_repo import init_db as init_admin_db
 from backend.repositories.candidate_repo import init_db as init_candidate_db
 from backend.repositories.jd_repo import init_db as init_jd_db
@@ -40,6 +41,7 @@ app.include_router(plan_router)
 app.include_router(record_router)
 app.include_router(auth_router)
 app.include_router(interviewer_training_router)
+app.include_router(assistant_router)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")

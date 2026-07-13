@@ -35,3 +35,13 @@ class InterviewerTrainingStart(BaseModel):
 class InterviewerTrainingMessage(BaseModel):
     session_id: str
     message: str
+
+
+class AssistantHistoryItem(BaseModel):
+    role: str
+    content: str
+
+
+class AssistantChatBody(BaseModel):
+    message: str
+    history: list[AssistantHistoryItem] = []
