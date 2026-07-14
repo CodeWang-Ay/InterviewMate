@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import Sidebar from '../components/Sidebar.vue'
 
 const mode = ref('score')
+const sourceType = ref('upload')
 const selectedFile = ref(null)
 const selectedFileName = ref('')
 const running = ref(false)
@@ -10,6 +11,9 @@ const result = ref(null)
 const rawPreview = ref('')
 const selectedJdId = ref('')
 const jdOptions = ref([])
+const resumeOptions = ref([])
+const selectedResumeId = ref('')
+const selectedResume = computed(() => resumeOptions.value.find(item => String(item.id) === String(selectedResumeId.value)) || null)
 
 const acceptedFormats = '.pdf,.docx,.txt,.md'
 const hasResult = computed(() => Boolean(result.value))
@@ -30,6 +34,17 @@ async function loadJds() {
   }
 }
 
+async function loadParsedResumes() {
+  try {
+    const res = await fetch('/api/resumes?parse_status=success')
+    if (!res.ok) return
+    const data = await res.json()
+    resumeOptions.value = Array.isArray(data) ? data : []
+  } catch (_) {
+    resumeOptions.value = []
+  }
+}
+
 function onFileChange(event) {
   const file = event.target?.files?.[0]
   selectedFile.value = file || null
@@ -39,22 +54,42 @@ function onFileChange(event) {
 }
 
 async function runTool() {
-  if (!selectedFile.value || running.value) return
+  if (running.value) return
+  if (sourceType.value === 'upload' && !selectedFile.value) return
+  if (sourceType.value === 'library' && !selectedResume.value) return
   running.value = true
   result.value = null
   rawPreview.value = ''
   try {
-    const formData = new FormData()
-    formData.append('file', selectedFile.value)
-    if (selectedJdId.value) formData.append('jd_id', selectedJdId.value)
-    if (mode.value === 'polish') formData.append('mode', selectedJdId.value ? 'jd' : 'general')
+    if (sourceType.value === 'upload') {
+      const formData = new FormData()
+      formData.append('file', selectedFile.value)
+      if (selectedJdId.value) formData.append('jd_id', selectedJdId.value)
+      if (mode.value === 'polish') formData.append('mode', selectedJdId.value ? 'jd' : 'general')
 
-    const endpoint = mode.value === 'score' ? '/api/ai-tools/resume/score' : '/api/ai-tools/resume/polish'
-    const res = await fetch(endpoint, { method: 'POST', body: formData })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.detail || `${modeTitle.value}失败`)
-    result.value = data.result
-    rawPreview.value = data.raw || ''
+      const endpoint = mode.value === 'score' ? '/api/ai-tools/resume/score' : '/api/ai-tools/resume/polish'
+      const res = await fetch(endpoint, { method: 'POST', body: formData })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `${modeTitle.value}失败`)
+      result.value = data.result
+      rawPreview.value = data.raw || ''
+    } else {
+      const endpoint = mode.value === 'score'
+        ? `/api/resumes/${selectedResume.value.id}/score`
+        : `/api/resumes/${selectedResume.value.id}/polish`
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jd_id: selectedJdId.value || selectedResume.value.jd_id || null,
+          mode: mode.value === 'polish' ? (selectedJdId.value || selectedResume.value.jd_id ? 'jd' : 'general') : 'jd',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `${modeTitle.value}失败`)
+      result.value = data
+      rawPreview.value = ''
+    }
   } catch (err) {
     alert(err.message || `${modeTitle.value}失败`)
   } finally {
@@ -78,7 +113,21 @@ async function copyText(text) {
   }
 }
 
-onMounted(loadJds)
+function switchSource(next) {
+  sourceType.value = next
+  result.value = null
+  rawPreview.value = ''
+}
+
+function switchMode(next) {
+  mode.value = next
+  result.value = null
+}
+
+onMounted(() => {
+  loadJds()
+  loadParsedResumes()
+})
 </script>
 
 <template>
@@ -142,14 +191,29 @@ onMounted(loadJds)
           <section class="rounded-[28px] border border-[#dce7fb] bg-white px-6 py-6 shadow-[0_14px_36px_rgba(80,112,178,0.10)]">
             <div class="inline-flex p-1 rounded-xl bg-[#f3f7ff] border border-[#dce7fb]">
               <button
+                :class="['px-4 py-2 rounded-lg text-sm font-medium transition', sourceType === 'upload' ? 'bg-white text-[#2f6df6] shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+                @click="switchSource('upload')"
+              >
+                <i class="fa fa-upload mr-1"></i>临时上传
+              </button>
+              <button
+                :class="['px-4 py-2 rounded-lg text-sm font-medium transition', sourceType === 'library' ? 'bg-white text-[#2f6df6] shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+                @click="switchSource('library')"
+              >
+                <i class="fa fa-database mr-1"></i>从简历库选择
+              </button>
+            </div>
+
+            <div class="mt-4 inline-flex p-1 rounded-xl bg-[#f3f7ff] border border-[#dce7fb]">
+              <button
                 :class="['px-4 py-2 rounded-lg text-sm font-medium transition', mode === 'score' ? 'bg-white text-[#d97706] shadow-sm' : 'text-gray-500 hover:text-gray-700']"
-                @click="mode = 'score'; result = null"
+                @click="switchMode('score')"
               >
                 <i class="fa fa-star-o mr-1"></i>简历打分
               </button>
               <button
                 :class="['px-4 py-2 rounded-lg text-sm font-medium transition', mode === 'polish' ? 'bg-white text-[#0891b2] shadow-sm' : 'text-gray-500 hover:text-gray-700']"
-                @click="mode = 'polish'; result = null"
+                @click="switchMode('polish')"
               >
                 <i class="fa fa-magic mr-1"></i>简历润色
               </button>
@@ -158,7 +222,7 @@ onMounted(loadJds)
             <div class="mt-6 rounded-[26px] border border-dashed border-[#b8ccf5] bg-[#f8fbff] p-6">
               <div class="flex items-center gap-4">
                 <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[#2f6df6] shadow-sm">
-                  <i class="fa fa-upload text-xl"></i>
+                  <i :class="['fa text-xl', sourceType === 'upload' ? 'fa-upload' : 'fa-database']"></i>
                 </div>
                 <div>
                   <div class="text-lg font-semibold text-[#18233e]">{{ modeTitle }}</div>
@@ -166,7 +230,7 @@ onMounted(loadJds)
                 </div>
               </div>
 
-              <label class="mt-6 block cursor-pointer rounded-2xl border border-[#dce7fb] bg-white px-5 py-5 transition hover:border-[#95b5ff] hover:bg-[#fbfdff]">
+              <label v-if="sourceType === 'upload'" class="mt-6 block cursor-pointer rounded-2xl border border-[#dce7fb] bg-white px-5 py-5 transition hover:border-[#95b5ff] hover:bg-[#fbfdff]">
                 <div class="flex items-center justify-between gap-4">
                   <div>
                     <div class="text-sm font-semibold text-[#1d2941]">上传简历文件</div>
@@ -177,6 +241,25 @@ onMounted(loadJds)
                 <input type="file" class="hidden" :accept="acceptedFormats" @change="onFileChange" />
               </label>
 
+              <div v-else class="mt-6 rounded-2xl border border-[#dce7fb] bg-white px-5 py-5">
+                <label class="block text-sm font-semibold text-[#1d2941] mb-2">选择已解析简历</label>
+                <select v-model="selectedResumeId" class="w-full rounded-2xl border border-[#dce7fb] bg-white px-4 py-3 text-sm text-[#1d2941] outline-none focus:border-[#2f6df6]">
+                  <option value="">请选择一份解析成功的简历</option>
+                  <option v-for="resume in resumeOptions" :key="resume.id" :value="resume.id">
+                    {{ resume.name || '未命名候选人' }} · {{ resume.target_position || '未填写岗位' }} · {{ resume.jd_name || '未关联 JD' }}
+                  </option>
+                </select>
+                <div v-if="selectedResume" class="mt-4 rounded-2xl bg-[#f8fbff] px-4 py-4">
+                  <div class="text-sm font-semibold text-[#1d2941]">{{ selectedResume.name || '未命名候选人' }}</div>
+                  <div class="mt-1 text-sm text-[#71819d]">{{ selectedResume.target_position || '未填写意向岗位' }}</div>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-white px-3 py-1 text-xs text-[#5f708f] border border-[#dce7fb]">{{ selectedResume.education || '学历待补充' }}</span>
+                    <span class="rounded-full bg-white px-3 py-1 text-xs text-[#5f708f] border border-[#dce7fb]">{{ selectedResume.jd_name || '未关联 JD' }}</span>
+                    <span class="rounded-full bg-white px-3 py-1 text-xs text-[#5f708f] border border-[#dce7fb]">{{ selectedResume.skills || '暂无技能标签' }}</span>
+                  </div>
+                </div>
+              </div>
+
               <div class="mt-5">
                 <label class="block text-sm font-semibold text-[#1d2941] mb-2">目标岗位 JD（可选）</label>
                 <select v-model="selectedJdId" class="w-full rounded-2xl border border-[#dce7fb] bg-white px-4 py-3 text-sm text-[#1d2941] outline-none focus:border-[#2f6df6]">
@@ -186,7 +269,7 @@ onMounted(loadJds)
               </div>
 
               <button
-                :disabled="!selectedFile || running"
+                :disabled="(sourceType === 'upload' ? !selectedFile : !selectedResume) || running"
                 class="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#17305f_0%,#2f6df6_100%)] px-5 py-4 text-base font-semibold text-white transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-45"
                 @click="runTool"
               >
