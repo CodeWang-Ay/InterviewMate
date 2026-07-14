@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
@@ -9,9 +9,28 @@ const loading = ref(false)
 const input = ref('')
 const messages = ref([])
 const scrollBox = ref(null)
+const floatingShell = ref(null)
+const dragState = ref({
+  active: false,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  originX: 0,
+  originY: 0,
+  moved: false,
+})
+const suppressBubbleClick = ref(false)
+const floatingPosition = ref({ x: 0, y: 0, ready: false })
 
 const hiddenPaths = ['/login', '/user/login', '/register']
 const isVisible = computed(() => !hiddenPaths.includes(route.path))
+const floatingStyle = computed(() => {
+  if (isExpanded.value || !floatingPosition.value.ready) return {}
+  return {
+    left: `${floatingPosition.value.x}px`,
+    top: `${floatingPosition.value.y}px`,
+  }
+})
 
 const currentRole = computed(() => {
   try {
@@ -22,6 +41,7 @@ const currentRole = computed(() => {
 })
 
 const storageKey = computed(() => `ai-assistant-history:${currentRole.value}`)
+const positionStorageKey = 'ai-assistant-floating-position'
 const panelTitle = computed(() => currentRole.value === 'candidate' ? '面试者 AI 助手' : 'AI 聊天助手')
 const panelSubtitle = computed(() => currentRole.value === 'candidate' ? '聊聊天，或者问问当前面试与流程问题。' : '平时闲聊、梳理想法、顺手问系统问题都可以。')
 const decoder = new TextDecoder('utf-8')
@@ -289,6 +309,111 @@ function onKeydown(event) {
   }
 }
 
+function saveFloatingPosition() {
+  try {
+    if (!floatingPosition.value.ready) return
+    window.localStorage?.setItem(positionStorageKey, JSON.stringify({
+      x: floatingPosition.value.x,
+      y: floatingPosition.value.y,
+    }))
+  } catch (_) {
+    // ignore
+  }
+}
+
+function clampFloatingPosition(x, y) {
+  const shell = floatingShell.value
+  const width = shell?.offsetWidth || 320
+  const height = shell?.offsetHeight || 72
+  const maxX = Math.max(16, window.innerWidth - width - 16)
+  const maxY = Math.max(16, window.innerHeight - height - 16)
+  return {
+    x: Math.min(Math.max(16, x), maxX),
+    y: Math.min(Math.max(16, y), maxY),
+  }
+}
+
+function ensureFloatingPosition() {
+  if (isExpanded.value) return
+  let next = null
+  if (!floatingPosition.value.ready) {
+    try {
+      const raw = window.localStorage?.getItem(positionStorageKey)
+      next = raw ? JSON.parse(raw) : null
+    } catch (_) {
+      next = null
+    }
+  } else {
+    next = floatingPosition.value
+  }
+
+  const fallbackWidth = 320
+  const fallbackHeight = 72
+  const baseX = typeof next?.x === 'number' ? next.x : window.innerWidth - fallbackWidth - 20
+  const baseY = typeof next?.y === 'number' ? next.y : window.innerHeight - fallbackHeight - 20
+  const clamped = clampFloatingPosition(baseX, baseY)
+  floatingPosition.value = { ...clamped, ready: true }
+  saveFloatingPosition()
+}
+
+function stopDrag() {
+  dragState.value = {
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    originX: 0,
+    originY: 0,
+    moved: false,
+  }
+}
+
+function onDragPointerDown(event) {
+  if (isExpanded.value || event.button !== 0) return
+  ensureFloatingPosition()
+  dragState.value = {
+    active: true,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: floatingPosition.value.x,
+    originY: floatingPosition.value.y,
+    moved: false,
+  }
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
+}
+
+function onDragPointerMove(event) {
+  if (!dragState.value.active || dragState.value.pointerId !== event.pointerId || isExpanded.value) return
+  const dx = event.clientX - dragState.value.startX
+  const dy = event.clientY - dragState.value.startY
+  if (!dragState.value.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+    dragState.value.moved = true
+  }
+  const next = clampFloatingPosition(dragState.value.originX + dx, dragState.value.originY + dy)
+  floatingPosition.value = { ...next, ready: true }
+}
+
+function onDragPointerUp(event) {
+  if (dragState.value.pointerId !== event.pointerId) return
+  suppressBubbleClick.value = dragState.value.moved
+  saveFloatingPosition()
+  stopDrag()
+}
+
+function toggleOpenFromBubble() {
+  if (suppressBubbleClick.value) {
+    suppressBubbleClick.value = false
+    return
+  }
+  isOpen.value = !isOpen.value
+}
+
+function handleWindowResize() {
+  if (!floatingPosition.value.ready || isExpanded.value) return
+  ensureFloatingPosition()
+}
+
 watch(storageKey, () => {
   loadHistory()
 })
@@ -304,11 +429,22 @@ watch(isOpen, async (value) => {
 
 onMounted(() => {
   loadHistory()
+  nextTick(() => ensureFloatingPosition())
+  window.addEventListener('resize', handleWindowResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleWindowResize)
 })
 </script>
 
 <template>
-  <div v-if="isVisible" :class="isExpanded ? 'fixed inset-0 z-[80]' : 'fixed bottom-5 right-5 z-[70]'">
+  <div
+    v-if="isVisible"
+    ref="floatingShell"
+    :class="isExpanded ? 'fixed inset-0 z-[80]' : 'fixed z-[70]'"
+    :style="floatingStyle"
+  >
     <div
       v-if="isOpen && isExpanded"
       class="absolute inset-0 bg-[rgba(12,22,42,0.20)]"
@@ -328,7 +464,7 @@ onMounted(() => {
           'overflow-hidden border border-[#d8e6ff] bg-white shadow-[0_30px_80px_rgba(27,61,139,0.20)]',
           isExpanded
             ? 'absolute inset-0 flex h-screen w-screen rounded-none border-0'
-            : 'mb-4 w-[380px] max-w-[calc(100vw-24px)] rounded-[30px]'
+            : 'absolute bottom-[calc(100%+16px)] left-0 w-[380px] max-w-[calc(100vw-24px)] rounded-[30px]'
         ]"
       >
         <div v-if="isExpanded" class="hidden w-[320px] flex-col border-r border-[#e7eefc] bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_100%)] xl:flex">
@@ -365,7 +501,16 @@ onMounted(() => {
         </div>
 
         <div :class="isExpanded ? 'flex min-w-0 flex-1 flex-col' : ''">
-        <div class="bg-[linear-gradient(135deg,#17305f_0%,#2f6df6_100%)] px-5 py-5 text-white">
+        <div
+          :class="[
+            'bg-[linear-gradient(135deg,#17305f_0%,#2f6df6_100%)] px-5 py-5 text-white',
+            isExpanded ? '' : 'cursor-grab active:cursor-grabbing select-none'
+          ]"
+          @pointerdown="onDragPointerDown"
+          @pointermove="onDragPointerMove"
+          @pointerup="onDragPointerUp"
+          @pointercancel="onDragPointerUp"
+        >
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="inline-flex items-center gap-2 rounded-full bg-white/14 px-3 py-1.5 text-xs font-semibold tracking-[0.08em] text-white/92">
@@ -497,8 +642,13 @@ onMounted(() => {
 
     <button
       v-if="!isExpanded"
-      class="group flex h-16 items-center gap-3 rounded-full border border-[#d7e4ff] bg-white px-4 pr-5 shadow-[0_20px_50px_rgba(33,84,197,0.18)] transition hover:translate-y-[-1px] hover:shadow-[0_24px_60px_rgba(33,84,197,0.22)]"
-      @click="isOpen = !isOpen"
+      class="group flex h-16 items-center gap-3 rounded-full border border-[#d7e4ff] bg-white px-4 pr-5 shadow-[0_20px_50px_rgba(33,84,197,0.18)] transition hover:translate-y-[-1px] hover:shadow-[0_24px_60px_rgba(33,84,197,0.22)] select-none"
+      :class="dragState.active ? 'cursor-grabbing' : 'cursor-grab'"
+      @pointerdown="onDragPointerDown"
+      @pointermove="onDragPointerMove"
+      @pointerup="onDragPointerUp"
+      @pointercancel="onDragPointerUp"
+      @click="toggleOpenFromBubble"
     >
       <span class="flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,#17305f_0%,#2f6df6_100%)] text-white shadow-sm">
         <i class="fa fa-commenting-o text-lg"></i>
@@ -506,6 +656,9 @@ onMounted(() => {
       <span class="flex flex-col items-start">
         <span class="text-sm font-semibold text-[#1f2b45]">AI 助手</span>
         <span class="text-xs text-[#8e9bb0]">{{ isOpen ? '收起聊天窗口' : '点我随便聊聊' }}</span>
+      </span>
+      <span class="ml-1 flex h-9 w-9 items-center justify-center rounded-full bg-[#f5f8ff] text-[#6d7fa2]">
+        <i class="fa fa-arrows text-sm"></i>
       </span>
     </button>
   </div>

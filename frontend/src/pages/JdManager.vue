@@ -18,6 +18,7 @@ const pageSize = ref(10)
 const batchMode = ref(false)
 const selectedJdIds = ref(new Set())
 const batchWorking = ref(false)
+const viewMode = ref('list')
 
 const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '' })
 
@@ -62,6 +63,23 @@ const categories = computed(() => [...new Set(jdList.value.map(j => j.category))
 const locations = computed(() => [...new Set(jdList.value.map(j => j.location))].filter(Boolean))
 const selectedJds = computed(() => jdList.value.filter(jd => selectedJdIds.value.has(jd.id)))
 const allSelected = computed(() => jdList.value.length > 0 && jdList.value.every(jd => selectedJdIds.value.has(jd.id)))
+
+function getRecruitmentBadgeClass(type) {
+  return {
+    实习生: 'bg-green-100 text-green-600',
+    校招: 'bg-blue-100 text-blue-600',
+    社招: 'bg-purple-100 text-purple-600',
+  }[type] || 'bg-blue-100 text-blue-600'
+}
+
+function getStatusBadgeClass(status) {
+  return status === 'enable' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'
+}
+
+function getResponsibilityPreview(jd) {
+  const source = (jd.responsibilities || jd.requirements || '').trim()
+  return source ? source.slice(0, 120) + (source.length > 120 ? '...' : '') : '暂未填写岗位职责与要求'
+}
 
 function setSelectedJd(jdId, value) {
   const next = new Set(selectedJdIds.value)
@@ -172,6 +190,22 @@ function changePageSize(size) {
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-2xl font-bold text-gray-900">岗位 JD 管理</h2>
         <div class="flex items-center gap-3">
+          <div class="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+            <button
+              :class="['h-9 px-4 rounded-lg text-sm font-medium transition flex items-center gap-2', viewMode === 'list' ? 'bg-[#1677ff] text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']"
+              @click="viewMode = 'list'"
+            >
+              <i class="fa fa-list"></i>
+              <span>列表模式</span>
+            </button>
+            <button
+              :class="['h-9 px-4 rounded-lg text-sm font-medium transition flex items-center gap-2', viewMode === 'card' ? 'bg-[#1677ff] text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']"
+              @click="viewMode = 'card'"
+            >
+              <i class="fa fa-th-large"></i>
+              <span>卡片模式</span>
+            </button>
+          </div>
           <button
             :class="['px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm border', batchMode ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50']"
             @click="toggleBatchMode"
@@ -250,8 +284,8 @@ function changePageSize(size) {
         </div>
       </div>
 
-      <!-- JD 表格 -->
-      <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <!-- JD 内容区 -->
+      <div v-if="viewMode === 'list'" class="bg-white rounded-xl shadow-sm overflow-hidden">
         <div v-if="loading" class="text-center py-12 text-gray-400"><i class="fa fa-spinner fa-spin text-2xl mb-2 block"></i>加载中...</div>
         <table v-else class="w-full">
           <thead class="bg-gray-50">
@@ -278,12 +312,12 @@ function changePageSize(size) {
               <td class="px-4 py-3 font-medium text-sm">{{ jd.name }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ jd.category }}</td>
               <td class="px-4 py-3 text-sm">
-                <span :class="{'实习生':'bg-green-100 text-green-600','校招':'bg-blue-100 text-blue-600','社招':'bg-purple-100 text-purple-600'}[jd.recruitment_type] || 'bg-blue-100 text-blue-600'" class="px-2 py-0.5 text-xs rounded font-medium">{{ jd.recruitment_type || '社招' }}</span>
+                <span :class="getRecruitmentBadgeClass(jd.recruitment_type)" class="px-2 py-0.5 text-xs rounded font-medium">{{ jd.recruitment_type || '社招' }}</span>
               </td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ jd.experience_required || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ jd.location }}</td>
               <td class="px-4 py-3">
-                <span :class="jd.status === 'enable' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'" class="px-2 py-1 text-xs rounded">{{ jd.status === 'enable' ? '启用' : '停用' }}</span>
+                <span :class="getStatusBadgeClass(jd.status)" class="px-2 py-1 text-xs rounded">{{ jd.status === 'enable' ? '启用' : '停用' }}</span>
               </td>
               <td class="px-4 py-3 text-center">
                 <div class="flex items-center justify-center gap-1">
@@ -296,6 +330,61 @@ function changePageSize(size) {
           </tbody>
         </table>
         <div v-if="!loading && !jdList.length" class="text-center py-12 text-gray-400"><i class="fa fa-inbox text-3xl mb-2 block"></i>暂无匹配的岗位 JD</div>
+      </div>
+
+      <div v-else>
+        <div v-if="loading" class="bg-white rounded-xl shadow-sm text-center py-12 text-gray-400"><i class="fa fa-spinner fa-spin text-2xl mb-2 block"></i>加载中...</div>
+        <div v-else-if="jdList.length" class="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-5">
+          <article
+            v-for="jd in jdList"
+            :key="jd.id"
+            class="group rounded-2xl border border-[#e5ecf7] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(27,76,173,0.10)]"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex items-start gap-3 min-w-0">
+                <label v-if="batchMode" class="pt-1">
+                  <input type="checkbox" :checked="selectedJdIds.has(jd.id)" @change="setSelectedJd(jd.id, $event.target.checked)">
+                </label>
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="text-lg font-semibold text-[#18233e] break-all">{{ jd.name }}</h3>
+                    <span :class="getStatusBadgeClass(jd.status)" class="px-2.5 py-1 text-xs rounded-full font-medium">{{ jd.status === 'enable' ? '启用中' : '已停用' }}</span>
+                  </div>
+                  <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#70809c]">
+                    <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1">{{ jd.category || '未分类' }}</span>
+                    <span :class="getRecruitmentBadgeClass(jd.recruitment_type)" class="rounded-full px-2.5 py-1 font-medium">{{ jd.recruitment_type || '社招' }}</span>
+                    <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1">{{ jd.location || '地点未填' }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewJd(jd)"><i class="fa fa-eye"></i></button>
+                <button class="w-9 h-9 rounded-xl text-gray-500 hover:bg-gray-100 transition flex items-center justify-center" title="编辑" @click="openEdit(jd)"><i class="fa fa-pencil"></i></button>
+                <button class="w-9 h-9 rounded-xl text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeJd(jd)"><i class="fa fa-trash-o"></i></button>
+              </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-3">
+              <div class="rounded-xl border border-[#edf2fb] bg-[#fbfcff] px-3 py-3">
+                <div class="text-xs text-[#8a97b0]">经验要求</div>
+                <div class="mt-1 text-sm font-medium text-[#22304c]">{{ jd.experience_required || '不限 / 未填写' }}</div>
+              </div>
+              <div class="rounded-xl border border-[#edf2fb] bg-[#fbfcff] px-3 py-3">
+                <div class="text-xs text-[#8a97b0]">岗位编号</div>
+                <div class="mt-1 text-sm font-medium text-[#22304c]">JD-{{ jd.id }}</div>
+              </div>
+            </div>
+
+            <div class="mt-4 rounded-2xl border border-[#edf2fb] bg-[#fcfdff] px-4 py-4">
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold text-[#1d2941]">岗位摘要</div>
+                <span class="text-xs text-[#95a1b7]">职责 / 要求</span>
+              </div>
+              <p class="mt-2 text-sm leading-6 text-[#5d6c87]">{{ getResponsibilityPreview(jd) }}</p>
+            </div>
+          </article>
+        </div>
+        <div v-else class="bg-white rounded-xl shadow-sm text-center py-12 text-gray-400"><i class="fa fa-inbox text-3xl mb-2 block"></i>暂无匹配的岗位 JD</div>
       </div>
 
       <!-- 分页 -->
@@ -367,7 +456,7 @@ function changePageSize(size) {
           <div class="flex gap-4 text-sm text-gray-500">
             <span><i class="fa fa-tag mr-1"></i>{{ viewingJd.category || '-' }}</span>
             <span><i class="fa fa-map-marker mr-1"></i>{{ viewingJd.location || '-' }}</span>
-            <span :class="{'实习生':'bg-green-100 text-green-600','校招':'bg-blue-100 text-blue-600','社招':'bg-purple-100 text-purple-600'}[viewingJd.recruitment_type]" class="px-2 py-0.5 text-xs rounded font-medium">{{ viewingJd.recruitment_type || '社招' }}</span>
+            <span :class="getRecruitmentBadgeClass(viewingJd.recruitment_type)" class="px-2 py-0.5 text-xs rounded font-medium">{{ viewingJd.recruitment_type || '社招' }}</span>
             <span class="text-gray-500">{{ viewingJd.experience_required ? viewingJd.experience_required + ' 经验' : '' }}</span>
           </div>
           <div>

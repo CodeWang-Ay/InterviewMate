@@ -29,6 +29,7 @@ const selectedResumeIds = ref(new Set())
 const batchWorking = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
+const viewMode = ref('list')
 
 const workflowTemplates = [
   {
@@ -389,6 +390,27 @@ function formatEducationSummary(eduList) {
   return [first.学位 || first.学历, first.学校].filter(Boolean).join(' | ')
 }
 
+function getSkillTags(skills) {
+  return String(skills || '')
+    .split(/[、,，/|]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+}
+
+function getResumeHeadline(resume) {
+  return resume.target_position || resume.jd_name || '待定岗位'
+}
+
+function getResumeSummary(resume) {
+  const parts = [
+    resume.education,
+    resume.experience_years,
+    resume.jd_name,
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '等待补充简历概览信息'
+}
+
 async function saveResumeEdit() {
   if (!viewingResume.value) return
   savingResume.value = true
@@ -466,6 +488,22 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-2xl font-bold text-gray-900">简历管理</h2>
         <div class="flex items-center gap-3">
+          <div class="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+            <button
+              :class="['h-9 px-4 rounded-lg text-sm font-medium transition flex items-center gap-2', viewMode === 'list' ? 'bg-[#1677ff] text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']"
+              @click="viewMode = 'list'"
+            >
+              <i class="fa fa-list"></i>
+              <span>列表模式</span>
+            </button>
+            <button
+              :class="['h-9 px-4 rounded-lg text-sm font-medium transition flex items-center gap-2', viewMode === 'card' ? 'bg-[#1677ff] text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50']"
+              @click="viewMode = 'card'"
+            >
+              <i class="fa fa-id-card-o"></i>
+              <span>卡片模式</span>
+            </button>
+          </div>
           <button
             :class="['px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm border', batchMode ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50']"
             @click="toggleBatchMode"
@@ -523,8 +561,8 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         </div>
       </div>
 
-      <!-- 简历表格 -->
-      <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <!-- 简历内容区 -->
+      <div v-if="viewMode === 'list'" class="bg-white rounded-xl shadow-sm overflow-hidden">
         <div v-if="loading" class="text-center py-12 text-gray-400"><i class="fa fa-spinner fa-spin text-2xl mb-2 block"></i>加载中...</div>
         <table v-else class="w-full">
           <thead class="bg-gray-50">
@@ -587,6 +625,100 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
           </tbody>
         </table>
         <div v-if="!loading && !resumeList.length" class="text-center py-12 text-gray-400">
+          <i class="fa fa-inbox text-3xl mb-2 block"></i>暂无简历，请上传
+        </div>
+      </div>
+
+      <div v-else>
+        <div v-if="loading" class="bg-white rounded-xl shadow-sm text-center py-12 text-gray-400">
+          <i class="fa fa-spinner fa-spin text-2xl mb-2 block"></i>加载中...
+        </div>
+        <div v-else-if="pagedResumeList.length" class="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-5">
+          <article
+            v-for="r in pagedResumeList"
+            :key="r.id"
+            class="group rounded-2xl border border-[#e6edf9] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(27,76,173,0.10)]"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex items-start gap-3 min-w-0">
+                <label v-if="batchMode" class="pt-1">
+                  <input type="checkbox" :checked="selectedResumeIds.has(r.id)" @change="setSelectedResume(r.id, $event.target.checked)">
+                </label>
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#eaf2ff_0%,#f5f8ff_100%)] text-[#2f6df6]">
+                  <i class="fa fa-user-o text-lg"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="text-lg font-semibold text-[#18233e] break-all">{{ r.name || '未命名候选人' }}</h3>
+                    <span :class="['px-2.5 py-1 text-xs rounded-full font-medium', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
+                  </div>
+                  <div class="mt-1 text-sm font-medium text-[#4f6488]">{{ getResumeHeadline(r) }}</div>
+                  <div class="mt-2 text-xs text-[#7c89a2]">{{ getResumeSummary(r) }}</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewResume(r)"><i class="fa fa-eye"></i></button>
+                <button
+                  class="w-9 h-9 rounded-xl text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
+                  :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
+                  :title="r.parse_status === 'success' ? '重新解析简历' : '解析简历'"
+                  @click="parseResume(r.id)"
+                >
+                  <i :class="['fa', parsingIds.has(r.id) ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
+                </button>
+                <button class="w-9 h-9 rounded-xl text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeResume(r.id, r.name)"><i class="fa fa-trash-o"></i></button>
+              </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-3">
+              <div class="rounded-xl border border-[#edf2fb] bg-[#fbfcff] px-3 py-3">
+                <div class="text-xs text-[#8a97b0]">学历背景</div>
+                <div class="mt-1 text-sm font-medium text-[#22304c]">{{ r.education || '待补充' }}</div>
+              </div>
+              <div class="rounded-xl border border-[#edf2fb] bg-[#fbfcff] px-3 py-3">
+                <div class="text-xs text-[#8a97b0]">工作年限</div>
+                <div class="mt-1 text-sm font-medium text-[#22304c]">{{ r.experience_years || '待识别' }}</div>
+              </div>
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-2">
+              <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1 text-xs text-[#5f708f]">{{ r.jd_name || '未关联 JD' }}</span>
+              <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ r.original_name || r.file_path || '无文件名' }}</span>
+            </div>
+
+            <div class="mt-4 rounded-2xl border border-[#edf2fb] bg-[#fcfdff] px-4 py-4">
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold text-[#1d2941]">技能概览</div>
+                <span class="text-xs text-[#95a1b7]">{{ getSkillTags(r.skills).length ? `${getSkillTags(r.skills).length} 个标签` : '待解析' }}</span>
+              </div>
+              <div v-if="getSkillTags(r.skills).length" class="mt-3 flex flex-wrap gap-2">
+                <span
+                  v-for="tag in getSkillTags(r.skills)"
+                  :key="tag"
+                  class="rounded-full bg-white px-2.5 py-1 text-xs text-[#5f708f] border border-[#dce6f7]"
+                >
+                  {{ tag }}
+                </span>
+              </div>
+              <p v-else class="mt-2 text-sm leading-6 text-[#7f8ca4]">这份简历还没有提取出稳定的技能标签，解析成功后会在这里展示候选人的能力关键词。</p>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between gap-3">
+              <div class="text-xs text-[#8b98af]">简历 ID：{{ r.id }}</div>
+              <button
+                v-if="r.parse_status === 'success'"
+                class="inline-flex items-center gap-2 rounded-xl border border-green-100 bg-green-50 px-3 py-2 text-xs font-medium text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="creatingWorkflow"
+                @click="openWorkflowPicker(r)"
+              >
+                <i class="fa fa-sitemap"></i>
+                <span>创建流程</span>
+              </button>
+              <span v-else class="text-xs text-[#9aa6bc]">解析完成后可创建流程</span>
+            </div>
+          </article>
+        </div>
+        <div v-else class="bg-white rounded-xl shadow-sm text-center py-12 text-gray-400">
           <i class="fa fa-inbox text-3xl mb-2 block"></i>暂无简历，请上传
         </div>
       </div>
