@@ -19,10 +19,8 @@ const pendingFile = ref(null)
 const selectedJdId = ref(0)
 const jdOptions = ref([])
 const uploadInput = ref(null)
-const showBindJdPicker = ref(false)
-const bindingResume = ref(null)
-const bindingJdId = ref(0)
-const bindingJdSaving = ref(false)
+const pendingUploadJdId = ref(0)
+const pendingUploadJdName = ref('')
 const creatingPlanKey = ref('')
 const createdPlan = ref(null)
 const createdWorkflowPlans = computed(() => (createdPlan.value?.plans || []).filter(Boolean))
@@ -83,6 +81,48 @@ const visiblePages = computed(() => {
   const end = Math.min(total, start + 4)
   return Array.from({ length: end - start + 1 }, (_, i) => start + i)
 })
+
+function matchesCurrentFilters(resume) {
+  const search = String(searchText.value || '').trim().toLowerCase()
+  const matchesSearch = !search || [
+    resume.name,
+    resume.skills,
+    resume.target_position,
+    resume.jd_name,
+    resume.original_name,
+  ].some(value => String(value || '').toLowerCase().includes(search))
+
+  const matchesStatus = !filterStatus.value || String(resume.parse_status || '') === String(filterStatus.value)
+  const matchesYears = !filterYears.value || String(resume.experience_years || '') === String(filterYears.value)
+  return matchesSearch && matchesStatus && matchesYears
+}
+
+function insertResumeIntoList(resume) {
+  if (!matchesCurrentFilters(resume)) return
+  const next = [resume, ...resumeList.value.filter(item => item.id !== resume.id)]
+  resumeList.value = next
+}
+
+async function ensureResumeVisible(rid, fallbackResume = null) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const res = await fetch(`/api/resumes/${rid}?_t=${Date.now()}`, { cache: 'no-store' })
+      if (res.ok) {
+        const latest = await res.json()
+        insertResumeIntoList(latest)
+        return latest
+      }
+    } catch (_) {
+      // ignore and retry
+    }
+    if (fallbackResume && attempt === 0) {
+      insertResumeIntoList(fallbackResume)
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 250))
+  }
+  if (fallbackResume) insertResumeIntoList(fallbackResume)
+  return fallbackResume
+}
 
 function getParseProgress(rid) {
   return parseProgressMap.value[rid] || null
@@ -199,6 +239,11 @@ function resetUploadInput() {
   if (uploadInput.value) uploadInput.value.value = ''
 }
 
+function resetPendingUploadJd() {
+  pendingUploadJdId.value = 0
+  pendingUploadJdName.value = ''
+}
+
 function onFileChange(e) {
   const file = e.target?.files?.[0]
   if (file) {
@@ -210,6 +255,7 @@ function onFileChange(e) {
 async function openJdPicker() {
   selectedJdId.value = 0
   pendingFile.value = null
+  resetPendingUploadJd()
   await loadJdOptions()
   showJdPicker.value = true
 }
@@ -226,7 +272,7 @@ async function loadJdOptions() {
 
 async function confirmUpload() {
   if (!pendingFile.value) return
-  if (!(selectedJdId.value > 0)) {
+  if (!(pendingUploadJdId.value > 0)) {
     alert('请先选择一个关联岗位 JD')
     return
   }
@@ -235,67 +281,49 @@ async function confirmUpload() {
   try {
     const fd = new FormData()
     fd.append('file', pendingFile.value)
-    fd.append('jd_id', selectedJdId.value)
+    fd.append('jd_id', pendingUploadJdId.value)
     const uploadRes = await fetch('/api/resumes/upload', { method: 'POST', body: fd })
-    if (!uploadRes.ok) return
+    if (!uploadRes.ok) {
+      const err = await uploadRes.json().catch(() => ({}))
+      alert(err.detail || '上传简历失败')
+      return
+    }
     const resume = await uploadRes.json()
+    await fetch(`/api/resumes/${resume.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jd_id: pendingUploadJdId.value,
+        jd_name: pendingUploadJdName.value,
+      }),
+    }).catch(() => null)
+    const optimisticResume = {
+      ...resume,
+      jd_id: pendingUploadJdId.value,
+      jd_name: pendingUploadJdName.value,
+      parse_status: 'wait',
+    }
+    insertResumeIntoList(optimisticResume)
+    await ensureResumeVisible(resume.id, optimisticResume)
     pendingFile.value = null
+    resetPendingUploadJd()
     resetUploadInput()
     page.value = 1
     await fetchList()
-    // 上传后自动解析
-    startFakeParseProgress(resume.id)
-    const parseRes = await fetch(`/api/resumes/${resume.id}/parse`, { method: 'POST' }).catch(() => null)
-    finishParseProgress(resume.id, Boolean(parseRes?.ok))
-    await fetchList()
   } catch (_) {}
-  uploading.value = false
+  finally {
+    uploading.value = false
+  }
 }
 
 function confirmJdAndChooseFile() {
   if (!(selectedJdId.value > 0)) return
+  const selectedJd = jdOptions.value.find(item => Number(item.id) === Number(selectedJdId.value))
+  pendingUploadJdId.value = Number(selectedJdId.value)
+  pendingUploadJdName.value = selectedJd?.name || ''
   resetUploadInput()
   uploadInput.value?.click()
   showJdPicker.value = false
-}
-
-async function openBindJdPicker(resume) {
-  bindingResume.value = resume
-  bindingJdId.value = Number(resume?.jd_id || 0)
-  await loadJdOptions()
-  showBindJdPicker.value = true
-}
-
-async function confirmBindJd() {
-  if (!bindingResume.value) return
-  bindingJdSaving.value = true
-  try {
-    const jd = jdOptions.value.find(item => Number(item.id) === Number(bindingJdId.value))
-    const res = await fetch(`/api/resumes/${bindingResume.value.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jd_id: bindingJdId.value > 0 ? Number(bindingJdId.value) : null,
-        jd_name: bindingJdId.value > 0 ? (jd?.name || '') : '',
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      alert(err.detail || '关联 JD 失败')
-      return
-    }
-    showBindJdPicker.value = false
-    bindingResume.value = null
-    await fetchList()
-    if (viewingResume.value?.id) {
-      const current = await fetch(`/api/resumes/${viewingResume.value.id}`)
-      if (current.ok) viewingResume.value = await current.json()
-    }
-  } catch (e) {
-    alert('关联 JD 失败: ' + e.message)
-  } finally {
-    bindingJdSaving.value = false
-  }
 }
 
 async function parseResume(rid, refresh = true) {
@@ -783,7 +811,6 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
               <td class="px-4 py-3 text-center">
                 <div class="flex items-center justify-center gap-2">
                   <button class="w-8 h-8 rounded-lg text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewResume(r)"><i class="fa fa-eye"></i></button>
-                  <button class="w-8 h-8 rounded-lg text-amber-500 hover:bg-amber-50 transition flex items-center justify-center" title="关联 JD" @click="openBindJdPicker(r)"><i class="fa fa-link"></i></button>
                   <button
                     class="w-8 h-8 rounded-lg text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
                     :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
@@ -843,7 +870,6 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewResume(r)"><i class="fa fa-eye"></i></button>
-                <button class="w-9 h-9 rounded-xl text-amber-500 hover:bg-amber-50 transition flex items-center justify-center" title="关联 JD" @click="openBindJdPicker(r)"><i class="fa fa-link"></i></button>
                 <button
                   class="w-9 h-9 rounded-xl text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
                   :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
@@ -959,12 +985,6 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
           >
             <i class="fa fa-download mr-1"></i>下载简历
           </button>
-            <button
-              class="h-8 px-3 border border-amber-200 bg-amber-50 text-amber-700 rounded text-xs hover:bg-amber-100"
-              @click="openBindJdPicker(viewingResume)"
-            >
-              <i class="fa fa-link mr-1"></i>{{ viewingResume.jd_name ? '修改关联 JD' : '关联 JD' }}
-            </button>
             <button
               v-if="!editingResume"
               class="h-8 px-3 bg-[#1677ff] text-white rounded text-xs hover:bg-blue-600"
@@ -1293,38 +1313,5 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
       </div>
     </div>
 
-    <div v-if="showBindJdPicker" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" @click.self="showBindJdPicker = false">
-      <div class="bg-white rounded-2xl w-[480px] p-6 shadow-xl">
-        <h3 class="text-lg font-bold mb-2">设置关联岗位 JD</h3>
-        <p class="text-sm text-gray-500 mb-4">
-          {{ bindingResume?.name || '未命名候选人' }} · {{ bindingResume?.original_name || bindingResume?.file_path || '无文件名' }}
-        </p>
-        <div class="space-y-2 max-h-64 overflow-auto">
-          <label
-            v-for="jd in jdOptions"
-            :key="'bind-' + jd.id"
-            :class="['flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition', Number(bindingJdId) === Number(jd.id) ? 'border-[#1677ff] bg-blue-50' : 'border-gray-200 hover:bg-gray-50']"
-          >
-            <input v-model="bindingJdId" type="radio" :value="jd.id" class="hidden">
-            <div class="flex-1">
-              <div class="font-medium text-sm">{{ jd.name }}</div>
-              <div class="text-xs text-gray-500">{{ jd.category }} · {{ jd.location }} · {{ jd.recruitment_type }}</div>
-            </div>
-          </label>
-          <label
-            :class="['flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition', Number(bindingJdId) === 0 ? 'border-gray-400 bg-gray-100' : 'border-gray-200 hover:bg-gray-50']"
-          >
-            <input v-model="bindingJdId" type="radio" :value="0" class="hidden">
-            <div class="flex-1 text-sm text-gray-500">清空关联</div>
-          </label>
-        </div>
-        <div class="flex justify-end gap-3 mt-5">
-          <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" :disabled="bindingJdSaving" @click="showBindJdPicker = false; bindingResume = null">取消</button>
-          <button class="px-4 py-2 bg-[#1677ff] text-white rounded-lg hover:bg-blue-600 text-sm disabled:cursor-not-allowed disabled:bg-blue-300" :disabled="bindingJdSaving" @click="confirmBindJd">
-            <i :class="['fa mr-1', bindingJdSaving ? 'fa-spinner fa-spin' : 'fa-save']"></i>{{ bindingJdSaving ? '保存中' : '保存关联' }}
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>

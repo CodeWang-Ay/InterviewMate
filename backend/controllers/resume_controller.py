@@ -1,7 +1,7 @@
 import json
 import os
 
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
 from pydantic import BaseModel
 
 from backend.controllers.auth_controller import require_admin
@@ -40,7 +40,7 @@ async def get_resume(rid: int, _: dict = Depends(require_admin)):
 
 
 @router.post("/upload")
-async def upload_resume_file(file: UploadFile = File(...), jd_id: int = 0, _: dict = Depends(require_admin)):
+async def upload_resume_file(file: UploadFile = File(...), jd_id: int = Form(0), _: dict = Depends(require_admin)):
     ext = upload_repo.validate(file)
     filename = await upload_repo.save(file, "resume", ext)
     jd_name = ""
