@@ -22,6 +22,8 @@ class ResumeUpdate(BaseModel):
     skills: str | None = None
     parse_status: str | None = None
     structured_data: str | None = None
+    jd_id: int | None = None
+    jd_name: str | None = None
 
 
 @router.get("")

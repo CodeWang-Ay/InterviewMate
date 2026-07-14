@@ -59,13 +59,14 @@ def list_all(search: str = "", parse_status: str = "", experience_years: str = "
         params.extend([p, p, p])
     sql += " ORDER BY id DESC"
     with _conn() as conn:
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    return [_enrich_jd_fields(row) for row in rows]
 
 
 def get_by_id(rid: int) -> dict | None:
     with _conn() as conn:
         row = conn.execute("SELECT * FROM resumes WHERE id=?", (rid,)).fetchone()
-        return dict(row) if row else None
+        return _enrich_jd_fields(dict(row)) if row else None
 
 
 def create(data: dict) -> dict:
@@ -98,3 +99,17 @@ def update(rid: int, data: dict) -> dict | None:
 def delete(rid: int) -> bool:
     with _conn() as conn:
         return conn.execute("DELETE FROM resumes WHERE id=?", (rid,)).rowcount > 0
+
+
+def _enrich_jd_fields(resume: dict) -> dict:
+    if not resume:
+        return resume
+
+    jd_id = resume.get("jd_id")
+    jd_name = (resume.get("jd_name") or "").strip()
+    if jd_id and not jd_name:
+        from backend.repositories import jd_repo
+        jd = jd_repo.get_by_id(int(jd_id))
+        if jd:
+            resume["jd_name"] = jd.get("name", "")
+    return resume

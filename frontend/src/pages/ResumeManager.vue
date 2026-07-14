@@ -9,6 +9,8 @@ const loading = ref(true)
 const uploading = ref(false)
 const parsingAll = ref(false)
 const parsingIds = ref(new Set())
+const parseProgressMap = ref({})
+const batchParseProgress = ref({ current: 0, total: 0, percent: 0, active: false })
 const searchText = ref('')
 const filterStatus = ref('')
 const filterYears = ref('')
@@ -16,6 +18,11 @@ const showJdPicker = ref(false)
 const pendingFile = ref(null)
 const selectedJdId = ref(0)
 const jdOptions = ref([])
+const uploadInput = ref(null)
+const showBindJdPicker = ref(false)
+const bindingResume = ref(null)
+const bindingJdId = ref(0)
+const bindingJdSaving = ref(false)
 const creatingPlanKey = ref('')
 const createdPlan = ref(null)
 const createdWorkflowPlans = computed(() => (createdPlan.value?.plans || []).filter(Boolean))
@@ -77,6 +84,65 @@ const visiblePages = computed(() => {
   return Array.from({ length: end - start + 1 }, (_, i) => start + i)
 })
 
+function getParseProgress(rid) {
+  return parseProgressMap.value[rid] || null
+}
+
+function setParseProgress(rid, patch) {
+  parseProgressMap.value = {
+    ...parseProgressMap.value,
+    [rid]: {
+      percent: 0,
+      phase: '准备解析',
+      timer: null,
+      status: 'running',
+      ...(parseProgressMap.value[rid] || {}),
+      ...patch,
+    },
+  }
+}
+
+function clearParseProgress(rid, delay = 1200) {
+  const item = parseProgressMap.value[rid]
+  if (item?.timer) clearInterval(item.timer)
+  window.setTimeout(() => {
+    const next = { ...parseProgressMap.value }
+    delete next[rid]
+    parseProgressMap.value = next
+  }, delay)
+}
+
+function startFakeParseProgress(rid) {
+  const phases = [
+    { limit: 18, label: '读取简历文件' },
+    { limit: 44, label: '提取文本内容' },
+    { limit: 73, label: '识别候选人信息' },
+    { limit: 92, label: '整理结构化结果' },
+  ]
+  const timer = window.setInterval(() => {
+    const current = parseProgressMap.value[rid]
+    if (!current || current.status !== 'running') return
+    const nextPercent = Math.min(current.percent + Math.max(2, Math.round((100 - current.percent) / 10)), 92)
+    const phase = phases.find(item => nextPercent <= item.limit)?.label || phases[phases.length - 1].label
+    setParseProgress(rid, { percent: nextPercent, phase, timer })
+    if (nextPercent >= 92 && timer) clearInterval(timer)
+  }, 280)
+  setParseProgress(rid, { percent: 8, phase: '开始解析', timer, status: 'running' })
+}
+
+function finishParseProgress(rid, ok = true) {
+  const item = parseProgressMap.value[rid]
+  if (!item) return
+  if (item.timer) clearInterval(item.timer)
+  setParseProgress(rid, {
+    percent: ok ? 100 : item.percent || 100,
+    phase: ok ? '解析完成' : '解析失败',
+    status: ok ? 'success' : 'fail',
+    timer: null,
+  })
+  clearParseProgress(rid, ok ? 900 : 2200)
+}
+
 function setParsing(rid, value) {
   const next = new Set(parsingIds.value)
   if (value) next.add(rid)
@@ -116,8 +182,9 @@ async function fetchList() {
     if (searchText.value) params.set('search', searchText.value)
     if (filterStatus.value) params.set('parse_status', filterStatus.value)
     if (filterYears.value) params.set('experience_years', filterYears.value)
+    params.set('_t', String(Date.now()))
     const qs = params.toString()
-    const res = await fetch(`/api/resumes${qs ? '?' + qs : ''}`)
+    const res = await fetch(`/api/resumes${qs ? '?' + qs : ''}`, { cache: 'no-store' })
     if (res.ok) {
       resumeList.value = await res.json()
       if (page.value > totalPages.value) page.value = totalPages.value
@@ -128,14 +195,26 @@ async function fetchList() {
 
 onMounted(fetchList)
 
-function onFileChange(e) {
-  const file = e.target?.files?.[0]
-  if (file) openJdPicker(file)
+function resetUploadInput() {
+  if (uploadInput.value) uploadInput.value.value = ''
 }
 
-async function openJdPicker(file) {
-  pendingFile.value = file
+function onFileChange(e) {
+  const file = e.target?.files?.[0]
+  if (file) {
+    pendingFile.value = file
+    confirmUpload()
+  }
+}
+
+async function openJdPicker() {
   selectedJdId.value = 0
+  pendingFile.value = null
+  await loadJdOptions()
+  showJdPicker.value = true
+}
+
+async function loadJdOptions() {
   try {
     const res = await fetch('/api/jds?page_size=999')
     if (res.ok) {
@@ -143,39 +222,97 @@ async function openJdPicker(file) {
       jdOptions.value = data.items.filter(j => j.status === 'enable')
     }
   } catch (_) {}
-  showJdPicker.value = true
 }
 
 async function confirmUpload() {
   if (!pendingFile.value) return
+  if (!(selectedJdId.value > 0)) {
+    alert('请先选择一个关联岗位 JD')
+    return
+  }
   uploading.value = true
   showJdPicker.value = false
   try {
     const fd = new FormData()
     fd.append('file', pendingFile.value)
-    if (selectedJdId.value > 0) fd.append('jd_id', selectedJdId.value)
+    fd.append('jd_id', selectedJdId.value)
     const uploadRes = await fetch('/api/resumes/upload', { method: 'POST', body: fd })
     if (!uploadRes.ok) return
     const resume = await uploadRes.json()
     pendingFile.value = null
+    resetUploadInput()
+    page.value = 1
+    await fetchList()
     // 上传后自动解析
-    await fetch(`/api/resumes/${resume.id}/parse`, { method: 'POST' }).catch(() => {})
+    startFakeParseProgress(resume.id)
+    const parseRes = await fetch(`/api/resumes/${resume.id}/parse`, { method: 'POST' }).catch(() => null)
+    finishParseProgress(resume.id, Boolean(parseRes?.ok))
     await fetchList()
   } catch (_) {}
   uploading.value = false
 }
 
+function confirmJdAndChooseFile() {
+  if (!(selectedJdId.value > 0)) return
+  resetUploadInput()
+  uploadInput.value?.click()
+  showJdPicker.value = false
+}
+
+async function openBindJdPicker(resume) {
+  bindingResume.value = resume
+  bindingJdId.value = Number(resume?.jd_id || 0)
+  await loadJdOptions()
+  showBindJdPicker.value = true
+}
+
+async function confirmBindJd() {
+  if (!bindingResume.value) return
+  bindingJdSaving.value = true
+  try {
+    const jd = jdOptions.value.find(item => Number(item.id) === Number(bindingJdId.value))
+    const res = await fetch(`/api/resumes/${bindingResume.value.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jd_id: bindingJdId.value > 0 ? Number(bindingJdId.value) : null,
+        jd_name: bindingJdId.value > 0 ? (jd?.name || '') : '',
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.detail || '关联 JD 失败')
+      return
+    }
+    showBindJdPicker.value = false
+    bindingResume.value = null
+    await fetchList()
+    if (viewingResume.value?.id) {
+      const current = await fetch(`/api/resumes/${viewingResume.value.id}`)
+      if (current.ok) viewingResume.value = await current.json()
+    }
+  } catch (e) {
+    alert('关联 JD 失败: ' + e.message)
+  } finally {
+    bindingJdSaving.value = false
+  }
+}
+
 async function parseResume(rid, refresh = true) {
   setParsing(rid, true)
+  startFakeParseProgress(rid)
   try {
     const res = await fetch(`/api/resumes/${rid}/parse`, { method: 'POST' })
     if (!res.ok) {
       const err = await res.json()
+      finishParseProgress(rid, false)
       alert(err.detail || '解析失败')
       return
     }
+    finishParseProgress(rid, true)
     if (refresh) await fetchList()
   } catch (e) {
+    finishParseProgress(rid, false)
     alert('解析失败: ' + e.message)
   } finally {
     setParsing(rid, false)
@@ -186,20 +323,37 @@ async function parsePendingResumes() {
   const targets = parseQueue.value
   if (!targets.length) return
   parsingAll.value = true
+  batchParseProgress.value = { current: 0, total: targets.length, percent: 0, active: true }
   let failed = 0
   for (const item of targets) {
     setParsing(item.id, true)
+    startFakeParseProgress(item.id)
     try {
       const res = await fetch(`/api/resumes/${item.id}/parse`, { method: 'POST' })
-      if (!res.ok) failed += 1
+      if (!res.ok) {
+        failed += 1
+        finishParseProgress(item.id, false)
+      } else {
+        finishParseProgress(item.id, true)
+      }
     } catch (_) {
       failed += 1
+      finishParseProgress(item.id, false)
     } finally {
       setParsing(item.id, false)
+      batchParseProgress.value = {
+        current: batchParseProgress.value.current + 1,
+        total: targets.length,
+        percent: Math.round(((batchParseProgress.value.current + 1) / targets.length) * 100),
+        active: true,
+      }
     }
   }
   parsingAll.value = false
   await fetchList()
+  window.setTimeout(() => {
+    batchParseProgress.value = { current: 0, total: 0, percent: 0, active: false }
+  }, 1200)
   if (failed) alert(`简历解析完成，${failed} 份解析失败`)
 }
 
@@ -518,10 +672,10 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
             <i :class="['fa', parsingAll ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
             {{ parsingAll ? '解析中...' : `简历解析${parseQueue.length ? ` (${parseQueue.length})` : ''}` }}
           </button>
-          <label class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 transition cursor-pointer text-sm">
+          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 transition text-sm" @click="openJdPicker">
             <i class="fa fa-plus"></i> 上传简历
-            <input type="file" accept=".pdf,.docx,.doc,.txt,.md" class="hidden" @change="onFileChange" />
-          </label>
+          </button>
+          <input ref="uploadInput" type="file" accept=".pdf,.docx,.doc,.txt,.md" class="hidden" @change="onFileChange" />
         </div>
       </div>
 
@@ -534,6 +688,19 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
           <button class="px-3 py-2 rounded-lg border border-purple-200 text-purple-600 text-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.length" @click="parseSelectedResumes"><i class="fa fa-magic mr-1"></i>批量解析</button>
           <button class="px-3 py-2 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.some(r => r.parse_status === 'success')" @click="openBatchWorkflowPicker"><i class="fa fa-sitemap mr-1"></i>批量创建流程</button>
           <button class="px-3 py-2 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.length" @click="deleteSelectedResumes"><i class="fa fa-trash-o mr-1"></i>批量删除</button>
+        </div>
+      </div>
+
+      <div v-if="batchParseProgress.active" class="mb-6 rounded-2xl border border-[#dbe6ff] bg-white p-4 shadow-sm">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-semibold text-[#1d2941]">简历解析进行中</div>
+            <div class="mt-1 text-xs text-[#7c89a2]">已完成 {{ batchParseProgress.current }}/{{ batchParseProgress.total }} 份，系统正在逐份提取结构化信息。</div>
+          </div>
+          <div class="text-sm font-semibold text-[#2f6df6]">{{ batchParseProgress.percent }}%</div>
+        </div>
+        <div class="mt-3 h-2 overflow-hidden rounded-full bg-[#edf3ff]">
+          <div class="h-full rounded-full bg-[linear-gradient(90deg,#2f6df6_0%,#66a3ff_100%)] transition-all duration-300" :style="{ width: `${batchParseProgress.percent}%` }"></div>
         </div>
       </div>
 
@@ -595,10 +762,28 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.jd_name || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate">{{ r.skills || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-400 max-w-[140px] truncate">{{ r.original_name || r.file_path || '-' }}</td>
-              <td class="px-4 py-3"><span :class="['px-2 py-1 text-xs rounded', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span></td>
+              <td class="px-4 py-3">
+                <div class="min-w-[180px]">
+                  <span :class="['px-2 py-1 text-xs rounded', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
+                  <div v-if="getParseProgress(r.id)" class="mt-2">
+                    <div class="flex items-center justify-between text-[11px] text-[#7b89a4]">
+                      <span>{{ getParseProgress(r.id).phase }}</span>
+                      <span>{{ getParseProgress(r.id).percent }}%</span>
+                    </div>
+                    <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-[#edf3ff]">
+                      <div
+                        class="h-full rounded-full transition-all duration-300"
+                        :class="getParseProgress(r.id).status === 'fail' ? 'bg-red-400' : 'bg-[linear-gradient(90deg,#8b5cf6_0%,#2f6df6_100%)]'"
+                        :style="{ width: `${getParseProgress(r.id).percent}%` }"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </td>
               <td class="px-4 py-3 text-center">
                 <div class="flex items-center justify-center gap-2">
                   <button class="w-8 h-8 rounded-lg text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewResume(r)"><i class="fa fa-eye"></i></button>
+                  <button class="w-8 h-8 rounded-lg text-amber-500 hover:bg-amber-50 transition flex items-center justify-center" title="关联 JD" @click="openBindJdPicker(r)"><i class="fa fa-link"></i></button>
                   <button
                     class="w-8 h-8 rounded-lg text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
                     :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
@@ -658,6 +843,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewResume(r)"><i class="fa fa-eye"></i></button>
+                <button class="w-9 h-9 rounded-xl text-amber-500 hover:bg-amber-50 transition flex items-center justify-center" title="关联 JD" @click="openBindJdPicker(r)"><i class="fa fa-link"></i></button>
                 <button
                   class="w-9 h-9 rounded-xl text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
                   :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
@@ -684,6 +870,20 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
             <div class="mt-4 flex flex-wrap gap-2">
               <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1 text-xs text-[#5f708f]">{{ r.jd_name || '未关联 JD' }}</span>
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ r.original_name || r.file_path || '无文件名' }}</span>
+            </div>
+
+            <div v-if="getParseProgress(r.id)" class="mt-4 rounded-2xl border border-[#e7edfb] bg-[#f9fbff] px-4 py-3">
+              <div class="flex items-center justify-between text-xs text-[#70809c]">
+                <span>{{ getParseProgress(r.id).phase }}</span>
+                <span class="font-medium">{{ getParseProgress(r.id).percent }}%</span>
+              </div>
+              <div class="mt-2 h-2 overflow-hidden rounded-full bg-[#e8efff]">
+                <div
+                  class="h-full rounded-full transition-all duration-300"
+                  :class="getParseProgress(r.id).status === 'fail' ? 'bg-red-400' : 'bg-[linear-gradient(90deg,#8b5cf6_0%,#2f6df6_100%)]'"
+                  :style="{ width: `${getParseProgress(r.id).percent}%` }"
+                ></div>
+              </div>
             </div>
 
             <div class="mt-4 rounded-2xl border border-[#edf2fb] bg-[#fcfdff] px-4 py-4">
@@ -759,6 +959,12 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
           >
             <i class="fa fa-download mr-1"></i>下载简历
           </button>
+            <button
+              class="h-8 px-3 border border-amber-200 bg-amber-50 text-amber-700 rounded text-xs hover:bg-amber-100"
+              @click="openBindJdPicker(viewingResume)"
+            >
+              <i class="fa fa-link mr-1"></i>{{ viewingResume.jd_name ? '修改关联 JD' : '关联 JD' }}
+            </button>
             <button
               v-if="!editingResume"
               class="h-8 px-3 bg-[#1677ff] text-white rounded text-xs hover:bg-blue-600"
@@ -1059,8 +1265,8 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
     <!-- JD 选择弹窗 -->
     <div v-if="showJdPicker" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" @click.self="showJdPicker = false">
       <div class="bg-white rounded-2xl w-[480px] p-6 shadow-xl">
-        <h3 class="text-lg font-bold mb-2">选择关联岗位 JD</h3>
-        <p class="text-sm text-gray-500 mb-4">文件：{{ pendingFile?.name }}</p>
+        <h3 class="text-lg font-bold mb-2">先选择岗位 JD</h3>
+        <p class="text-sm text-gray-500 mb-4">请先选择一个岗位，确认后再进入简历文件选择。这样后续解析、打分和面试流程都会自动关联。</p>
         <div class="space-y-2 max-h-64 overflow-auto">
           <label
             v-for="jd in jdOptions"
@@ -1073,16 +1279,50 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
               <div class="text-xs text-gray-500">{{ jd.category }} · {{ jd.location }} · {{ jd.recruitment_type }}</div>
             </div>
           </label>
-          <label
-            :class="['flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition', selectedJdId === 0 ? 'border-gray-400 bg-gray-100' : 'border-gray-200 hover:bg-gray-50']"
-          >
-            <input v-model="selectedJdId" type="radio" :value="0" class="hidden">
-            <div class="flex-1 text-sm text-gray-500">暂不关联（稍后设置）</div>
-          </label>
         </div>
         <div class="flex justify-end gap-3 mt-5">
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="showJdPicker = false; pendingFile = null">取消</button>
-          <button class="px-4 py-2 bg-[#1677ff] text-white rounded-lg hover:bg-blue-600 text-sm" @click="confirmUpload">确认上传</button>
+          <button
+            class="px-4 py-2 bg-[#1677ff] text-white rounded-lg hover:bg-blue-600 text-sm disabled:cursor-not-allowed disabled:bg-blue-300"
+            :disabled="!(selectedJdId > 0)"
+            @click="confirmJdAndChooseFile"
+          >
+            下一步：选择简历
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showBindJdPicker" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" @click.self="showBindJdPicker = false">
+      <div class="bg-white rounded-2xl w-[480px] p-6 shadow-xl">
+        <h3 class="text-lg font-bold mb-2">设置关联岗位 JD</h3>
+        <p class="text-sm text-gray-500 mb-4">
+          {{ bindingResume?.name || '未命名候选人' }} · {{ bindingResume?.original_name || bindingResume?.file_path || '无文件名' }}
+        </p>
+        <div class="space-y-2 max-h-64 overflow-auto">
+          <label
+            v-for="jd in jdOptions"
+            :key="'bind-' + jd.id"
+            :class="['flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition', Number(bindingJdId) === Number(jd.id) ? 'border-[#1677ff] bg-blue-50' : 'border-gray-200 hover:bg-gray-50']"
+          >
+            <input v-model="bindingJdId" type="radio" :value="jd.id" class="hidden">
+            <div class="flex-1">
+              <div class="font-medium text-sm">{{ jd.name }}</div>
+              <div class="text-xs text-gray-500">{{ jd.category }} · {{ jd.location }} · {{ jd.recruitment_type }}</div>
+            </div>
+          </label>
+          <label
+            :class="['flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition', Number(bindingJdId) === 0 ? 'border-gray-400 bg-gray-100' : 'border-gray-200 hover:bg-gray-50']"
+          >
+            <input v-model="bindingJdId" type="radio" :value="0" class="hidden">
+            <div class="flex-1 text-sm text-gray-500">清空关联</div>
+          </label>
+        </div>
+        <div class="flex justify-end gap-3 mt-5">
+          <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" :disabled="bindingJdSaving" @click="showBindJdPicker = false; bindingResume = null">取消</button>
+          <button class="px-4 py-2 bg-[#1677ff] text-white rounded-lg hover:bg-blue-600 text-sm disabled:cursor-not-allowed disabled:bg-blue-300" :disabled="bindingJdSaving" @click="confirmBindJd">
+            <i :class="['fa mr-1', bindingJdSaving ? 'fa-spinner fa-spin' : 'fa-save']"></i>{{ bindingJdSaving ? '保存中' : '保存关联' }}
+          </button>
         </div>
       </div>
     </div>
