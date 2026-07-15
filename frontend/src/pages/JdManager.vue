@@ -19,8 +19,13 @@ const batchMode = ref(false)
 const selectedJdIds = ref(new Set())
 const batchWorking = ref(false)
 const viewMode = ref('list')
+const showGenerator = ref(false)
+const generatingDraft = ref(false)
+const activeLocationPicker = ref('')
+const generatorForm = ref({ name: '', summary: '', category: '', location: '', recruitment_type: '社招' })
 
 const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '' })
+const popularCities = ['深圳', '上海', '北京', '广州', '杭州', '成都', '苏州', '南京', '武汉', '西安']
 
 // 统计数据
 const stats = ref({ total: 0, enabled: 0, disabled: 0, categories: 0, interns: 0, campus: 0, social: 0 })
@@ -81,6 +86,39 @@ function getResponsibilityPreview(jd) {
   return source ? source.slice(0, 120) + (source.length > 120 ? '...' : '') : '暂未填写岗位职责与要求'
 }
 
+function setFilterLocation(city) {
+  filterLocation.value = city
+  fetchJds()
+}
+
+function setFormLocation(city) {
+  form.value.location = city
+}
+
+function setGeneratorLocation(city) {
+  generatorForm.value.location = city
+}
+
+function toggleLocationPicker(name) {
+  activeLocationPicker.value = activeLocationPicker.value === name ? '' : name
+}
+
+function pickLocation(target, city) {
+  if (target === 'filter') setFilterLocation(city)
+  if (target === 'form') setFormLocation(city)
+  if (target === 'generator') setGeneratorLocation(city)
+  activeLocationPicker.value = ''
+}
+
+function locationOptionClass(current, city) {
+  return [
+    'h-8 whitespace-nowrap rounded-full px-3 text-xs font-medium transition',
+    current === city
+      ? 'bg-[#1677ff] text-white shadow-sm shadow-blue-100'
+      : 'bg-white text-[#536176] ring-1 ring-[#dbe5f2] hover:bg-[#eef5ff] hover:text-[#1677ff] hover:ring-[#bcd5ff]'
+  ]
+}
+
 function setSelectedJd(jdId, value) {
   const next = new Set(selectedJdIds.value)
   if (value) next.add(jdId)
@@ -103,6 +141,11 @@ function openCreate() {
   showModal.value = true
 }
 
+function openGenerator() {
+  generatorForm.value = { name: '', summary: '', category: '', location: '', recruitment_type: '社招' }
+  showGenerator.value = true
+}
+
 function openEdit(jd) {
   editingJd.value = jd
   form.value = { ...jd }
@@ -123,6 +166,40 @@ async function saveJd() {
     showModal.value = false
     await fetchJds()
   } catch (_) {}
+}
+
+async function generateDraft() {
+  if (!generatorForm.value.name.trim()) return
+  generatingDraft.value = true
+  try {
+    const res = await fetch('/api/jds/generate-draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(generatorForm.value),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      alert(data.detail || 'JD 生成失败')
+      return
+    }
+    form.value = {
+      name: data.name || generatorForm.value.name,
+      category: data.category || generatorForm.value.category,
+      location: data.location || generatorForm.value.location,
+      responsibilities: data.responsibilities || '',
+      requirements: data.requirements || '',
+      status: data.status || 'enable',
+      recruitment_type: data.recruitment_type || generatorForm.value.recruitment_type,
+      experience_required: data.experience_required || '',
+    }
+    editingJd.value = null
+    showGenerator.value = false
+    showModal.value = true
+  } catch (e) {
+    alert('JD 生成失败: ' + e.message)
+  } finally {
+    generatingDraft.value = false
+  }
 }
 
 async function removeJd(jd) {
@@ -206,6 +283,9 @@ function changePageSize(size) {
               <span>卡片模式</span>
             </button>
           </div>
+          <button class="px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm border border-[#7c3aed] text-[#7c3aed] hover:bg-violet-50" @click="openGenerator">
+            <i class="fa fa-magic"></i> JD生成助手
+          </button>
           <button
             :class="['px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm border', batchMode ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50']"
             @click="toggleBatchMode"
@@ -270,10 +350,40 @@ function changePageSize(size) {
             <option value="enable">启用</option>
             <option value="disable">停用</option>
           </select>
-          <select v-model="filterLocation" class="border rounded-lg px-3 py-2 min-w-[140px]" @change="fetchJds">
-            <option value="">全部工作地点</option>
-            <option v-for="l in locations" :key="l" :value="l">{{ l }}</option>
-          </select>
+          <div class="relative w-64">
+            <i class="fa fa-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+            <input
+              v-model="filterLocation"
+              class="h-10 w-full rounded-lg border pl-9 pr-20 text-sm focus:outline-none focus:border-[#1677ff]"
+              placeholder="工作地点"
+              @change="fetchJds"
+            >
+            <button
+              type="button"
+              class="absolute right-1.5 top-1/2 h-7 -translate-y-1/2 rounded-md bg-[#f1f6ff] px-2.5 text-xs font-medium text-[#1677ff] hover:bg-[#e4efff]"
+              @click="toggleLocationPicker('filter')"
+            >
+              城市
+            </button>
+            <div v-if="activeLocationPicker === 'filter'" class="absolute left-0 top-[44px] z-30 w-[352px] rounded-lg border border-[#dde7f4] bg-[#fbfdff] p-2.5 shadow-lg shadow-slate-200/60">
+              <div class="mb-2 flex items-center justify-between px-1">
+                <span class="text-xs font-semibold text-[#7a8798]">热门城市</span>
+                <button v-if="filterLocation" type="button" class="text-xs text-[#94a3b8] hover:text-[#1677ff]" @click="pickLocation('filter', '')">清空</button>
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  v-for="city in popularCities"
+                  :key="city"
+                  type="button"
+                  :class="locationOptionClass(filterLocation, city)"
+                  @click="pickLocation('filter', city)"
+                >
+                  {{ city }}
+                </button>
+              </div>
+              <p class="mt-2 px-1 text-xs text-[#9aa7b8]">也可以直接输入更细位置</p>
+            </div>
+          </div>
           <select v-model="filterRecruitment" class="border rounded-lg px-3 py-2 min-w-[120px]" @change="fetchJds">
             <option value="">全部招聘类型</option>
             <option value="实习生">实习生</option>
@@ -418,7 +528,34 @@ function changePageSize(size) {
           <div><label class="block text-sm font-medium text-gray-700 mb-1">岗位名称 <span class="text-red-500">*</span></label><input v-model="form.name" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：后端开发工程师"></div>
           <div class="grid grid-cols-2 gap-4">
             <div><label class="block text-sm font-medium text-gray-700 mb-1">岗位类别</label><input v-model="form.category" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：技术开发"></div>
-            <div><label class="block text-sm font-medium text-gray-700 mb-1">工作地点</label><input v-model="form.location" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：深圳"></div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">工作地点</label>
+              <div class="relative">
+                <i class="fa fa-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <input v-model="form.location" class="h-10 w-full rounded-lg border pl-9 pr-20 text-sm focus:outline-none focus:border-[#1677ff]" placeholder="如：深圳 / 深圳·南山">
+                <button type="button" class="absolute right-1.5 top-1/2 h-7 -translate-y-1/2 rounded-md bg-[#f1f6ff] px-2.5 text-xs font-medium text-[#1677ff] hover:bg-[#e4efff]" @click="toggleLocationPicker('form')">
+                  城市
+                </button>
+                <div v-if="activeLocationPicker === 'form'" class="absolute right-0 top-[44px] z-30 w-[352px] rounded-lg border border-[#dde7f4] bg-[#fbfdff] p-2.5 shadow-lg shadow-slate-200/60">
+                  <div class="mb-2 flex items-center justify-between px-1">
+                    <span class="text-xs font-semibold text-[#7a8798]">热门城市</span>
+                    <button v-if="form.location" type="button" class="text-xs text-[#94a3b8] hover:text-[#1677ff]" @click="pickLocation('form', '')">清空</button>
+                  </div>
+                  <div class="flex flex-wrap gap-1.5">
+                    <button
+                      v-for="city in popularCities"
+                      :key="'form-' + city"
+                      type="button"
+                      :class="locationOptionClass(form.location, city)"
+                      @click="pickLocation('form', city)"
+                    >
+                      {{ city }}
+                    </button>
+                  </div>
+                  <p class="mt-2 px-1 text-xs text-[#9aa7b8]">也可以直接输入园区或区县</p>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
@@ -441,6 +578,78 @@ function changePageSize(size) {
         <div class="flex justify-end gap-3 mt-6">
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="showModal = false">取消</button>
           <button class="px-4 py-2 bg-[#1677ff] text-white rounded-lg hover:bg-blue-600 text-sm" @click="saveJd">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showGenerator" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @click.self="showGenerator = false">
+      <div class="bg-white rounded-2xl w-[620px] max-w-[96vw] shadow-xl overflow-hidden">
+        <div class="px-6 py-5 border-b">
+          <h3 class="text-lg font-bold text-gray-900">JD 生成助手</h3>
+          <p class="text-sm text-gray-500 mt-1">输入岗位名称和一句简单描述，系统会按点生成岗位职责、任职要求和经验要求，再带回新增表单。</p>
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">岗位名称 <span class="text-red-500">*</span></label>
+            <input v-model="generatorForm.name" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：大模型应用开发工程师">
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">岗位类别</label>
+              <input v-model="generatorForm.category" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：AI应用 / 技术开发">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">工作地点</label>
+              <div class="relative">
+                <i class="fa fa-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <input v-model="generatorForm.location" class="h-10 w-full rounded-lg border pl-9 pr-20 text-sm focus:outline-none focus:border-[#1677ff]" placeholder="如：深圳 / 深圳·南山">
+                <button type="button" class="absolute right-1.5 top-1/2 h-7 -translate-y-1/2 rounded-md bg-[#f1f6ff] px-2.5 text-xs font-medium text-[#1677ff] hover:bg-[#e4efff]" @click="toggleLocationPicker('generator')">
+                  城市
+                </button>
+                <div v-if="activeLocationPicker === 'generator'" class="absolute right-0 top-[44px] z-30 w-[352px] rounded-lg border border-[#dde7f4] bg-[#fbfdff] p-2.5 shadow-lg shadow-slate-200/60">
+                  <div class="mb-2 flex items-center justify-between px-1">
+                    <span class="text-xs font-semibold text-[#7a8798]">热门城市</span>
+                    <button v-if="generatorForm.location" type="button" class="text-xs text-[#94a3b8] hover:text-[#1677ff]" @click="pickLocation('generator', '')">清空</button>
+                  </div>
+                  <div class="flex flex-wrap gap-1.5">
+                    <button
+                      v-for="city in popularCities"
+                      :key="'generator-' + city"
+                      type="button"
+                      :class="locationOptionClass(generatorForm.location, city)"
+                      @click="pickLocation('generator', city)"
+                    >
+                      {{ city }}
+                    </button>
+                  </div>
+                  <p class="mt-2 px-1 text-xs text-[#9aa7b8]">也可以直接输入园区或区县</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">招聘类型</label>
+            <select v-model="generatorForm.recruitment_type" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
+              <option value="实习生">实习生</option>
+              <option value="校招">校招</option>
+              <option value="社招">社招</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">简单描述</label>
+            <textarea
+              v-model="generatorForm.summary"
+              rows="5"
+              class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]"
+              placeholder="例如：负责 RAG 问答系统、Agent 工作流、LLM 应用落地，要求有 Python、LangChain、向量数据库相关经验。生成结果需要按点列出职责和要求。"
+            ></textarea>
+          </div>
+        </div>
+        <div class="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
+          <button class="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-white" :disabled="generatingDraft" @click="showGenerator = false">取消</button>
+          <button class="px-4 py-2 rounded-lg bg-[#7c3aed] text-white text-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-violet-300" :disabled="generatingDraft || !generatorForm.name.trim()" @click="generateDraft">
+            <i :class="['fa mr-1', generatingDraft ? 'fa-spinner fa-spin' : 'fa-magic']"></i>{{ generatingDraft ? '生成中' : '生成 JD 草稿' }}
+          </button>
         </div>
       </div>
     </div>

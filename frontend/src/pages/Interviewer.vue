@@ -258,12 +258,15 @@ onMounted(loadResources)
                       ]"
                       @click="selectedResumeId = resume.id"
                     >
-                      <div class="flex items-start justify-between gap-3">
-                        <div>
-                          <div class="text-base font-semibold text-[#15213f]">{{ resume.name || '未命名候选人' }}</div>
-                          <div class="mt-1 text-sm text-[#66758f]">{{ resume.target_position || '未填写意向岗位' }}</div>
+                      <div class="flex items-start gap-3">
+                        <div class="min-w-0 flex-1">
+                          <div class="line-clamp-2 text-base font-semibold leading-6 text-[#15213f]">{{ resume.name || '未命名候选人' }}</div>
+                          <div class="mt-1 truncate text-sm text-[#66758f]">{{ resume.target_position || '未填写意向岗位' }}</div>
                         </div>
-                        <span :class="selectedResumeId === resume.id ? 'bg-[#17305f] text-white' : 'bg-[#eef3ff] text-[#5976b6]'" class="rounded-full px-3 py-1 text-xs font-semibold">
+                        <span
+                          :class="selectedResumeId === resume.id ? 'bg-[#17305f] text-white' : resume.parse_status === 'success' ? 'bg-[#eef9f2] text-[#2f8f55]' : 'bg-[#f3f6ff] text-[#5976b6]'"
+                          class="shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold leading-none"
+                        >
                           {{ resume.parse_status === 'success' ? '已解析' : '待补全' }}
                         </span>
                       </div>

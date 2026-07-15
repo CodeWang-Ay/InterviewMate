@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from backend.controllers.auth_controller import require_admin
 from backend.repositories import jd_repo
+from backend.services.jd_copilot_service import generate_jd_draft
 
 router = APIRouter(prefix="/api/jds", tags=["jds"])
 
@@ -29,6 +30,14 @@ class JdUpdate(BaseModel):
     experience_required: str | None = None
 
 
+class JdGenerateBody(BaseModel):
+    name: str
+    summary: str = ""
+    category: str = ""
+    location: str = ""
+    recruitment_type: str = "社招"
+
+
 @router.get("/stats")
 async def jd_stats(_: dict = Depends(require_admin)):
     return jd_repo.get_stats()
@@ -51,6 +60,19 @@ async def get_jd(jd_id: int, _: dict = Depends(require_admin)):
 @router.post("")
 async def create_jd(body: JdCreate, _: dict = Depends(require_admin)):
     return jd_repo.create(body.model_dump())
+
+
+@router.post("/generate-draft")
+async def generate_jd(body: JdGenerateBody, _: dict = Depends(require_admin)):
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="岗位名称不能为空")
+    return generate_jd_draft(
+        name=body.name,
+        summary=body.summary,
+        category=body.category,
+        location=body.location,
+        recruitment_type=body.recruitment_type,
+    )
 
 
 @router.put("/{jd_id}")
