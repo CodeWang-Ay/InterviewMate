@@ -14,6 +14,8 @@ class JdCreate(BaseModel):
     responsibilities: str = ""
     requirements: str = ""
     status: str = "enable"
+    recruitment_type: str = "社招"
+    experience_required: str = ""
 
 
 class JdUpdate(BaseModel):
@@ -23,6 +25,8 @@ class JdUpdate(BaseModel):
     responsibilities: str | None = None
     requirements: str | None = None
     status: str | None = None
+    recruitment_type: str | None = None
+    experience_required: str | None = None
 
 
 @router.get("/stats")

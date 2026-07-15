@@ -309,7 +309,9 @@ async function confirmUpload() {
     resetPendingUploadJd()
     resetUploadInput()
     page.value = 1
-    await fetchList()
+    window.setTimeout(() => {
+      fetchList()
+    }, 800)
   } catch (_) {}
   finally {
     uploading.value = false
