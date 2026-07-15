@@ -29,6 +29,26 @@ def generate_jd_draft(
     return _fallback_generate_jd(payload)
 
 
+def optimize_jd_draft(jd: dict) -> dict:
+    payload = {
+        "name": str(jd.get("name") or "").strip(),
+        "category": str(jd.get("category") or "").strip(),
+        "location": str(jd.get("location") or "").strip(),
+        "recruitment_type": str(jd.get("recruitment_type") or "社招").strip() or "社招",
+        "experience_required": str(jd.get("experience_required") or "").strip(),
+        "responsibilities": str(jd.get("responsibilities") or "").strip(),
+        "requirements": str(jd.get("requirements") or "").strip(),
+        "status": str(jd.get("status") or "enable").strip() or "enable",
+    }
+
+    if OPENAI_API_KEY:
+        try:
+            return _llm_optimize_jd(payload)
+        except Exception:
+            pass
+    return _fallback_optimize_jd(payload)
+
+
 def _llm_generate_jd(payload: dict) -> dict:
     client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
     prompt = f"""你是一位资深招聘顾问，请根据岗位信息生成一份结构清晰、适合招聘后台直接保存的 JD，并严格输出 JSON。
@@ -67,7 +87,7 @@ def _llm_generate_jd(payload: dict) -> dict:
         extra_body={"enable_thinking": False, "thinking": False, "chat_template_kwargs": {"thinking": False}},
     )
     content = response.choices[0].message.content or "{}"
-    data = json.loads(content)
+    data = _parse_json_content(content)
     return {
         "name": data.get("name") or payload["name"],
         "category": data.get("category") or payload["category"],
@@ -77,6 +97,65 @@ def _llm_generate_jd(payload: dict) -> dict:
         "responsibilities": _normalize_numbered_lines(data.get("responsibilities") or ""),
         "requirements": _normalize_numbered_lines(data.get("requirements") or ""),
         "status": data.get("status") or "enable",
+    }
+
+
+def _llm_optimize_jd(payload: dict) -> dict:
+    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+    prompt = f"""你是一位资深招聘顾问，请在保留原岗位意图的基础上优化现有 JD，并严格输出 JSON。
+
+输出 JSON 格式如下：
+{{
+  "name": "",
+  "category": "",
+  "location": "",
+  "recruitment_type": "",
+  "experience_required": "",
+  "responsibilities": "",
+  "requirements": "",
+  "status": "enable",
+  "summary": ""
+}}
+
+优化要求：
+1. 只输出 JSON，不要额外解释
+2. 不要改变岗位方向，不要虚构过强或无关要求
+3. responsibilities 和 requirements 必须按点分条输出，使用“1. 2. 3.”格式，每一条单独换行
+4. 用词更专业、更具体，去掉空泛表述，补足职责边界、协作对象、交付要求和能力要求
+5. summary 用 2-4 条短句概括本次优化点
+
+原岗位名称：{payload['name']}
+岗位类别：{payload['category'] or '未指定'}
+工作地点：{payload['location'] or '未指定'}
+招聘类型：{payload['recruitment_type']}
+经验要求：{payload['experience_required'] or '未填写'}
+原岗位职责：
+{payload['responsibilities'] or '未填写'}
+
+原任职要求：
+{payload['requirements'] or '未填写'}
+"""
+    response = client.chat.completions.create(
+        model="qwen-plus",
+        temperature=0.35,
+        messages=[
+            {"role": "system", "content": "你是一位专业招聘顾问，输出必须是纯 JSON。"},
+            {"role": "user", "content": prompt},
+        ],
+        extra_body={"enable_thinking": False, "thinking": False, "chat_template_kwargs": {"thinking": False}},
+    )
+    content = response.choices[0].message.content or "{}"
+    data = _parse_json_content(content)
+    return {
+        "name": data.get("name") or payload["name"],
+        "category": data.get("category") or payload["category"],
+        "location": data.get("location") or payload["location"],
+        "recruitment_type": data.get("recruitment_type") or payload["recruitment_type"],
+        "experience_required": data.get("experience_required") or payload["experience_required"],
+        "responsibilities": _normalize_numbered_lines(data.get("responsibilities") or payload["responsibilities"]),
+        "requirements": _normalize_numbered_lines(data.get("requirements") or payload["requirements"]),
+        "status": data.get("status") or payload["status"],
+        "summary": _normalize_summary(data.get("summary") or ""),
     }
 
 
@@ -108,6 +187,26 @@ def _fallback_generate_jd(payload: dict) -> dict:
     }
 
 
+def _fallback_optimize_jd(payload: dict) -> dict:
+    role = payload["name"] or "岗位"
+    responsibilities = payload["responsibilities"] or "\n".join([
+        f"1. 负责 {role} 相关工作的需求理解、方案制定与执行落地，确保交付质量；",
+        "2. 与相关团队协同推进项目进度，及时识别并解决执行过程中的问题；",
+        "3. 持续沉淀流程、文档和最佳实践，提升团队协作效率；",
+    ])
+    requirements = payload["requirements"] or "\n".join([
+        f"1. 具备 {role} 相关专业基础，能够独立拆解任务并推进落地；",
+        "2. 具备良好的沟通协作、问题分析和结果交付能力；",
+        "3. 责任心强，学习能力好，能够适应业务快速变化；",
+    ])
+    return {
+        **payload,
+        "responsibilities": _normalize_numbered_lines(responsibilities),
+        "requirements": _normalize_numbered_lines(requirements),
+        "summary": "1. 统一职责和要求的分点格式\n2. 补足岗位交付、协作和能力描述\n3. 保留原岗位方向，便于直接对比采纳",
+    }
+
+
 def _infer_experience(recruitment_type: str, summary: str) -> str:
     text = f"{recruitment_type} {summary}".lower()
     if "实习" in recruitment_type or "应届" in summary:
@@ -133,3 +232,24 @@ def _normalize_numbered_lines(text: str) -> str:
         clean = re.sub(r"^\d+[\.\、\)]\s*", "", line).strip()
         normalized.append(f"{index}. {clean}")
     return "\n".join(normalized)
+
+
+def _parse_json_content(content: str) -> dict:
+    source = str(content or "{}").strip()
+    if source.startswith("```"):
+        source = re.sub(r"^```(?:json)?\s*", "", source)
+        source = re.sub(r"\s*```$", "", source).strip()
+    if not source.startswith("{"):
+        match = re.search(r"\{.*\}", source, re.S)
+        source = match.group(0) if match else "{}"
+    return json.loads(source)
+
+
+def _normalize_summary(text: str) -> str:
+    source = str(text or "").strip()
+    if not source:
+        return ""
+    if "\n" in source:
+        return _normalize_numbered_lines(source)
+    parts = [part.strip(" ;；") for part in re.split(r"[。；;]\s*", source) if part.strip()]
+    return "\n".join(f"{index}. {part}" for index, part in enumerate(parts[:4], start=1))

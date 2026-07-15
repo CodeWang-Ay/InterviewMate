@@ -21,6 +21,10 @@ const batchWorking = ref(false)
 const viewMode = ref('list')
 const showGenerator = ref(false)
 const generatingDraft = ref(false)
+const optimizingDraft = ref(false)
+const savingOptimized = ref(false)
+const optimizeSource = ref(null)
+const optimizedDraft = ref(null)
 const activeLocationPicker = ref('')
 const generatorForm = ref({ name: '', summary: '', category: '', location: '', recruitment_type: '社招' })
 
@@ -68,6 +72,41 @@ const categories = computed(() => [...new Set(jdList.value.map(j => j.category))
 const locations = computed(() => [...new Set(jdList.value.map(j => j.location))].filter(Boolean))
 const selectedJds = computed(() => jdList.value.filter(jd => selectedJdIds.value.has(jd.id)))
 const allSelected = computed(() => jdList.value.length > 0 && jdList.value.every(jd => selectedJdIds.value.has(jd.id)))
+const statCards = computed(() => [
+  {
+    label: '全部 JD',
+    value: stats.value.total,
+    icon: 'fa-briefcase',
+    accent: 'from-[#2f7cff] to-[#7aa7ff]',
+    soft: 'bg-blue-50 text-[#1f6fff]',
+    note: `${stats.value.enabled} 个正在启用`,
+  },
+  {
+    label: '启用中',
+    value: stats.value.enabled,
+    icon: 'fa-check-circle',
+    accent: 'from-[#21c77a] to-[#86e7b6]',
+    soft: 'bg-emerald-50 text-[#19a463]',
+    note: stats.value.disabled ? `${stats.value.disabled} 个已停用` : '当前无停用 JD',
+  },
+  {
+    label: '岗位类别',
+    value: stats.value.categories,
+    icon: 'fa-tags',
+    accent: 'from-[#8b5cf6] to-[#c4a7ff]',
+    soft: 'bg-violet-50 text-[#7c3aed]',
+    note: '覆盖不同招聘方向',
+  },
+])
+const compareFields = [
+  { key: 'name', label: '岗位名称' },
+  { key: 'category', label: '岗位类别' },
+  { key: 'location', label: '工作地点' },
+  { key: 'recruitment_type', label: '招聘类型' },
+  { key: 'experience_required', label: '经验要求' },
+  { key: 'responsibilities', label: '岗位职责' },
+  { key: 'requirements', label: '任职要求' },
+]
 
 function getRecruitmentBadgeClass(type) {
   return {
@@ -154,6 +193,12 @@ function openEdit(jd) {
 
 function viewJd(jd) { viewingJd.value = jd }
 
+function closeOptimize(force = false) {
+  if (!force && (optimizingDraft.value || savingOptimized.value)) return
+  optimizeSource.value = null
+  optimizedDraft.value = null
+}
+
 async function saveJd() {
   if (!form.value.name.trim()) return
   const payload = { ...form.value }
@@ -199,6 +244,64 @@ async function generateDraft() {
     alert('JD 生成失败: ' + e.message)
   } finally {
     generatingDraft.value = false
+  }
+}
+
+async function openOptimize(jd) {
+  viewingJd.value = null
+  showModal.value = false
+  optimizeSource.value = jd
+  optimizedDraft.value = null
+  optimizingDraft.value = true
+  try {
+    const res = await fetch(`/api/jds/${jd.id}/optimize-draft`, { method: 'POST' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      alert(data.detail || 'JD 优化失败')
+      closeOptimize(true)
+      return
+    }
+    optimizedDraft.value = data
+  } catch (e) {
+    alert('JD 优化失败: ' + e.message)
+    closeOptimize(true)
+  } finally {
+    optimizingDraft.value = false
+  }
+}
+
+async function acceptOptimizedJd() {
+  if (!optimizeSource.value || !optimizedDraft.value) return
+  savingOptimized.value = true
+  const payload = {
+    name: optimizedDraft.value.name || optimizeSource.value.name,
+    category: optimizedDraft.value.category || '',
+    location: optimizedDraft.value.location || '',
+    responsibilities: optimizedDraft.value.responsibilities || '',
+    requirements: optimizedDraft.value.requirements || '',
+    status: optimizedDraft.value.status || optimizeSource.value.status || 'enable',
+    recruitment_type: optimizedDraft.value.recruitment_type || '社招',
+    experience_required: optimizedDraft.value.experience_required || '',
+  }
+  try {
+    const res = await fetch(`/api/jds/${optimizeSource.value.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      alert(data.detail || '采纳优化失败')
+      return
+    }
+    closeOptimize(true)
+    viewingJd.value = null
+    await fetchStats()
+    await fetchJds()
+  } catch (e) {
+    alert('采纳优化失败: ' + e.message)
+  } finally {
+    savingOptimized.value = false
   }
 }
 
@@ -311,27 +414,54 @@ function changePageSize(size) {
       </div>
 
       <!-- 统计卡片 -->
-      <div class="grid grid-cols-4 gap-4 mb-6">
-        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
-          <p class="text-2xl font-bold text-[#1677ff]">{{ stats.total }}</p>
-          <p class="text-xs text-gray-500 mt-1">全部 JD</p>
-        </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
-          <p class="text-2xl font-bold text-[#22c55e]">{{ stats.enabled }}</p>
-          <p class="text-xs text-gray-500 mt-1">启用中</p>
-        </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
-          <p class="text-2xl font-bold text-purple-500">{{ stats.categories }}</p>
-          <p class="text-xs text-gray-500 mt-1">岗位类别</p>
-        </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm text-center">
-          <div class="flex items-center justify-center gap-2">
-            <span class="text-lg font-bold text-green-600">{{ stats.interns }}</span>
-            <span class="text-lg font-bold text-blue-600">{{ stats.campus }}</span>
-            <span class="text-lg font-bold text-purple-600">{{ stats.social }}</span>
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+        <article
+          v-for="card in statCards"
+          :key="card.label"
+          class="relative overflow-hidden rounded-2xl border border-[#e7eef8] bg-white p-5 shadow-sm"
+        >
+          <div :class="['absolute inset-x-0 top-0 h-1 bg-gradient-to-r', card.accent]"></div>
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-sm font-medium text-[#7b879c]">{{ card.label }}</p>
+              <p class="mt-3 text-3xl font-bold tracking-tight text-[#15213f]">{{ card.value }}</p>
+            </div>
+            <div :class="['flex h-11 w-11 items-center justify-center rounded-xl', card.soft]">
+              <i :class="['fa', card.icon]"></i>
+            </div>
           </div>
-          <p class="text-xs text-gray-500 mt-1">实习生 / 校招 / 社招</p>
-        </div>
+          <div class="mt-4 flex items-center gap-2 text-xs text-[#8a97ad]">
+            <span class="h-1.5 w-1.5 rounded-full bg-[#9fb3d1]"></span>
+            <span>{{ card.note }}</span>
+          </div>
+        </article>
+
+        <article class="relative overflow-hidden rounded-2xl border border-[#e7eef8] bg-white p-5 shadow-sm">
+          <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#f59e0b] via-[#3b82f6] to-[#8b5cf6]"></div>
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-[#7b879c]">招聘结构</p>
+              <p class="mt-3 text-xs text-[#8a97ad]">按招聘类型分布</p>
+            </div>
+            <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+              <i class="fa fa-sitemap"></i>
+            </div>
+          </div>
+          <div class="mt-4 grid grid-cols-3 gap-2">
+            <div class="rounded-xl bg-green-50 px-3 py-2 text-center">
+              <div class="text-xl font-bold leading-none text-[#16a34a]">{{ stats.interns }}</div>
+              <div class="mt-1 text-xs font-medium text-green-700">实习生</div>
+            </div>
+            <div class="rounded-xl bg-blue-50 px-3 py-2 text-center">
+              <div class="text-xl font-bold leading-none text-[#2563eb]">{{ stats.campus }}</div>
+              <div class="mt-1 text-xs font-medium text-blue-700">校招</div>
+            </div>
+            <div class="rounded-xl bg-violet-50 px-3 py-2 text-center">
+              <div class="text-xl font-bold leading-none text-[#7c3aed]">{{ stats.social }}</div>
+              <div class="mt-1 text-xs font-medium text-violet-700">社招</div>
+            </div>
+          </div>
+        </article>
       </div>
 
       <!-- 搜索筛选 -->
@@ -410,7 +540,7 @@ function changePageSize(size) {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">经验要求</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">工作地点</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">状态</th>
-              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-36">操作</th>
+              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-44">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -433,6 +563,7 @@ function changePageSize(size) {
                 <div class="flex items-center justify-center gap-1">
                   <button class="w-8 h-8 rounded-lg text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewJd(jd)"><i class="fa fa-eye"></i></button>
                   <button class="w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 transition flex items-center justify-center" title="编辑" @click="openEdit(jd)"><i class="fa fa-pencil"></i></button>
+                  <button class="w-8 h-8 rounded-lg text-[#7c3aed] hover:bg-violet-50 transition flex items-center justify-center" title="AI 优化" @click="openOptimize(jd)"><i class="fa fa-magic"></i></button>
                   <button class="w-8 h-8 rounded-lg text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeJd(jd)"><i class="fa fa-trash-o"></i></button>
                 </div>
               </td>
@@ -470,6 +601,7 @@ function changePageSize(size) {
               <div class="flex items-center gap-1 shrink-0">
                 <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewJd(jd)"><i class="fa fa-eye"></i></button>
                 <button class="w-9 h-9 rounded-xl text-gray-500 hover:bg-gray-100 transition flex items-center justify-center" title="编辑" @click="openEdit(jd)"><i class="fa fa-pencil"></i></button>
+                <button class="w-9 h-9 rounded-xl text-[#7c3aed] hover:bg-violet-50 transition flex items-center justify-center" title="AI 优化" @click="openOptimize(jd)"><i class="fa fa-magic"></i></button>
                 <button class="w-9 h-9 rounded-xl text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeJd(jd)"><i class="fa fa-trash-o"></i></button>
               </div>
             </div>
@@ -521,13 +653,22 @@ function changePageSize(size) {
     </main>
 
     <!-- 新增/编辑弹窗 -->
-    <div v-if="showModal" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" @click.self="showModal = false">
-      <div class="bg-white rounded-2xl w-[600px] max-h-[80vh] overflow-auto p-6 shadow-xl">
-        <h3 class="text-lg font-bold mb-5">{{ editingJd ? '编辑岗位JD' : '新增岗位JD' }}</h3>
-        <div class="space-y-4">
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">岗位名称 <span class="text-red-500">*</span></label><input v-model="form.name" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：后端开发工程师"></div>
-          <div class="grid grid-cols-2 gap-4">
-            <div><label class="block text-sm font-medium text-gray-700 mb-1">岗位类别</label><input v-model="form.category" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：技术开发"></div>
+    <div v-if="showModal" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-5" @click.self="showModal = false">
+      <div class="flex max-h-[88vh] w-[960px] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="shrink-0 border-b px-6 py-5">
+          <h3 class="text-xl font-bold text-gray-900">{{ editingJd ? '编辑岗位JD' : '新增岗位JD' }}</h3>
+          <p class="mt-1 text-sm text-gray-500">维护岗位基础信息、职责与任职要求。</p>
+        </div>
+        <div class="min-h-0 flex-1 overflow-auto p-6">
+          <div class="grid grid-cols-4 gap-4">
+            <div class="col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-1">岗位名称 <span class="text-red-500">*</span></label>
+              <input v-model="form.name" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：后端开发工程师">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">岗位类别</label>
+              <input v-model="form.category" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：技术开发">
+            </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">工作地点</label>
               <div class="relative">
@@ -556,8 +697,6 @@ function changePageSize(size) {
                 </div>
               </div>
             </div>
-          </div>
-          <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">招聘类型</label>
               <select v-model="form.recruitment_type" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
@@ -570,12 +709,27 @@ function changePageSize(size) {
               <label class="block text-sm font-medium text-gray-700 mb-1">经验要求</label>
               <input v-model="form.experience_required" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：3-5年">
             </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
+              <select v-model="form.status" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
+                <option value="enable">启用</option>
+                <option value="disable">停用</option>
+              </select>
+            </div>
           </div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">岗位职责</label><textarea v-model="form.responsibilities" rows="4" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="描述岗位职责..."></textarea></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">任职要求</label><textarea v-model="form.requirements" rows="4" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="描述任职要求..."></textarea></div>
-          <div><label class="block text-sm font-medium text-gray-700 mb-1">状态</label><select v-model="form.status" class="border rounded-lg px-3 py-2"><option value="enable">启用</option><option value="disable">停用</option></select></div>
+
+          <div class="mt-5 grid grid-cols-2 gap-5">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">岗位职责</label>
+              <textarea v-model="form.responsibilities" rows="10" class="w-full resize-y rounded-xl border px-3 py-3 leading-6 focus:outline-none focus:border-[#1677ff]" placeholder="描述岗位职责..."></textarea>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">任职要求</label>
+              <textarea v-model="form.requirements" rows="10" class="w-full resize-y rounded-xl border px-3 py-3 leading-6 focus:outline-none focus:border-[#1677ff]" placeholder="描述任职要求..."></textarea>
+            </div>
+          </div>
         </div>
-        <div class="flex justify-end gap-3 mt-6">
+        <div class="shrink-0 flex justify-end gap-3 border-t bg-white px-6 py-4">
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="showModal = false">取消</button>
           <button class="px-4 py-2 bg-[#1677ff] text-white rounded-lg hover:bg-blue-600 text-sm" @click="saveJd">保存</button>
         </div>
@@ -654,6 +808,73 @@ function changePageSize(size) {
       </div>
     </div>
 
+    <!-- JD 优化对比弹窗 -->
+    <div v-if="optimizeSource" class="fixed inset-0 bg-black/45 z-50 flex items-center justify-center p-5" @click.self="closeOptimize()">
+      <div class="flex max-h-[88vh] w-[1080px] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="shrink-0 flex items-start justify-between gap-5 border-b px-6 py-5">
+          <div>
+            <div class="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-[#7c3aed]">
+              <i class="fa fa-magic"></i>
+              JD 优化助手
+            </div>
+            <h3 class="mt-3 text-xl font-bold text-gray-900">{{ optimizeSource.name }}</h3>
+            <p class="mt-1 text-sm text-gray-500">先查看优化前后差异，确认后再采纳覆盖当前 JD。</p>
+          </div>
+          <button class="h-9 w-9 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" :disabled="optimizingDraft || savingOptimized" @click="closeOptimize()">
+            <i class="fa fa-times"></i>
+          </button>
+        </div>
+
+        <div v-if="optimizingDraft" class="flex min-h-[420px] flex-1 flex-col items-center justify-center text-gray-500">
+          <i class="fa fa-spinner fa-spin text-3xl text-[#7c3aed]"></i>
+          <p class="mt-4 text-sm">正在分析现有 JD 并生成优化版本...</p>
+        </div>
+
+        <div v-else class="min-h-0 flex-1 overflow-auto bg-[#f6f8fc] p-6">
+          <div v-if="optimizedDraft?.summary" class="mb-5 rounded-xl border border-violet-100 bg-white px-4 py-3">
+            <div class="text-sm font-semibold text-[#2b3350]">优化说明</div>
+            <p class="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#64708a]">{{ optimizedDraft.summary }}</p>
+          </div>
+
+          <div class="grid gap-5 lg:grid-cols-2">
+            <section class="rounded-2xl border border-[#e5ebf5] bg-white">
+              <div class="border-b px-4 py-3">
+                <div class="text-sm font-semibold text-[#6b7280]">优化前</div>
+              </div>
+              <div class="divide-y divide-[#eef2f7]">
+                <div v-for="field in compareFields" :key="'old-' + field.key" class="px-4 py-3">
+                  <div class="text-xs font-semibold text-[#8a96aa]">{{ field.label }}</div>
+                  <p class="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#2f3a4f]">{{ optimizeSource[field.key] || '-' }}</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-[#d8c8ff] bg-white shadow-sm">
+              <div class="border-b border-violet-100 px-4 py-3">
+                <div class="text-sm font-semibold text-[#7c3aed]">优化后</div>
+              </div>
+              <div class="divide-y divide-[#eef2f7]">
+                <div v-for="field in compareFields" :key="'new-' + field.key" class="px-4 py-3">
+                  <div class="text-xs font-semibold text-[#8a96aa]">{{ field.label }}</div>
+                  <p class="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#202a43]">{{ optimizedDraft?.[field.key] || '-' }}</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t bg-white px-6 py-4 shadow-[0_-10px_24px_rgba(15,23,42,0.06)]">
+          <div class="text-xs text-gray-500">采纳后会覆盖当前 JD，可继续在编辑中微调。</div>
+          <div class="flex items-center gap-3">
+            <button class="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50" :disabled="optimizingDraft || savingOptimized" @click="closeOptimize()">暂不采纳</button>
+            <button class="px-4 py-2 rounded-lg bg-[#7c3aed] text-white text-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-violet-300" :disabled="optimizingDraft || savingOptimized || !optimizedDraft" @click="acceptOptimizedJd">
+              <i :class="['fa mr-1', savingOptimized ? 'fa-spinner fa-spin' : 'fa-check']"></i>{{ savingOptimized ? '保存中' : '采纳优化' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 查看 JD 弹窗 -->
     <div v-if="viewingJd" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" @click.self="viewingJd = null">
       <div class="bg-white rounded-2xl w-[640px] max-h-[80vh] overflow-auto p-6 shadow-xl">
@@ -662,11 +883,35 @@ function changePageSize(size) {
           <span :class="viewingJd.status === 'enable' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'" class="px-2 py-1 text-xs rounded">{{ viewingJd.status === 'enable' ? '启用' : '停用' }}</span>
         </div>
         <div class="space-y-4">
-          <div class="flex gap-4 text-sm text-gray-500">
-            <span><i class="fa fa-tag mr-1"></i>{{ viewingJd.category || '-' }}</span>
-            <span><i class="fa fa-map-marker mr-1"></i>{{ viewingJd.location || '-' }}</span>
-            <span :class="getRecruitmentBadgeClass(viewingJd.recruitment_type)" class="px-2 py-0.5 text-xs rounded font-medium">{{ viewingJd.recruitment_type || '社招' }}</span>
-            <span class="text-gray-500">{{ viewingJd.experience_required ? viewingJd.experience_required + ' 经验' : '' }}</span>
+          <div class="grid gap-3 rounded-xl border border-[#e6edf7] bg-[#f8fbff] p-3 sm:grid-cols-2">
+            <div class="flex min-w-0 items-center gap-2 rounded-lg bg-white px-3 py-2">
+              <i class="fa fa-tag shrink-0 text-[#8492aa]"></i>
+              <div class="min-w-0">
+                <div class="text-xs text-[#8a97ad]">岗位类别</div>
+                <div class="truncate text-sm font-medium text-[#25304a]">{{ viewingJd.category || '-' }}</div>
+              </div>
+            </div>
+            <div class="flex min-w-0 items-center gap-2 rounded-lg bg-white px-3 py-2">
+              <i class="fa fa-map-marker shrink-0 text-[#8492aa]"></i>
+              <div class="min-w-0">
+                <div class="text-xs text-[#8a97ad]">工作地点</div>
+                <div class="truncate text-sm font-medium text-[#25304a]">{{ viewingJd.location || '-' }}</div>
+              </div>
+            </div>
+            <div class="flex min-w-0 items-center gap-2 rounded-lg bg-white px-3 py-2">
+              <i class="fa fa-briefcase shrink-0 text-[#8492aa]"></i>
+              <div class="min-w-0">
+                <div class="text-xs text-[#8a97ad]">招聘类型</div>
+                <span :class="getRecruitmentBadgeClass(viewingJd.recruitment_type)" class="mt-1 inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium">{{ viewingJd.recruitment_type || '社招' }}</span>
+              </div>
+            </div>
+            <div class="flex min-w-0 items-center gap-2 rounded-lg bg-white px-3 py-2">
+              <i class="fa fa-clock-o shrink-0 text-[#8492aa]"></i>
+              <div class="min-w-0">
+                <div class="text-xs text-[#8a97ad]">经验要求</div>
+                <div class="line-clamp-2 text-sm font-medium leading-5 text-[#25304a]">{{ viewingJd.experience_required || '-' }}</div>
+              </div>
+            </div>
           </div>
           <div>
             <h4 class="text-sm font-semibold text-gray-700 mb-2">岗位职责</h4>
@@ -677,7 +922,8 @@ function changePageSize(size) {
             <p class="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{{ viewingJd.requirements || '暂无' }}</p>
           </div>
         </div>
-        <div class="flex justify-end mt-6">
+        <div class="flex justify-end gap-3 mt-6">
+          <button class="px-4 py-2 rounded-lg border border-violet-200 text-[#7c3aed] hover:bg-violet-50 text-sm" @click="openOptimize(viewingJd)">AI 优化</button>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="viewingJd = null">关闭</button>
         </div>
       </div>

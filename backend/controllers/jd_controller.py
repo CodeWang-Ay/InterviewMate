@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 from backend.controllers.auth_controller import require_admin
 from backend.repositories import jd_repo
-from backend.services.jd_copilot_service import generate_jd_draft
+from backend.services.jd_copilot_service import generate_jd_draft, optimize_jd_draft
 
 router = APIRouter(prefix="/api/jds", tags=["jds"])
 
@@ -73,6 +73,14 @@ async def generate_jd(body: JdGenerateBody, _: dict = Depends(require_admin)):
         location=body.location,
         recruitment_type=body.recruitment_type,
     )
+
+
+@router.post("/{jd_id}/optimize-draft")
+async def optimize_jd(jd_id: int, _: dict = Depends(require_admin)):
+    jd = jd_repo.get_by_id(jd_id)
+    if not jd:
+        raise HTTPException(status_code=404, detail="JD 不存在")
+    return optimize_jd_draft(jd)
 
 
 @router.put("/{jd_id}")
