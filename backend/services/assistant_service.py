@@ -1,15 +1,15 @@
 import asyncio
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from backend.services.llm_service import OPENAI_API_KEY, OPENAI_BASE_URL
 
 
-def generate_assistant_reply(identity: dict, message: str, history: list[dict] | None = None) -> str:
+async def generate_assistant_reply(identity: dict, message: str, history: list[dict] | None = None) -> str:
     history = history or []
     if OPENAI_API_KEY:
         try:
-            return _llm_reply(identity, message, history)
+            return await _llm_reply(identity, message, history)
         except Exception:
             pass
     return _fallback_reply(identity, message)
@@ -31,11 +31,11 @@ async def stream_assistant_reply(identity: dict, message: str, history: list[dic
         await asyncio.sleep(0.03)
 
 
-def _llm_reply(identity: dict, message: str, history: list[dict]) -> str:
+async def _llm_reply(identity: dict, message: str, history: list[dict]) -> str:
     role_name = "后台管理员" if identity.get("kind") == "admin" else "面试者"
     profile = identity.get("profile", {})
     nickname = profile.get("nickname") or profile.get("candidate_name") or identity.get("username") or role_name
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
 
     system_prompt = f"""你是 InterviewMate 系统里的 AI 聊天助手。
 
@@ -58,7 +58,7 @@ def _llm_reply(identity: dict, message: str, history: list[dict]) -> str:
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message})
 
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model="qwen-plus",
         temperature=0.8,
         messages=messages,
@@ -71,7 +71,7 @@ async def _llm_reply_stream(identity: dict, message: str, history: list[dict]):
     role_name = "后台管理员" if identity.get("kind") == "admin" else "面试者"
     profile = identity.get("profile", {})
     nickname = profile.get("nickname") or profile.get("candidate_name") or identity.get("username") or role_name
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
 
     system_prompt = f"""你是 InterviewMate 系统里的 AI 聊天助手。
 
@@ -94,7 +94,7 @@ async def _llm_reply_stream(identity: dict, message: str, history: list[dict]):
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message})
 
-    stream = client.chat.completions.create(
+    stream = await client.chat.completions.create(
         model="qwen-plus",
         temperature=0.8,
         messages=messages,
@@ -103,7 +103,7 @@ async def _llm_reply_stream(identity: dict, message: str, history: list[dict]):
     )
 
     emitted = False
-    for event in stream:
+    async for event in stream:
         try:
             delta = event.choices[0].delta.content or ""
         except Exception:

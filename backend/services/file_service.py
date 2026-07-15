@@ -21,10 +21,10 @@ def extract_questions_from_jd(jd_text: str) -> list[str]:
     return questions if questions else DEFAULT_QUESTIONS
 
 
-def parse_resume(filename: str) -> dict:
+async def parse_resume(filename: str) -> dict:
     """解析简历，返回原始文本 + 结构化信息"""
     raw = read_text("resume", filename)
-    structured = extract_resume_info(raw)               # pdf 简历解析
+    structured = await extract_resume_info(raw)               # pdf 简历解析
     return {"raw": raw, "structured": structured}
 
 

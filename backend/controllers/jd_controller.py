@@ -74,7 +74,7 @@ async def duplicate_jd(jd_id: int, _: dict = Depends(require_admin)):
 async def generate_jd(body: JdGenerateBody, _: dict = Depends(require_admin)):
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="岗位名称不能为空")
-    return generate_jd_draft(
+    return await generate_jd_draft(
         name=body.name,
         summary=body.summary,
         category=body.category,
@@ -88,7 +88,7 @@ async def optimize_jd(jd_id: int, _: dict = Depends(require_admin)):
     jd = jd_repo.get_by_id(jd_id)
     if not jd:
         raise HTTPException(status_code=404, detail="JD 不存在")
-    return optimize_jd_draft(jd)
+    return await optimize_jd_draft(jd)
 
 
 @router.get("/{jd_id}/versions")

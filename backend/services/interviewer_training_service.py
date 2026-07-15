@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from backend.config import chat_sessions, UPLOAD_DIR
 from backend.repositories import jd_repo, resume_repo
@@ -81,7 +81,7 @@ def get_training_session(session_id: str) -> dict | None:
     }
 
 
-def process_training_message(session_id: str, interviewer_question: str) -> tuple[str, str]:
+async def process_training_message(session_id: str, interviewer_question: str) -> tuple[str, str]:
     session = chat_sessions.get(session_id)
     if not session or session.get("mode") != "interviewer_training":
         raise ValueError("训练会话不存在")
@@ -92,7 +92,7 @@ def process_training_message(session_id: str, interviewer_question: str) -> tupl
         "timestamp": datetime.now().isoformat(),
     })
 
-    answer = _generate_candidate_reply(session, interviewer_question)
+    answer = await _generate_candidate_reply(session, interviewer_question)
     session["history"].append({
         "role": "candidate",
         "content": answer,
@@ -150,17 +150,17 @@ def _load_jd_text(jd: dict) -> str:
     return "\n".join([piece for piece in pieces if piece]).strip()
 
 
-def _generate_candidate_reply(session: dict, interviewer_question: str) -> str:
+async def _generate_candidate_reply(session: dict, interviewer_question: str) -> str:
     if OPENAI_API_KEY:
         try:
-            return _llm_candidate_reply(session, interviewer_question)
+            return await _llm_candidate_reply(session, interviewer_question)
         except Exception:
             pass
     return _fallback_candidate_reply(session, interviewer_question)
 
 
-def _llm_candidate_reply(session: dict, interviewer_question: str) -> str:
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+async def _llm_candidate_reply(session: dict, interviewer_question: str) -> str:
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
     persona = session.get("persona", {})
     history = session.get("history", [])[-8:]
     history_text = "\n".join(f"{item['role']}: {item['content']}" for item in history)
@@ -194,7 +194,7 @@ def _llm_candidate_reply(session: dict, interviewer_question: str) -> str:
 面试官提问：
 {interviewer_question}
 """
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model="qwen-plus",
         temperature=0.7,
         messages=[

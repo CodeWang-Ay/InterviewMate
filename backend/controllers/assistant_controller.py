@@ -13,7 +13,7 @@ async def assistant_chat(body: AssistantChatBody, identity: dict = Depends(get_c
     message = body.message.strip()
     if not message:
         return {"message": "你发个一句话给我，我就接着聊。"}
-    reply = generate_assistant_reply(
+    reply = await generate_assistant_reply(
         identity=identity,
         message=message,
         history=[item.model_dump() for item in body.history],

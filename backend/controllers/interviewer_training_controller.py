@@ -43,7 +43,7 @@ async def training_session(session_id: str, _: dict = Depends(require_admin)):
 @router.post("/message")
 async def training_message(body: InterviewerTrainingMessage, _: dict = Depends(require_admin)):
     try:
-        reply, state = process_training_message(body.session_id, body.message.strip())
+        reply, state = await process_training_message(body.session_id, body.message.strip())
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     save_record(body.session_id)

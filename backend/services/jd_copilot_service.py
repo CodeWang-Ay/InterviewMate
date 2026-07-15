@@ -1,12 +1,12 @@
 import json
 import re
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from backend.services.llm_service import OPENAI_API_KEY, OPENAI_BASE_URL
 
 
-def generate_jd_draft(
+async def generate_jd_draft(
     name: str,
     summary: str = "",
     category: str = "",
@@ -23,13 +23,13 @@ def generate_jd_draft(
 
     if OPENAI_API_KEY:
         try:
-            return _llm_generate_jd(payload)
+            return await _llm_generate_jd(payload)
         except Exception:
             pass
     return _fallback_generate_jd(payload)
 
 
-def optimize_jd_draft(jd: dict) -> dict:
+async def optimize_jd_draft(jd: dict) -> dict:
     payload = {
         "name": str(jd.get("name") or "").strip(),
         "category": str(jd.get("category") or "").strip(),
@@ -43,14 +43,14 @@ def optimize_jd_draft(jd: dict) -> dict:
 
     if OPENAI_API_KEY:
         try:
-            return _llm_optimize_jd(payload)
+            return await _llm_optimize_jd(payload)
         except Exception:
             pass
     return _fallback_optimize_jd(payload)
 
 
-def _llm_generate_jd(payload: dict) -> dict:
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+async def _llm_generate_jd(payload: dict) -> dict:
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
     prompt = f"""你是一位资深招聘顾问，请根据岗位信息生成一份结构清晰、适合招聘后台直接保存的 JD，并严格输出 JSON。
 
 输出 JSON 格式如下：
@@ -77,7 +77,7 @@ def _llm_generate_jd(payload: dict) -> dict:
 招聘类型：{payload['recruitment_type']}
 简单描述：{payload['summary'] or '请按常见招聘场景生成一份完整 JD'}
 """
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model="qwen-plus",
         temperature=0.4,
         messages=[
@@ -100,8 +100,8 @@ def _llm_generate_jd(payload: dict) -> dict:
     }
 
 
-def _llm_optimize_jd(payload: dict) -> dict:
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+async def _llm_optimize_jd(payload: dict) -> dict:
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
     prompt = f"""你是一位资深招聘顾问，请在保留原岗位意图的基础上优化现有 JD，并严格输出 JSON。
 
 输出 JSON 格式如下：
@@ -135,7 +135,7 @@ def _llm_optimize_jd(payload: dict) -> dict:
 原任职要求：
 {payload['requirements'] or '未填写'}
 """
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model="qwen-plus",
         temperature=0.35,
         messages=[

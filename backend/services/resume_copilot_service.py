@@ -2,7 +2,7 @@ import json
 import os
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from backend.repositories import jd_repo, resume_repo
 from backend.repositories.upload_repo import read_text
@@ -13,7 +13,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
 
 
-def score_resume(resume_id: int, jd_id: int | None = None) -> dict:
+async def score_resume(resume_id: int, jd_id: int | None = None) -> dict:
     resume = resume_repo.get_by_id(resume_id)
     if not resume:
         raise ValueError("简历不存在")
@@ -24,13 +24,13 @@ def score_resume(resume_id: int, jd_id: int | None = None) -> dict:
 
     if OPENAI_API_KEY:
         try:
-            return _llm_score_resume(resume, jd, resume_text, structured)
+            return await _llm_score_resume(resume, jd, resume_text, structured)
         except Exception:
             pass
     return _fallback_score_resume(resume, jd, resume_text, structured)
 
 
-def polish_resume(resume_id: int, jd_id: int | None = None, mode: str = "jd") -> dict:
+async def polish_resume(resume_id: int, jd_id: int | None = None, mode: str = "jd") -> dict:
     resume = resume_repo.get_by_id(resume_id)
     if not resume:
         raise ValueError("简历不存在")
@@ -41,13 +41,13 @@ def polish_resume(resume_id: int, jd_id: int | None = None, mode: str = "jd") ->
 
     if OPENAI_API_KEY:
         try:
-            return _llm_polish_resume(resume, jd, resume_text, structured, mode)
+            return await _llm_polish_resume(resume, jd, resume_text, structured, mode)
         except Exception:
             pass
     return _fallback_polish_resume(resume, jd, structured, mode)
 
 
-def score_resume_text(
+async def score_resume_text(
     filename: str,
     resume_text: str,
     structured: dict,
@@ -63,13 +63,13 @@ def score_resume_text(
     }
     if OPENAI_API_KEY:
         try:
-            return _llm_score_resume(resume, jd, resume_text, structured)
+            return await _llm_score_resume(resume, jd, resume_text, structured)
         except Exception:
             pass
     return _fallback_score_resume(resume, jd, resume_text, structured)
 
 
-def polish_resume_text(
+async def polish_resume_text(
     filename: str,
     resume_text: str,
     structured: dict,
@@ -86,7 +86,7 @@ def polish_resume_text(
     }
     if OPENAI_API_KEY:
         try:
-            return _llm_polish_resume(resume, jd, resume_text, structured, mode)
+            return await _llm_polish_resume(resume, jd, resume_text, structured, mode)
         except Exception:
             pass
     return _fallback_polish_resume(resume, jd, structured, mode)
@@ -157,8 +157,8 @@ def _jd_text(jd: dict | None) -> str:
     ])
 
 
-def _llm_score_resume(resume: dict, jd: dict | None, resume_text: str, structured: dict) -> dict:
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+async def _llm_score_resume(resume: dict, jd: dict | None, resume_text: str, structured: dict) -> dict:
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
     prompt = f"""你是一位招聘顾问，请对下面的简历做结构化评估，并严格输出 JSON。
 
 输出格式：
@@ -192,7 +192,7 @@ JD：
 简历原文：
 {resume_text[:8000]}
 """
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model="qwen-plus",
         temperature=0.3,
         messages=[
@@ -245,8 +245,8 @@ def _fallback_score_resume(resume: dict, jd: dict | None, resume_text: str, stru
     }
 
 
-def _llm_polish_resume(resume: dict, jd: dict | None, resume_text: str, structured: dict, mode: str) -> dict:
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+async def _llm_polish_resume(resume: dict, jd: dict | None, resume_text: str, structured: dict, mode: str) -> dict:
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
     prompt = f"""你是一位简历优化顾问，请对下面的简历进行润色，并严格输出 JSON。
 
 输出格式：
@@ -276,7 +276,7 @@ JD：
 简历原文：
 {resume_text[:8000]}
 """
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model="qwen-plus",
         temperature=0.45,
         messages=[

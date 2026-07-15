@@ -3,7 +3,7 @@ import os
 import re
 import json_repair
 from loguru import logger
-from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 # 先加载 .env，再读取环境变量
@@ -66,18 +66,18 @@ RESUME_EXTRACTION_PROMPT = """你是一位专业的简历解析专家。请从�
 """
 
 
-def extract_resume_info(text: str) -> dict:
+async def extract_resume_info(text: str) -> dict:
     """调用 OpenAI 兼容 API 提取简历结构化信息"""
     if not OPENAI_API_KEY:
         return _fallback_extraction(text)
 
     try:
         logger.info("简历解析...............")
-        client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
+        client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL or None)
 
         truncated = text[:15000] if len(text) > 15000 else text
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="qwen-plus",
             temperature=0.1,
             messages=[

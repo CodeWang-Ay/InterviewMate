@@ -8,9 +8,9 @@ from backend.services.resume_copilot_service import polish_resume_text, score_re
 router = APIRouter(prefix="/api/ai-tools", tags=["ai-tools"])
 
 
-def _parse_temp_resume(filename: str) -> dict:
+async def _parse_temp_resume(filename: str) -> dict:
     raw = upload_repo.read_text("temp_resume", filename)
-    structured = extract_resume_info(raw)
+    structured = await extract_resume_info(raw)
     return {"raw": raw, "structured": structured}
 
 
@@ -23,8 +23,8 @@ async def ai_resume_score(
     try:
         ext = upload_repo.validate(file)
         filename = await upload_repo.save(file, "temp_resume", ext)
-        parsed = _parse_temp_resume(filename)
-        result = score_resume_text(file.filename or filename, parsed["raw"], parsed["structured"], jd_id)
+        parsed = await _parse_temp_resume(filename)
+        result = await score_resume_text(file.filename or filename, parsed["raw"], parsed["structured"], jd_id)
         return {
             "filename": file.filename or filename,
             "raw": parsed["raw"],
@@ -47,8 +47,8 @@ async def ai_resume_polish(
     try:
         ext = upload_repo.validate(file)
         filename = await upload_repo.save(file, "temp_resume", ext)
-        parsed = _parse_temp_resume(filename)
-        result = polish_resume_text(file.filename or filename, parsed["raw"], parsed["structured"], jd_id, mode)
+        parsed = await _parse_temp_resume(filename)
+        result = await polish_resume_text(file.filename or filename, parsed["raw"], parsed["structured"], jd_id, mode)
         return {
             "filename": file.filename or filename,
             "raw": parsed["raw"],

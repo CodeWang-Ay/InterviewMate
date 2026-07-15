@@ -32,7 +32,7 @@ async def upload_resume(file: UploadFile = File(...), _: dict = Depends(require_
 
 @router.post("/parse/resume")
 async def api_parse_resume(body: ResumeParse, _: dict = Depends(require_admin)):
-    result = parse_resume(body.resume_filename)
+    result = await parse_resume(body.resume_filename)
     print("=" * 60)
     print("【简历解析结果】")
     print(result["raw"][:500])
@@ -45,7 +45,7 @@ async def api_parse_resume(body: ResumeParse, _: dict = Depends(require_admin)):
 @router.post("/generate/plan")
 async def generate_plan(body: PlanGenerate, _: dict = Depends(require_admin)):
     jd_text = read_jd(body.jd_filename)
-    result = parse_resume(body.resume_filename)
+    result = await parse_resume(body.resume_filename)
     resume_text = result["raw"]
 
     questions = extract_questions_from_jd(jd_text)

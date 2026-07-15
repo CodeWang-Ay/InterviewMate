@@ -110,7 +110,7 @@ async def parse_resume_api(rid: int, _: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="简历未关联文件")
 
     try:
-        result = parse_resume(file_path)
+        result = await parse_resume(file_path)
         structured = result["structured"]
         resume_repo.update(rid, {
             "name": structured.get("基础信息", {}).get("姓名") or r["name"],
@@ -129,7 +129,7 @@ async def parse_resume_api(rid: int, _: dict = Depends(require_admin)):
 @router.post("/{rid}/score")
 async def score_resume_api(rid: int, body: ResumeAssistBody | None = None, _: dict = Depends(require_admin)):
     try:
-        return score_resume(rid, body.jd_id if body else None)
+        return await score_resume(rid, body.jd_id if body else None)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -141,7 +141,7 @@ async def polish_resume_api(rid: int, body: ResumeAssistBody | None = None, _: d
     try:
         mode = body.mode if body else "jd"
         jd_id = body.jd_id if body else None
-        return polish_resume(rid, jd_id, mode)
+        return await polish_resume(rid, jd_id, mode)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
