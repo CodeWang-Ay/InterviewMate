@@ -62,6 +62,14 @@ async def create_jd(body: JdCreate, _: dict = Depends(require_admin)):
     return jd_repo.create(body.model_dump())
 
 
+@router.post("/{jd_id}/duplicate")
+async def duplicate_jd(jd_id: int, _: dict = Depends(require_admin)):
+    jd = jd_repo.duplicate(jd_id)
+    if not jd:
+        raise HTTPException(status_code=404, detail="JD 不存在")
+    return jd
+
+
 @router.post("/generate-draft")
 async def generate_jd(body: JdGenerateBody, _: dict = Depends(require_admin)):
     if not body.name.strip():
@@ -83,10 +91,26 @@ async def optimize_jd(jd_id: int, _: dict = Depends(require_admin)):
     return optimize_jd_draft(jd)
 
 
+@router.get("/{jd_id}/versions")
+async def list_jd_versions(jd_id: int, _: dict = Depends(require_admin)):
+    jd = jd_repo.get_by_id(jd_id)
+    if not jd:
+        raise HTTPException(status_code=404, detail="JD 不存在")
+    return jd_repo.list_versions(jd_id)
+
+
+@router.post("/{jd_id}/versions/{version_id}/restore")
+async def restore_jd_version(jd_id: int, version_id: int, _: dict = Depends(require_admin)):
+    jd = jd_repo.restore_version(jd_id, version_id)
+    if not jd:
+        raise HTTPException(status_code=404, detail="版本不存在")
+    return jd
+
+
 @router.put("/{jd_id}")
-async def update_jd(jd_id: int, body: JdUpdate, _: dict = Depends(require_admin)):
+async def update_jd(jd_id: int, body: JdUpdate, source: str = "manual", _: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
-    jd = jd_repo.update(jd_id, data)
+    jd = jd_repo.update(jd_id, data, source=source)
     if not jd:
         raise HTTPException(status_code=404, detail="JD 不存在")
     return jd

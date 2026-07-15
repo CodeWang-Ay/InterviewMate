@@ -25,6 +25,22 @@ def init_db():
                 updated_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jd_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                jd_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                location TEXT DEFAULT '',
+                responsibilities TEXT DEFAULT '',
+                requirements TEXT DEFAULT '',
+                status TEXT DEFAULT 'enable',
+                recruitment_type TEXT DEFAULT '社招',
+                experience_required TEXT DEFAULT '',
+                source TEXT DEFAULT 'manual',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
         cnt = conn.execute("SELECT COUNT(*) FROM jds").fetchone()[0]
         if cnt == 0:
             samples = [
@@ -106,7 +122,45 @@ def create(data):
         return get_by_id(cur.lastrowid)
 
 
-def update(jd_id, data):
+def duplicate(jd_id):
+    with _conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO jds (
+                name, category, location, responsibilities, requirements,
+                status, recruitment_type, experience_required
+            )
+            SELECT
+                name || '（副本）', category, location, responsibilities, requirements,
+                status, recruitment_type, experience_required
+            FROM jds
+            WHERE id=?
+            """,
+            (jd_id,),
+        )
+        if cur.rowcount <= 0:
+            return None
+        row = conn.execute("SELECT * FROM jds WHERE id=?", (cur.lastrowid,)).fetchone()
+        return dict(row) if row else None
+
+
+def _save_version(conn, jd, source="manual"):
+    conn.execute(
+        """
+        INSERT INTO jd_versions (
+            jd_id, name, category, location, responsibilities, requirements,
+            status, recruitment_type, experience_required, source
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            jd["id"], jd.get("name", ""), jd.get("category", ""), jd.get("location", ""),
+            jd.get("responsibilities", ""), jd.get("requirements", ""), jd.get("status", "enable"),
+            jd.get("recruitment_type", "社招"), jd.get("experience_required", ""), source,
+        ),
+    )
+
+
+def update(jd_id, data, source="manual"):
     existing = get_by_id(jd_id)
     if not existing:
         return None
@@ -117,7 +171,37 @@ def update(jd_id, data):
         return existing
     vals.append(jd_id)
     with _conn() as conn:
-        conn.execute(f"UPDATE jds SET {', '.join(sets)} WHERE id=?", vals)
+        _save_version(conn, existing, source)
+        conn.execute(f"UPDATE jds SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?", vals)
+    return get_by_id(jd_id)
+
+
+def list_versions(jd_id):
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jd_versions WHERE jd_id=? ORDER BY id DESC",
+            (jd_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def restore_version(jd_id, version_id):
+    current = get_by_id(jd_id)
+    if not current:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM jd_versions WHERE id=? AND jd_id=?",
+            (version_id, jd_id),
+        ).fetchone()
+        if not row:
+            return None
+        version = dict(row)
+        _save_version(conn, current, "restore")
+        fields = ["name", "category", "location", "responsibilities", "requirements", "status", "recruitment_type", "experience_required"]
+        sets = [f"{f}=?" for f in fields]
+        vals = [version.get(f, "") for f in fields] + [jd_id]
+        conn.execute(f"UPDATE jds SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?", vals)
     return get_by_id(jd_id)
 
 

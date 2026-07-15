@@ -25,6 +25,10 @@ const optimizingDraft = ref(false)
 const savingOptimized = ref(false)
 const optimizeSource = ref(null)
 const optimizedDraft = ref(null)
+const versionJd = ref(null)
+const jdVersions = ref([])
+const loadingVersions = ref(false)
+const restoringVersion = ref(false)
 const activeLocationPicker = ref('')
 const generatorForm = ref({ name: '', summary: '', category: '', location: '', recruitment_type: '社招' })
 
@@ -213,6 +217,24 @@ async function saveJd() {
   } catch (_) {}
 }
 
+async function duplicateJd(jd) {
+  const jdId = Number(jd?.id)
+  if (!Number.isInteger(jdId) || jdId <= 0) {
+    alert('当前 JD 数据缺少有效 ID，请刷新页面后再试')
+    return
+  }
+  const res = await fetch(`/api/jds/${jdId}/duplicate`, { method: 'POST' })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    alert(data.detail || '复制 JD 失败')
+    return
+  }
+  await fetchStats()
+  page.value = 1
+  viewingJd.value = null
+  await fetchJds()
+}
+
 async function generateDraft() {
   if (!generatorForm.value.name.trim()) return
   generatingDraft.value = true
@@ -284,7 +306,7 @@ async function acceptOptimizedJd() {
     experience_required: optimizedDraft.value.experience_required || '',
   }
   try {
-    const res = await fetch(`/api/jds/${optimizeSource.value.id}`, {
+    const res = await fetch(`/api/jds/${optimizeSource.value.id}?source=ai_optimize`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -302,6 +324,46 @@ async function acceptOptimizedJd() {
     alert('采纳优化失败: ' + e.message)
   } finally {
     savingOptimized.value = false
+  }
+}
+
+async function openVersions(jd) {
+  viewingJd.value = null
+  showModal.value = false
+  versionJd.value = jd
+  jdVersions.value = []
+  loadingVersions.value = true
+  try {
+    const res = await fetch(`/api/jds/${jd.id}/versions`)
+    const data = await res.json().catch(() => [])
+    if (!res.ok) {
+      alert(data.detail || '获取版本记录失败')
+      versionJd.value = null
+      return
+    }
+    jdVersions.value = data
+  } finally {
+    loadingVersions.value = false
+  }
+}
+
+async function restoreVersion(version) {
+  if (!versionJd.value || !confirm('确认恢复到这个历史版本？当前 JD 会先保存为一条新版本记录。')) return
+  restoringVersion.value = true
+  try {
+    const res = await fetch(`/api/jds/${versionJd.value.id}/versions/${version.id}/restore`, { method: 'POST' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      alert(data.detail || '恢复版本失败')
+      return
+    }
+    versionJd.value = null
+    jdVersions.value = []
+    viewingJd.value = null
+    await fetchStats()
+    await fetchJds()
+  } finally {
+    restoringVersion.value = false
   }
 }
 
@@ -540,7 +602,7 @@ function changePageSize(size) {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">经验要求</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">工作地点</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">状态</th>
-              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-44">操作</th>
+              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-56">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -564,6 +626,8 @@ function changePageSize(size) {
                   <button class="w-8 h-8 rounded-lg text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewJd(jd)"><i class="fa fa-eye"></i></button>
                   <button class="w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 transition flex items-center justify-center" title="编辑" @click="openEdit(jd)"><i class="fa fa-pencil"></i></button>
                   <button class="w-8 h-8 rounded-lg text-[#7c3aed] hover:bg-violet-50 transition flex items-center justify-center" title="AI 优化" @click="openOptimize(jd)"><i class="fa fa-magic"></i></button>
+                  <button class="w-8 h-8 rounded-lg text-[#0ea5e9] hover:bg-sky-50 transition flex items-center justify-center" title="版本记录" @click="openVersions(jd)"><i class="fa fa-history"></i></button>
+                  <button class="w-8 h-8 rounded-lg text-[#f59e0b] hover:bg-amber-50 transition flex items-center justify-center" title="复制 JD" @click="duplicateJd(jd)"><i class="fa fa-copy"></i></button>
                   <button class="w-8 h-8 rounded-lg text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeJd(jd)"><i class="fa fa-trash-o"></i></button>
                 </div>
               </td>
@@ -602,6 +666,8 @@ function changePageSize(size) {
                 <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewJd(jd)"><i class="fa fa-eye"></i></button>
                 <button class="w-9 h-9 rounded-xl text-gray-500 hover:bg-gray-100 transition flex items-center justify-center" title="编辑" @click="openEdit(jd)"><i class="fa fa-pencil"></i></button>
                 <button class="w-9 h-9 rounded-xl text-[#7c3aed] hover:bg-violet-50 transition flex items-center justify-center" title="AI 优化" @click="openOptimize(jd)"><i class="fa fa-magic"></i></button>
+                <button class="w-9 h-9 rounded-xl text-[#0ea5e9] hover:bg-sky-50 transition flex items-center justify-center" title="版本记录" @click="openVersions(jd)"><i class="fa fa-history"></i></button>
+                <button class="w-9 h-9 rounded-xl text-[#f59e0b] hover:bg-amber-50 transition flex items-center justify-center" title="复制 JD" @click="duplicateJd(jd)"><i class="fa fa-copy"></i></button>
                 <button class="w-9 h-9 rounded-xl text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeJd(jd)"><i class="fa fa-trash-o"></i></button>
               </div>
             </div>
@@ -875,6 +941,60 @@ function changePageSize(size) {
       </div>
     </div>
 
+    <!-- JD 版本记录弹窗 -->
+    <div v-if="versionJd" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-5" @click.self="versionJd = null">
+      <div class="flex max-h-[82vh] w-[760px] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="shrink-0 flex items-start justify-between gap-4 border-b px-6 py-5">
+          <div>
+            <div class="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-600">
+              <i class="fa fa-history"></i>
+              版本记录
+            </div>
+            <h3 class="mt-3 text-xl font-bold text-gray-900">{{ versionJd.name }}</h3>
+            <p class="mt-1 text-sm text-gray-500">编辑、AI 采纳和恢复前都会自动保存历史版本。</p>
+          </div>
+          <button class="h-9 w-9 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" :disabled="restoringVersion" @click="versionJd = null">
+            <i class="fa fa-times"></i>
+          </button>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-auto bg-[#f6f8fc] p-5">
+          <div v-if="loadingVersions" class="py-14 text-center text-gray-400">
+            <i class="fa fa-spinner fa-spin text-2xl"></i>
+            <p class="mt-3 text-sm">正在加载版本记录...</p>
+          </div>
+          <div v-else-if="!jdVersions.length" class="rounded-2xl border border-dashed border-[#d8e2f1] bg-white py-12 text-center text-gray-400">
+            <i class="fa fa-clock-o text-3xl"></i>
+            <p class="mt-3 text-sm">暂无历史版本</p>
+          </div>
+          <div v-else class="space-y-3">
+            <article v-for="version in jdVersions" :key="version.id" class="rounded-2xl border border-[#e5ecf7] bg-white p-4">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h4 class="font-semibold text-[#1d2941]">{{ version.name }}</h4>
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                      {{ version.source === 'ai_optimize' ? 'AI采纳前' : version.source === 'restore' ? '恢复前' : '编辑前' }}
+                    </span>
+                  </div>
+                  <p class="mt-1 text-xs text-[#8a97ad]">{{ version.created_at }}</p>
+                </div>
+                <button class="shrink-0 rounded-lg border border-sky-200 px-3 py-1.5 text-sm text-sky-600 hover:bg-sky-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="restoringVersion" @click="restoreVersion(version)">
+                  恢复此版
+                </button>
+              </div>
+              <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-[#65748d]">
+                <span class="rounded-lg bg-[#f8fbff] px-2 py-1">{{ version.category || '未分类' }}</span>
+                <span class="rounded-lg bg-[#f8fbff] px-2 py-1">{{ version.location || '地点未填' }}</span>
+                <span class="rounded-lg bg-[#f8fbff] px-2 py-1">{{ version.experience_required || '经验未填' }}</span>
+              </div>
+              <p class="mt-3 line-clamp-2 text-sm leading-6 text-[#52627d]">{{ version.responsibilities || version.requirements || '暂无职责与要求' }}</p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 查看 JD 弹窗 -->
     <div v-if="viewingJd" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" @click.self="viewingJd = null">
       <div class="bg-white rounded-2xl w-[640px] max-h-[80vh] overflow-auto p-6 shadow-xl">
@@ -923,6 +1043,8 @@ function changePageSize(size) {
           </div>
         </div>
         <div class="flex justify-end gap-3 mt-6">
+          <button class="px-4 py-2 rounded-lg border border-sky-200 text-sky-600 hover:bg-sky-50 text-sm" @click="openVersions(viewingJd)">版本记录</button>
+          <button class="px-4 py-2 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50 text-sm" @click="duplicateJd(viewingJd)">复制 JD</button>
           <button class="px-4 py-2 rounded-lg border border-violet-200 text-[#7c3aed] hover:bg-violet-50 text-sm" @click="openOptimize(viewingJd)">AI 优化</button>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="viewingJd = null">关闭</button>
         </div>
