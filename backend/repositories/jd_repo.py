@@ -182,7 +182,11 @@ def update(jd_id, data, source="manual"):
     with _conn() as conn:
         _save_version(conn, existing, source)
         conn.execute(f"UPDATE jds SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?", vals)
-    return get_by_id(jd_id)
+    updated = get_by_id(jd_id)
+    if updated and "name" in data:
+        from backend.repositories import resume_repo
+        resume_repo.sync_jd_name(jd_id, updated.get("name", ""))
+    return updated
 
 
 def list_versions(jd_id):
@@ -211,7 +215,11 @@ def restore_version(jd_id, version_id):
         sets = [f"{f}=?" for f in fields]
         vals = [normalize_experience(version.get(f, "")) if f == "experience_required" else version.get(f, "") for f in fields] + [jd_id]
         conn.execute(f"UPDATE jds SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?", vals)
-    return get_by_id(jd_id)
+    updated = get_by_id(jd_id)
+    if updated:
+        from backend.repositories import resume_repo
+        resume_repo.sync_jd_name(jd_id, updated.get("name", ""))
+    return updated
 
 
 def normalize_experience(value):

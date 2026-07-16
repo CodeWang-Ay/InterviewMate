@@ -96,6 +96,16 @@ def update(rid: int, data: dict) -> dict | None:
     return get_by_id(rid)
 
 
+def sync_jd_name(jd_id: int, jd_name: str) -> None:
+    if not jd_id:
+        return
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE resumes SET jd_name=? WHERE jd_id=?",
+            (jd_name or "", jd_id),
+        )
+
+
 def delete(rid: int) -> bool:
     with _conn() as conn:
         return conn.execute("DELETE FROM resumes WHERE id=?", (rid,)).rowcount > 0
@@ -106,8 +116,7 @@ def _enrich_jd_fields(resume: dict) -> dict:
         return resume
 
     jd_id = resume.get("jd_id")
-    jd_name = (resume.get("jd_name") or "").strip()
-    if jd_id and not jd_name:
+    if jd_id:
         from backend.repositories import jd_repo
         jd = jd_repo.get_by_id(int(jd_id))
         if jd:
