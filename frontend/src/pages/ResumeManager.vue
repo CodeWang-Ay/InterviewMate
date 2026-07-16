@@ -289,29 +289,24 @@ async function confirmUpload() {
       return
     }
     const resume = await uploadRes.json()
-    await fetch(`/api/resumes/${resume.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jd_id: pendingUploadJdId.value,
-        jd_name: pendingUploadJdName.value,
-      }),
-    }).catch(() => null)
     const optimisticResume = {
       ...resume,
-      jd_id: pendingUploadJdId.value,
-      jd_name: pendingUploadJdName.value,
+      jd_id: Number(pendingUploadJdId.value),
+      jd_name: pendingUploadJdName.value || resume.jd_name || '',
       parse_status: 'wait',
     }
+    if (!matchesCurrentFilters(optimisticResume)) {
+      searchText.value = ''
+      filterStatus.value = ''
+      filterYears.value = ''
+    }
+    page.value = 1
     insertResumeIntoList(optimisticResume)
+    await fetchList()
     await ensureResumeVisible(resume.id, optimisticResume)
     pendingFile.value = null
     resetPendingUploadJd()
     resetUploadInput()
-    page.value = 1
-    window.setTimeout(() => {
-      fetchList()
-    }, 800)
   } catch (_) {}
   finally {
     uploading.value = false
