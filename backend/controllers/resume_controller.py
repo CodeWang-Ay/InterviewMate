@@ -10,6 +10,7 @@ from backend.repositories import resume_repo, upload_repo
 from backend.services.file_service import parse_resume
 from backend.services.resume_copilot_service import polish_resume, score_resume
 from backend.models.schemas import ResumeAssistBody
+from backend.utils.resume_normalizer import format_education_summary
 
 router = APIRouter(prefix="/api/resumes", tags=["resumes"])
 
@@ -115,7 +116,7 @@ async def parse_resume_api(rid: int, _: dict = Depends(require_admin)):
         resume_repo.update(rid, {
             "name": structured.get("基础信息", {}).get("姓名") or r["name"],
             "target_position": structured.get("基础信息", {}).get("意向岗位") or "",
-            "education": _format_education(structured.get("教育经历", [])),
+            "education": format_education_summary(structured.get("教育经历", [])),
             "skills": _extract_skills(result["raw"]),
             "parse_status": "success",
             "structured_data": json.dumps(structured, ensure_ascii=False),
@@ -146,13 +147,6 @@ async def polish_resume_api(rid: int, body: ResumeAssistBody | None = None, _: d
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"简历润色失败: {exc}") from exc
-
-
-def _format_education(edu_list: list) -> str:
-    if not edu_list:
-        return ""
-    top = edu_list[0]
-    return f"{top.get('学位', '')} | {top.get('学校', '')}"
 
 
 def _extract_skills(text: str) -> str:

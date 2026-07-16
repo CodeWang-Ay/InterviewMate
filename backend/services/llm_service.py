@@ -5,6 +5,7 @@ import json_repair
 from loguru import logger
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+from backend.utils.resume_normalizer import normalize_structured_resume
 
 # 先加载 .env，再读取环境变量
 load_dotenv(".env")
@@ -61,6 +62,7 @@ RESUME_EXTRACTION_PROMPT = """你是一位专业的简历解析专家。请从�
 2. 缺失字段用 "" 或 [] 表示
 3. 工作描述和项目描述保留完整内容
 4. 所有时间格式统一为 YYYY-MM
+5. "学校" 只填写院校名称；"学历" 只填写标准学历层级（博士、硕士、本科、大专、高中/中专），不要把学校名称写进 "学历"；"学位" 可以填写学士、硕士、博士或具体学位
 
 简历文本：
 """
@@ -90,11 +92,11 @@ async def extract_resume_info(text: str) -> dict:
         content = response.choices[0].message.content
         llm_result = json_repair.loads(content)
 
-        return llm_result
+        return normalize_structured_resume(llm_result)
 
     except Exception as e:
         print(f"LLM 简历解析失败: {e}")
-        return _fallback_extraction(text)
+        return normalize_structured_resume(_fallback_extraction(text))
 
 
 def _fallback_extraction(text: str) -> dict:

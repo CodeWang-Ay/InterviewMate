@@ -97,6 +97,30 @@ function matchesCurrentFilters(resume) {
   return matchesSearch && matchesStatus && matchesYears
 }
 
+function normalizeEducationLevel(value) {
+  const text = String(value || '').trim().replace(/\s+/g, '')
+  if (!text) return ''
+  if (/博士|phd/i.test(text)) return '博士'
+  if (/硕士|研究生|master/i.test(text)) return '硕士'
+  if (/本科|学士|bachelor/i.test(text)) return '本科'
+  if (/大专|专科|高职/.test(text)) return '大专'
+  if (/中专|高中|技校/.test(text)) return '高中/中专'
+  return ''
+}
+
+function formatEducationCell(value) {
+  const parts = String(value || '')
+    .split(/[|｜,，、/]/)
+    .map(item => normalizeEducationLevel(item))
+    .filter(Boolean)
+  return parts[0] || ''
+}
+
+function getEducationFromItem(item) {
+  if (!item) return ''
+  return normalizeEducationLevel(item.学历) || normalizeEducationLevel(item.学位)
+}
+
 function insertResumeIntoList(resume) {
   if (!matchesCurrentFilters(resume)) return
   const next = [resume, ...resumeList.value.filter(item => item.id !== resume.id)]
@@ -419,7 +443,7 @@ const editResumeData = ref({})
 const parsedResumeData = computed(() => {
   if (!viewingResume.value?.structured_data) return {}
   try {
-    return JSON.parse(viewingResume.value.structured_data || '{}')
+    return normalizeResumeEducationData(JSON.parse(viewingResume.value.structured_data || '{}'))
   } catch (_) {
     return {}
   }
@@ -543,8 +567,17 @@ function cloneData(data) {
   return JSON.parse(JSON.stringify(data || {}))
 }
 
-function normalizeResumeData(data) {
+function normalizeResumeEducationData(data) {
   const next = cloneData(data)
+  asList(next.教育经历).forEach(item => {
+    if (!item || typeof item !== 'object') return
+    item.学历 = getEducationFromItem(item)
+  })
+  return next
+}
+
+function normalizeResumeData(data) {
+  const next = normalizeResumeEducationData(data)
   next.基础信息 = next.基础信息 || {}
   next.教育经历 = asList(next.教育经历).length ? asList(next.教育经历) : [{}]
   next.工作经历 = asList(next.工作经历).length ? asList(next.工作经历) : [{}]
@@ -566,7 +599,7 @@ function cancelEditResume() {
 function formatEducationSummary(eduList) {
   const first = asList(eduList)[0]
   if (!first) return ''
-  return [first.学位 || first.学历, first.学校].filter(Boolean).join(' | ')
+  return getEducationFromItem(first)
 }
 
 function getSkillTags(skills) {
@@ -583,7 +616,7 @@ function getResumeHeadline(resume) {
 
 function getResumeSummary(resume) {
   const parts = [
-    resume.education,
+    formatEducationCell(resume.education),
     resume.experience_years,
     resume.jd_name,
   ].filter(Boolean)
@@ -782,7 +815,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
               <td class="px-4 py-3 text-sm text-gray-500">{{ (page - 1) * pageSize + i + 1 }}</td>
               <td class="px-4 py-3 font-medium text-sm">{{ r.name || '未命名' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.target_position || '-' }}</td>
-              <td class="px-4 py-3 text-sm text-gray-600">{{ r.education || '-' }}</td>
+              <td class="px-4 py-3 text-sm text-gray-600">{{ formatEducationCell(r.education) || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.experience_years || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.jd_name || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate">{{ r.skills || '-' }}</td>
@@ -882,7 +915,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
             <div class="mt-4 grid grid-cols-2 gap-3">
               <div class="rounded-xl border border-[#edf2fb] bg-[#fbfcff] px-3 py-3">
                 <div class="text-xs text-[#8a97b0]">学历背景</div>
-                <div class="mt-1 text-sm font-medium text-[#22304c]">{{ r.education || '待补充' }}</div>
+                <div class="mt-1 text-sm font-medium text-[#22304c]">{{ formatEducationCell(r.education) || '待补充' }}</div>
               </div>
               <div class="rounded-xl border border-[#edf2fb] bg-[#fbfcff] px-3 py-3">
                 <div class="text-xs text-[#8a97b0]">工作年限</div>
