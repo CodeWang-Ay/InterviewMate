@@ -682,8 +682,14 @@ function buildExperienceRows(section, type) {
 }
 
 function downloadResume(resume) {
-  if (!resume?.file_path) return
-  window.open(`/uploads/resume/${resume.file_path}`, '_blank')
+  if (!resume?.id || !resume?.file_path) return
+  window.location.href = `/api/resumes/${resume.id}/download`
+}
+
+function resumePreviewUrl(resume) {
+  if (!resume?.file_path) return ''
+  const path = `/uploads/resume/${encodeURIComponent(resume.file_path)}`
+  return `${path}#zoom=page-width&view=FitH`
 }
 
 const statusBadge = (s) => ({ success: 'bg-green-100 text-green-600', wait: 'bg-orange-100 text-orange-600', fail: 'bg-red-100 text-red-600' }[s] || 'bg-gray-100 text-gray-500')
@@ -1002,8 +1008,8 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
     </main>
 
     <!-- 查看简历弹窗 - 左右分栏 -->
-    <div v-if="viewingResume" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-2" @click.self="viewingResume = null">
-      <div class="bg-white rounded-lg w-[calc(100vw-24px)] max-w-[1800px] h-[92vh] flex flex-col shadow-xl overflow-hidden">
+    <div v-if="viewingResume" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6" @click.self="viewingResume = null">
+      <div class="bg-white rounded-lg w-[88vw] max-w-[1680px] h-[88vh] flex flex-col shadow-xl overflow-hidden">
         <!-- Header -->
         <div class="flex-shrink-0 h-[52px] px-6 border-b flex items-center justify-between">
           <button class="text-[#1677ff] text-sm font-medium hover:text-blue-600" @click="viewingResume = null">编辑候选人</button>
@@ -1043,12 +1049,12 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         <!-- Body - 左右分栏 -->
         <div class="flex-1 flex overflow-hidden bg-white">
           <!-- 左侧：PDF 原文 -->
-          <div class="w-1/2 border-r border-gray-200 overflow-hidden bg-white flex flex-col">
+          <div class="basis-1/2 min-w-[560px] border-r border-gray-200 overflow-hidden bg-[#2f2f2f] flex flex-col">
             <h4 class="flex-shrink-0 text-center text-xs font-semibold text-gray-400 px-4 py-3 bg-white border-b truncate">{{ viewingResume.original_name || viewingResume.file_path || '简历原文' }}</h4>
             <div class="flex-1">
               <embed
                 v-if="viewingResume.file_path"
-                :src="'/uploads/resume/' + viewingResume.file_path"
+                :src="resumePreviewUrl(viewingResume)"
                 type="application/pdf"
                 class="w-full h-full"
               />
@@ -1059,7 +1065,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
           </div>
 
           <!-- 右侧：解析数据 -->
-          <div class="w-1/2 overflow-auto bg-white p-4">
+          <div class="basis-1/2 min-w-[560px] overflow-auto bg-white p-4">
             <div v-if="viewingResume.parse_status === 'success' && viewingResume.structured_data">
               <table class="w-full table-fixed border-collapse text-[12px] leading-5 text-gray-700">
                 <tbody>

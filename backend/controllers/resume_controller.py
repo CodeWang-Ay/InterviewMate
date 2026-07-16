@@ -3,6 +3,7 @@ import json
 import os
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.controllers.auth_controller import require_admin
@@ -86,6 +87,18 @@ async def get_resume_raw(rid: int, _: dict = Depends(require_admin)):
         return {"raw": text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"读取失败: {e}")
+
+
+@router.get("/{rid}/download")
+async def download_resume_file(rid: int, _: dict = Depends(require_admin)):
+    r = resume_repo.get_by_id(rid)
+    if not r or not r.get("file_path"):
+        raise HTTPException(status_code=404, detail="无文件内容")
+    fpath = os.path.join(UPLOAD_DIR, "resume", r["file_path"])
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    filename = r.get("original_name") or r.get("file_path") or "resume"
+    return FileResponse(fpath, filename=filename, media_type="application/octet-stream")
 
 
 @router.delete("/{rid}")
