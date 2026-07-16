@@ -20,6 +20,7 @@ from backend.repositories.admin_repo import init_db as init_admin_db
 from backend.repositories.candidate_repo import init_db as init_candidate_db
 from backend.repositories.jd_repo import init_db as init_jd_db
 from backend.repositories.resume_repo import init_db as init_resume_db
+from backend.repositories.resume_parse_cache_repo import init_db as init_resume_parse_cache_db
 from backend.repositories.plan_repo import init_db as init_plan_db
 
 os.makedirs(os.path.join(UPLOAD_DIR, "jd"), exist_ok=True)
@@ -28,6 +29,7 @@ os.makedirs(os.path.join(UPLOAD_DIR, "temp_resume"), exist_ok=True)
 os.makedirs(INTERVIEW_DIR, exist_ok=True)
 init_jd_db()
 init_resume_db()
+init_resume_parse_cache_db()
 init_plan_db()
 init_admin_db()
 init_candidate_db()

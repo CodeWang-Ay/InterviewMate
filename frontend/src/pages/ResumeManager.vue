@@ -347,11 +347,11 @@ function confirmJdAndChooseFile() {
   showJdPicker.value = false
 }
 
-async function parseResume(rid, refresh = true) {
+async function parseResume(rid, refresh = true, force = false) {
   setParsing(rid, true)
   startFakeParseProgress(rid)
   try {
-    const res = await fetch(`/api/resumes/${rid}/parse`, { method: 'POST' })
+    const res = await fetch(`/api/resumes/${rid}/parse${force ? '?force=true' : ''}`, { method: 'POST' })
     if (!res.ok) {
       const err = await res.json()
       finishParseProgress(rid, false)
@@ -844,8 +844,8 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
                   <button
                     class="w-8 h-8 rounded-lg text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
                     :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
-                    :title="r.parse_status === 'success' ? '重新解析简历' : '解析简历'"
-                    @click="parseResume(r.id)"
+                    :title="r.parse_status === 'success' ? '重新解析简历，跳过缓存并更新缓存' : '解析简历，优先使用缓存'"
+                    @click="parseResume(r.id, true, r.parse_status === 'success')"
                   >
                     <i :class="['fa', parsingIds.has(r.id) ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
                   </button>
@@ -903,8 +903,8 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
                 <button
                   class="w-9 h-9 rounded-xl text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
                   :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
-                  :title="r.parse_status === 'success' ? '重新解析简历' : '解析简历'"
-                  @click="parseResume(r.id)"
+                  :title="r.parse_status === 'success' ? '重新解析简历，跳过缓存并更新缓存' : '解析简历，优先使用缓存'"
+                  @click="parseResume(r.id, true, r.parse_status === 'success')"
                 >
                   <i :class="['fa', parsingIds.has(r.id) ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
                 </button>

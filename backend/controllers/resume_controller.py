@@ -1,12 +1,13 @@
+import hashlib
 import json
 import os
 
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Query
 from pydantic import BaseModel
 
 from backend.controllers.auth_controller import require_admin
 from backend.config import UPLOAD_DIR
-from backend.repositories import resume_repo, upload_repo
+from backend.repositories import resume_parse_cache_repo, resume_repo, upload_repo
 from backend.services.file_service import parse_resume
 from backend.services.resume_copilot_service import polish_resume, score_resume
 from backend.models.schemas import ResumeAssistBody
@@ -102,26 +103,49 @@ async def delete_resume(rid: int, _: dict = Depends(require_admin)):
 
 
 @router.post("/{rid}/parse")
-async def parse_resume_api(rid: int, _: dict = Depends(require_admin)):
+async def parse_resume_api(rid: int, force: bool = Query(False), _: dict = Depends(require_admin)):
     r = resume_repo.get_by_id(rid)
     if not r:
         raise HTTPException(status_code=404, detail="简历不存在")
     file_path = r.get("file_path")
     if not file_path:
         raise HTTPException(status_code=400, detail="简历未关联文件")
+    abs_path = os.path.join(UPLOAD_DIR, "resume", file_path)
+    if not os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
+        file_md5 = _file_md5(abs_path)
+        if not force:
+            cached = resume_parse_cache_repo.get(file_md5)
+            if cached:
+                structured = json.loads(cached.get("structured_data") or "{}")
+                resume_repo.update(rid, {
+                    "name": cached.get("name") or r["name"],
+                    "target_position": cached.get("target_position") or "",
+                    "education": cached.get("education") or "",
+                    "skills": cached.get("skills") or "",
+                    "parse_status": "success",
+                    "structured_data": cached.get("structured_data") or "{}",
+                })
+                return {"status": "ok", "structured": structured, "cache_hit": True}
+
         result = await parse_resume(file_path)
         structured = result["structured"]
-        resume_repo.update(rid, {
-            "name": structured.get("基础信息", {}).get("姓名") or r["name"],
-            "target_position": structured.get("基础信息", {}).get("意向岗位") or "",
-            "education": format_education_summary(structured.get("教育经历", [])),
-            "skills": _extract_skills(result["raw"]),
-            "parse_status": "success",
-            "structured_data": json.dumps(structured, ensure_ascii=False),
+        update_data = _build_resume_parse_update(r, structured, result["raw"])
+        resume_repo.update(rid, update_data)
+        resume_parse_cache_repo.upsert({
+            "file_md5": file_md5,
+            "original_name": r.get("original_name") or file_path,
+            "file_size": os.path.getsize(abs_path),
+            "raw_text": result["raw"],
+            "structured_data": update_data["structured_data"],
+            "name": update_data["name"],
+            "target_position": update_data["target_position"],
+            "education": update_data["education"],
+            "skills": update_data["skills"],
         })
-        return {"status": "ok", "structured": structured}
+        return {"status": "ok", "structured": structured, "cache_hit": False}
     except Exception as e:
         resume_repo.update(rid, {"parse_status": "fail"})
         raise HTTPException(status_code=500, detail=f"解析失败: {e}")
@@ -156,3 +180,22 @@ def _extract_skills(text: str) -> str:
                 "MySQL", "Redis", "Docker", "Kubernetes", "AWS", "PyTorch", "NLP", "LLM"]
     found = [k for k in keywords if re.search(re.escape(k), text, re.IGNORECASE)]
     return ", ".join(found[:8]) if found else ""
+
+
+def _file_md5(path: str) -> str:
+    digest = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _build_resume_parse_update(resume: dict, structured: dict, raw: str) -> dict:
+    return {
+        "name": structured.get("基础信息", {}).get("姓名") or resume["name"],
+        "target_position": structured.get("基础信息", {}).get("意向岗位") or "",
+        "education": format_education_summary(structured.get("教育经历", [])),
+        "skills": _extract_skills(raw),
+        "parse_status": "success",
+        "structured_data": json.dumps(structured, ensure_ascii=False),
+    }
