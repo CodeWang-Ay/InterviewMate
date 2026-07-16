@@ -681,9 +681,27 @@ function buildExperienceRows(section, type) {
   return rows
 }
 
-function downloadResume(resume) {
+async function downloadResume(resume) {
   if (!resume?.id || !resume?.file_path) return
-  window.location.href = `/api/resumes/${resume.id}/download`
+  try {
+    const res = await fetch(`/api/resumes/${resume.id}/download`)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.detail || '下载失败')
+      return
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = resume.original_name || resume.file_path || 'resume'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    alert('下载失败: ' + e.message)
+  }
 }
 
 function resumePreviewUrl(resume) {
