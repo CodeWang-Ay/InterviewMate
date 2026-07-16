@@ -1,6 +1,8 @@
 import sqlite3
 from backend.config import DB_PATH
 
+EXPERIENCE_OPTIONS = ["不限经验", "应届生", "1-3年", "3-5年", "5-10年", "10年以上"]
+
 
 def _conn():
     c = sqlite3.connect(DB_PATH)
@@ -41,6 +43,11 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        rows = conn.execute("SELECT id, experience_required FROM jds").fetchall()
+        for row in rows:
+            normalized = normalize_experience(row["experience_required"])
+            if normalized != (row["experience_required"] or ""):
+                conn.execute("UPDATE jds SET experience_required=? WHERE id=?", (normalized, row["id"]))
         cnt = conn.execute("SELECT COUNT(*) FROM jds").fetchone()[0]
         if cnt == 0:
             samples = [
@@ -117,7 +124,7 @@ def create(data):
             "INSERT INTO jds (name, category, location, responsibilities, requirements, status, recruitment_type, experience_required) VALUES (?,?,?,?,?,?,?,?)",
             (data["name"], data.get("category", ""), data.get("location", ""),
              data.get("responsibilities", ""), data.get("requirements", ""), data.get("status", "enable"),
-             data.get("recruitment_type", "社招"), data.get("experience_required", "")),
+             data.get("recruitment_type", "社招"), normalize_experience(data.get("experience_required", ""))),
         )
         return get_by_id(cur.lastrowid)
 
@@ -165,6 +172,8 @@ def update(jd_id, data, source="manual"):
     if not existing:
         return None
     fields = ["name", "category", "location", "responsibilities", "requirements", "status", "recruitment_type", "experience_required"]
+    if "experience_required" in data:
+        data["experience_required"] = normalize_experience(data.get("experience_required"))
     sets = [f"{f}=?" for f in fields if f in data]
     vals = [data[f] for f in fields if f in data]
     if not sets:
@@ -200,9 +209,28 @@ def restore_version(jd_id, version_id):
         _save_version(conn, current, "restore")
         fields = ["name", "category", "location", "responsibilities", "requirements", "status", "recruitment_type", "experience_required"]
         sets = [f"{f}=?" for f in fields]
-        vals = [version.get(f, "") for f in fields] + [jd_id]
+        vals = [normalize_experience(version.get(f, "")) if f == "experience_required" else version.get(f, "") for f in fields] + [jd_id]
         conn.execute(f"UPDATE jds SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?", vals)
     return get_by_id(jd_id)
+
+
+def normalize_experience(value):
+    text = str(value or "").strip()
+    if text in EXPERIENCE_OPTIONS:
+        return text
+    if not text or text in {"不限", "不限经验", "经验不限", "无经验要求"}:
+        return "不限经验"
+    if any(token in text for token in ["应届", "校招", "毕业生", "实习"]):
+        return "应届生"
+    if any(token in text for token in ["10年以上", "10 年以上", "10+", "十年以上"]):
+        return "10年以上"
+    if any(token in text for token in ["5-10", "5 到 10", "5至10", "5年以上", "5 年以上", "高级", "资深", "专家"]):
+        return "5-10年"
+    if any(token in text for token in ["3-5", "3 到 5", "3至5", "3年以上", "3 年以上", "中级"]):
+        return "3-5年"
+    if any(token in text for token in ["1-3", "1 到 3", "1至3", "1年以上", "1 年以上", "初级"]):
+        return "1-3年"
+    return "不限经验"
 
 
 def delete(jd_id):

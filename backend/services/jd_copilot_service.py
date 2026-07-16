@@ -3,6 +3,7 @@ import re
 
 from openai import AsyncOpenAI
 
+from backend.repositories.jd_repo import EXPERIENCE_OPTIONS, normalize_experience
 from backend.services.llm_service import OPENAI_API_KEY, OPENAI_BASE_URL
 
 
@@ -35,7 +36,7 @@ async def optimize_jd_draft(jd: dict) -> dict:
         "category": str(jd.get("category") or "").strip(),
         "location": str(jd.get("location") or "").strip(),
         "recruitment_type": str(jd.get("recruitment_type") or "社招").strip() or "社招",
-        "experience_required": str(jd.get("experience_required") or "").strip(),
+        "experience_required": normalize_experience(jd.get("experience_required")),
         "responsibilities": str(jd.get("responsibilities") or "").strip(),
         "requirements": str(jd.get("requirements") or "").strip(),
         "status": str(jd.get("status") or "enable").strip() or "enable",
@@ -68,7 +69,7 @@ async def _llm_generate_jd(payload: dict) -> dict:
 要求：
 1. 只输出 JSON，不要额外解释
 2. responsibilities 和 requirements 必须按点分条输出，使用“1. 2. 3.”这种格式，每一条单独换行
-3. experience_required 只输出简短经验描述，例如“1-3年”“3-5年”“应届生 / 实习经历优先”
+3. experience_required 必须且只能从以下枚举中选择一个：{"、".join(EXPERIENCE_OPTIONS)}
 4. 生成结果要和岗位名称、简单描述一致，不要泛泛而谈
 
 岗位名称：{payload['name']}
@@ -93,7 +94,7 @@ async def _llm_generate_jd(payload: dict) -> dict:
         "category": data.get("category") or payload["category"],
         "location": data.get("location") or payload["location"],
         "recruitment_type": data.get("recruitment_type") or payload["recruitment_type"],
-        "experience_required": data.get("experience_required") or "",
+        "experience_required": normalize_experience(data.get("experience_required")),
         "responsibilities": _normalize_numbered_lines(data.get("responsibilities") or ""),
         "requirements": _normalize_numbered_lines(data.get("requirements") or ""),
         "status": data.get("status") or "enable",
@@ -123,6 +124,7 @@ async def _llm_optimize_jd(payload: dict) -> dict:
 3. responsibilities 和 requirements 必须按点分条输出，使用“1. 2. 3.”格式，每一条单独换行
 4. 用词更专业、更具体，去掉空泛表述，补足职责边界、协作对象、交付要求和能力要求
 5. summary 用 2-4 条短句概括本次优化点
+6. experience_required 必须且只能从以下枚举中选择一个：{"、".join(EXPERIENCE_OPTIONS)}
 
 原岗位名称：{payload['name']}
 岗位类别：{payload['category'] or '未指定'}
@@ -151,7 +153,7 @@ async def _llm_optimize_jd(payload: dict) -> dict:
         "category": data.get("category") or payload["category"],
         "location": data.get("location") or payload["location"],
         "recruitment_type": data.get("recruitment_type") or payload["recruitment_type"],
-        "experience_required": data.get("experience_required") or payload["experience_required"],
+        "experience_required": normalize_experience(data.get("experience_required") or payload["experience_required"]),
         "responsibilities": _normalize_numbered_lines(data.get("responsibilities") or payload["responsibilities"]),
         "requirements": _normalize_numbered_lines(data.get("requirements") or payload["requirements"]),
         "status": data.get("status") or payload["status"],
@@ -180,7 +182,7 @@ def _fallback_generate_jd(payload: dict) -> dict:
         "category": payload["category"],
         "location": payload["location"],
         "recruitment_type": payload["recruitment_type"],
-        "experience_required": exp,
+        "experience_required": normalize_experience(exp),
         "responsibilities": responsibilities,
         "requirements": requirements,
         "status": "enable",
@@ -201,6 +203,7 @@ def _fallback_optimize_jd(payload: dict) -> dict:
     ])
     return {
         **payload,
+        "experience_required": normalize_experience(payload.get("experience_required")),
         "responsibilities": _normalize_numbered_lines(responsibilities),
         "requirements": _normalize_numbered_lines(requirements),
         "summary": "1. 统一职责和要求的分点格式\n2. 补足岗位交付、协作和能力描述\n3. 保留原岗位方向，便于直接对比采纳",
@@ -210,9 +213,9 @@ def _fallback_optimize_jd(payload: dict) -> dict:
 def _infer_experience(recruitment_type: str, summary: str) -> str:
     text = f"{recruitment_type} {summary}".lower()
     if "实习" in recruitment_type or "应届" in summary:
-        return "应届生 / 实习经历优先"
+        return "应届生"
     if any(token in text for token in ["资深", "高级", "专家", "负责人", "lead"]):
-        return "5年以上"
+        return "5-10年"
     if any(token in text for token in ["中级", "独立负责", "核心模块"]):
         return "3-5年"
     return "1-3年"

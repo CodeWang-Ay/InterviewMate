@@ -32,7 +32,8 @@ const restoringVersion = ref(false)
 const activeLocationPicker = ref('')
 const generatorForm = ref({ name: '', summary: '', category: '', location: '', recruitment_type: '社招' })
 
-const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '' })
+const experienceOptions = ['不限经验', '应届生', '1-3年', '3-5年', '5-10年', '10年以上']
+const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '不限经验' })
 const popularCities = ['深圳', '上海', '北京', '广州', '杭州', '成都', '苏州', '南京', '武汉', '西安']
 
 // 统计数据
@@ -180,7 +181,7 @@ function toggleSelectAll() {
 
 function openCreate() {
   editingJd.value = null
-  form.value = { name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '' }
+  form.value = { name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '不限经验' }
   showModal.value = true
 }
 
@@ -191,7 +192,7 @@ function openGenerator() {
 
 function openEdit(jd) {
   editingJd.value = jd
-  form.value = { ...jd }
+  form.value = { ...jd, experience_required: experienceOptions.includes(jd.experience_required) ? jd.experience_required : '不限经验' }
   showModal.value = true
 }
 
@@ -257,7 +258,7 @@ async function generateDraft() {
       requirements: data.requirements || '',
       status: data.status || 'enable',
       recruitment_type: data.recruitment_type || generatorForm.value.recruitment_type,
-      experience_required: data.experience_required || '',
+      experience_required: experienceOptions.includes(data.experience_required) ? data.experience_required : '不限经验',
     }
     editingJd.value = null
     showGenerator.value = false
@@ -303,7 +304,7 @@ async function acceptOptimizedJd() {
     requirements: optimizedDraft.value.requirements || '',
     status: optimizedDraft.value.status || optimizeSource.value.status || 'enable',
     recruitment_type: optimizedDraft.value.recruitment_type || '社招',
-    experience_required: optimizedDraft.value.experience_required || '',
+    experience_required: experienceOptions.includes(optimizedDraft.value.experience_required) ? optimizedDraft.value.experience_required : '不限经验',
   }
   try {
     const res = await fetch(`/api/jds/${optimizeSource.value.id}?source=ai_optimize`, {
@@ -773,7 +774,9 @@ function changePageSize(size) {
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">经验要求</label>
-              <input v-model="form.experience_required" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：3-5年">
+              <select v-model="form.experience_required" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
+                <option v-for="item in experienceOptions" :key="item" :value="item">{{ item }}</option>
+              </select>
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>

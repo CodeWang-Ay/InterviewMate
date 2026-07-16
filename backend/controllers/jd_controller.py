@@ -16,7 +16,7 @@ class JdCreate(BaseModel):
     requirements: str = ""
     status: str = "enable"
     recruitment_type: str = "社招"
-    experience_required: str = ""
+    experience_required: str = "不限经验"
 
 
 class JdUpdate(BaseModel):
