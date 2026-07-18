@@ -72,6 +72,31 @@ const visiblePages = computed(() => {
   return Array.from({ length: end - start + 1 }, (_, i) => start + i)
 })
 
+const planStats = computed(() => {
+  const groups = groupedPlanList.value
+  const count = (status) => groups.filter(group => group.status === status).length
+  const finishedStages = planList.value.filter(plan => plan.status === 'finish').length
+  const totalStages = planList.value.length
+  return {
+    candidates: groups.length,
+    stages: totalStages,
+    waiting: count('wait'),
+    running: count('running'),
+    pending: count('pending'),
+    finished: count('finish'),
+    partial: count('partial'),
+    completionRate: totalStages ? Math.round(finishedStages / totalStages * 100) : 0,
+  }
+})
+
+const statusQuickFilters = [
+  { label: '全部', value: '', icon: 'fa-list-ul' },
+  { label: '待发起', value: 'wait', icon: 'fa-play-circle-o' },
+  { label: '面试中', value: 'running', icon: 'fa-comments-o' },
+  { label: '待前序', value: 'pending', icon: 'fa-hourglass-half' },
+  { label: '已完成', value: 'finish', icon: 'fa-check-circle-o' },
+]
+
 function groupKey(plan) {
   if (plan.workflow_id) return `wf:${plan.workflow_id}`
   if (plan.candidate_username) return `user:${plan.candidate_username}`
@@ -86,6 +111,40 @@ function groupStatus(plans) {
   if (plans.length && plans.every(p => p.status === 'cancel')) return 'cancel'
   if (plans.some(p => p.status === 'finish')) return 'partial'
   return plans[0]?.status || 'pending'
+}
+
+function progressPercent(group) {
+  if (!group?.stage_count) return 0
+  return Math.min(100, Math.round(group.finished_count / group.stage_count * 100))
+}
+
+function currentStageLabel(group) {
+  const plan = group?.current_plan
+  if (!plan) return '暂无环节'
+  if (group.status === 'finish') return '全部完成'
+  return `${plan.stage_order || 1}/${group.stage_count || group.plans.length} ${plan.interview_round || '面试'}`
+}
+
+function nextActionText(group) {
+  const plan = group?.current_plan
+  if (!plan) return '暂无动作'
+  if (plan.status === 'wait') return '可发起'
+  if (plan.status === 'running') return '已发起，等待面试'
+  if (group.status === 'finish') return '流程已完成'
+  if (group.status === 'pending') return '等待上一轮完成'
+  if (group.status === 'partial') return '继续推进下一轮'
+  if (group.status === 'cancel') return '流程已作废'
+  return statusLabel(group.status)
+}
+
+function stagePillClass(status) {
+  return {
+    wait: 'bg-blue-50 text-blue-700 border-blue-100',
+    pending: 'bg-gray-50 text-gray-500 border-gray-100',
+    running: 'bg-orange-50 text-orange-700 border-orange-100',
+    finish: 'bg-green-50 text-green-700 border-green-100',
+    cancel: 'bg-gray-100 text-gray-400 border-gray-200',
+  }[status] || 'bg-indigo-50 text-indigo-600 border-indigo-100'
 }
 
 function setSelectedGroup(group, value) {
@@ -122,6 +181,12 @@ function changePageSize(size) {
   page.value = 1
 }
 
+function setStatusFilter(status) {
+  filterStatus.value = status
+  page.value = 1
+  fetchList()
+}
+
 async function fetchList() {
   loading.value = true
   try {
@@ -150,8 +215,26 @@ function syncWorkflowGroup() {
 }
 
 async function updateStatus(pid, status) {
-  await fetch(`/api/plans/${pid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+  const res = await fetch(`/api/plans/${pid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+  if (res.ok && status === 'finish') {
+    const updated = await res.json()
+    await unlockNextPlan(updated)
+  }
   await fetchList()
+}
+
+async function unlockNextPlan(plan) {
+  const next = planList.value.find((item) => {
+    const sameWorkflow = plan.workflow_id && item.workflow_id === plan.workflow_id
+    const sameAccount = !plan.workflow_id && plan.candidate_username && item.candidate_username === plan.candidate_username
+    return (sameWorkflow || sameAccount) && Number(item.stage_order || 1) === Number(plan.stage_order || 1) + 1 && item.status === 'pending'
+  })
+  if (!next) return
+  await fetch(`/api/plans/${next.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'wait' }),
+  }).catch(() => {})
 }
 
 async function removePlan(pid) {
@@ -177,11 +260,15 @@ async function updateSelectedStatus(status) {
   if (!targets.length) return
   batchWorking.value = true
   for (const plan of targets) {
-    await fetch(`/api/plans/${plan.id}`, {
+    const res = await fetch(`/api/plans/${plan.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     }).catch(() => {})
+    if (res?.ok && status === 'finish') {
+      const updated = await res.json().catch(() => null)
+      if (updated) await unlockNextPlan(updated)
+    }
   }
   selectedPlanIds.value = new Set()
   batchWorking.value = false
@@ -202,12 +289,32 @@ async function deleteSelectedPlans() {
   await fetchList()
 }
 
-function createInterview(plan) {
+async function createInterview(plan) {
   if (!['wait', 'running'].includes(plan.status)) {
     alert('当前环节还不能发起，请先确认前序面试是否完成。')
     return
   }
-  launchPlan.value = plan
+  if (plan.status === 'running') {
+    launchPlan.value = plan
+    return
+  }
+  try {
+    const res = await fetch(`/api/plans/${plan.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'running' }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.detail || '发起面试失败')
+      return
+    }
+    const updated = await res.json()
+    launchPlan.value = updated
+    await fetchList()
+  } catch (e) {
+    alert('发起面试失败: ' + e.message)
+  }
 }
 
 function openWorkflowGroup(group) {
@@ -270,6 +377,8 @@ async function savePlanEdit(plan) {
       alert(err.detail || '保存失败')
       return
     }
+    const updated = await res.json()
+    if (payload.status === 'finish') await unlockNextPlan(updated)
     cancelEditPlan()
     await fetchList()
   } catch (e) {
@@ -291,7 +400,7 @@ const statusBadge = (s) => ({
 const statusLabel = (s) => ({
   wait: '待发起面试',
   pending: '待前序完成',
-  running: '面试中',
+  running: '已发起/面试中',
   finish: '已完成面试',
   cancel: '已作废',
   partial: '部分完成',
@@ -368,8 +477,11 @@ const previewQuestions = computed(() => {
     <Sidebar />
 
     <main class="flex-1 overflow-auto p-6">
-      <div class="flex justify-between items-center mb-6">
-        <h2 class="text-2xl font-bold text-gray-900">面试计划管理</h2>
+      <div class="flex justify-between items-start mb-6 gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-gray-900">面试计划管理</h2>
+          <p class="mt-1 text-sm text-gray-500">按候选人聚合查看一面、二面、HR 面等流程进度，快速发起和推进下一轮。</p>
+        </div>
         <div class="flex gap-3">
           <button
             :class="['border px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition', batchMode ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50']"
@@ -386,13 +498,48 @@ const previewQuestions = computed(() => {
         </div>
       </div>
 
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <button class="rounded-2xl border border-blue-100 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" @click="setStatusFilter('')">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500">候选流程</span>
+            <span class="h-9 w-9 rounded-xl bg-blue-50 text-[#1677ff] flex items-center justify-center"><i class="fa fa-sitemap"></i></span>
+          </div>
+          <div class="mt-3 text-3xl font-bold text-gray-900">{{ planStats.candidates }}</div>
+          <div class="mt-1 text-xs text-gray-400">{{ planStats.stages }} 个面试环节</div>
+        </button>
+        <button class="rounded-2xl border border-orange-100 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" @click="setStatusFilter('running')">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500">面试中</span>
+            <span class="h-9 w-9 rounded-xl bg-orange-50 text-orange-500 flex items-center justify-center"><i class="fa fa-comments-o"></i></span>
+          </div>
+          <div class="mt-3 text-3xl font-bold text-gray-900">{{ planStats.running }}</div>
+          <div class="mt-1 text-xs text-gray-400">{{ planStats.waiting }} 个流程待发起</div>
+        </button>
+        <button class="rounded-2xl border border-amber-100 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" @click="setStatusFilter('pending')">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500">待前序完成</span>
+            <span class="h-9 w-9 rounded-xl bg-amber-50 text-amber-500 flex items-center justify-center"><i class="fa fa-hourglass-half"></i></span>
+          </div>
+          <div class="mt-3 text-3xl font-bold text-gray-900">{{ planStats.pending }}</div>
+          <div class="mt-1 text-xs text-gray-400">{{ planStats.partial }} 个流程部分完成</div>
+        </button>
+        <button class="rounded-2xl border border-green-100 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" @click="setStatusFilter('finish')">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-500">完成率</span>
+            <span class="h-9 w-9 rounded-xl bg-green-50 text-green-500 flex items-center justify-center"><i class="fa fa-check-circle-o"></i></span>
+          </div>
+          <div class="mt-3 text-3xl font-bold text-gray-900">{{ planStats.completionRate }}%</div>
+          <div class="mt-1 text-xs text-gray-400">{{ planStats.finished }} 位候选人流程完成</div>
+        </button>
+      </div>
+
       <div v-if="batchMode" class="bg-white rounded-xl p-4 shadow-sm mb-6 border border-orange-100 flex flex-wrap items-center justify-between gap-3">
         <div class="text-sm text-gray-600">
           已选择 <span class="font-semibold text-orange-600">{{ selectedPlans.length }}</span> 个面试环节
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50" @click="toggleSelectAll">{{ allSelected ? '取消全选' : '全选当前页' }}</button>
-          <button class="px-3 py-2 rounded-lg border border-blue-200 text-blue-600 text-sm hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedPlans.length" @click="updateSelectedStatus('wait')"><i class="fa fa-play-circle mr-1"></i>批量发起</button>
+          <button class="px-3 py-2 rounded-lg border border-blue-200 text-blue-600 text-sm hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedPlans.length" @click="updateSelectedStatus('running')"><i class="fa fa-play-circle mr-1"></i>批量标记已发起</button>
           <button class="px-3 py-2 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedPlans.length" @click="updateSelectedStatus('finish')"><i class="fa fa-check-circle mr-1"></i>批量完成</button>
           <button class="px-3 py-2 rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300" :disabled="batchWorking || !selectedPlans.length" @click="updateSelectedStatus('cancel')"><i class="fa fa-ban mr-1"></i>批量作废</button>
           <button class="px-3 py-2 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedPlans.length" @click="deleteSelectedPlans"><i class="fa fa-trash-o mr-1"></i>批量删除</button>
@@ -400,7 +547,8 @@ const previewQuestions = computed(() => {
       </div>
 
       <div class="bg-white rounded-xl p-5 shadow-sm mb-6">
-        <div class="flex flex-wrap gap-4 items-center">
+        <div class="flex flex-wrap gap-4 items-center justify-between">
+          <div class="flex flex-wrap gap-4 items-center">
           <div class="w-60 relative">
             <input v-model="searchText" type="text" placeholder="候选人姓名 / 岗位名称" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-[#1677ff]" @input="page = 1; fetchList()">
             <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
@@ -409,11 +557,22 @@ const previewQuestions = computed(() => {
             <option value="">全部流程状态</option>
             <option value="wait">待发起面试</option>
             <option value="pending">待前序完成</option>
-            <option value="running">面试中</option>
+            <option value="running">已发起/面试中</option>
             <option value="finish">已完成面试</option>
             <option value="cancel">已作废</option>
           </select>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置筛选</button>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              v-for="item in statusQuickFilters"
+              :key="item.value || 'all'"
+              :class="['px-3 py-2 rounded-lg border text-sm transition', filterStatus === item.value ? 'border-[#1677ff] bg-blue-50 text-[#1677ff]' : 'border-gray-200 text-gray-600 hover:bg-gray-50']"
+              @click="setStatusFilter(item.value)"
+            >
+              <i :class="['fa mr-1', item.icon]"></i>{{ item.label }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -434,7 +593,7 @@ const previewQuestions = computed(() => {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">题目数</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">创建时间</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">状态</th>
-              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-44">操作</th>
+              <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-56">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -451,7 +610,11 @@ const previewQuestions = computed(() => {
               <td class="px-4 py-3 text-sm">
                 <div class="font-medium text-gray-800">{{ group.workflow_name }}</div>
                 <div class="flex flex-wrap gap-1 mt-1">
-                  <span v-for="plan in group.plans" :key="plan.id" class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 text-xs">{{ plan.interview_round || '面试' }}</span>
+                  <span
+                    v-for="plan in group.plans"
+                    :key="plan.id"
+                    :class="['px-2 py-0.5 rounded border text-xs', stagePillClass(plan.status)]"
+                  >{{ plan.interview_round || '面试' }}</span>
                 </div>
               </td>
               <td class="px-4 py-3 text-xs text-gray-600">
@@ -470,23 +633,35 @@ const previewQuestions = computed(() => {
                 <span v-else>-</span>
               </td>
               <td class="px-4 py-3 text-sm text-gray-700">
-                <div>{{ group.finished_count }}/{{ group.stage_count }} 已完成</div>
+                <div class="font-medium text-gray-900">{{ currentStageLabel(group) }}</div>
+                <div class="mt-0.5 text-xs text-gray-400">{{ nextActionText(group) }}</div>
                 <div class="w-28 h-1.5 rounded-full bg-gray-100 mt-2 overflow-hidden">
-                  <div class="h-full bg-[#1677ff]" :style="{ width: `${Math.min(100, Math.round(group.finished_count / group.stage_count * 100))}%` }"></div>
+                  <div class="h-full bg-[#1677ff]" :style="{ width: `${progressPercent(group)}%` }"></div>
                 </div>
+                <div class="mt-1 text-xs text-gray-400">{{ group.finished_count }}/{{ group.stage_count }} 已完成</div>
               </td>
               <td class="px-4 py-3 text-sm">{{ group.question_count }} 道</td>
               <td class="px-4 py-3 text-sm text-gray-500">{{ group.created_at?.slice(0, 16) || '-' }}</td>
               <td class="px-4 py-3"><span :class="['px-2 py-1 text-xs rounded', statusBadge(group.status)]">{{ statusLabel(group.status) }}</span></td>
               <td class="px-4 py-3 text-center">
-                <button class="text-[#1677ff] hover:underline text-sm" @click="openWorkflowGroup(group)">查看/编辑</button>
-                <button v-if="group.current_plan && ['wait', 'running'].includes(group.current_plan.status)" class="text-[#22c55e] hover:underline text-sm ml-2" @click="createInterview(group.current_plan)">发起</button>
-                <button class="text-red-400 hover:underline text-sm ml-2" @click="removeGroup(group)"><i class="fa fa-trash-o"></i></button>
+                <div class="flex items-center justify-center gap-2">
+                  <button class="h-8 px-3 rounded-lg border border-blue-100 text-[#1677ff] text-sm hover:bg-blue-50" @click="openWorkflowGroup(group)">查看</button>
+                  <button v-if="group.current_plan && group.current_plan.status === 'wait'" class="h-8 px-3 rounded-lg border border-green-100 bg-green-50 text-green-700 text-sm hover:bg-green-100" @click="createInterview(group.current_plan)">发起</button>
+                  <button v-else-if="group.current_plan && group.current_plan.status === 'running'" class="h-8 px-3 rounded-lg border border-blue-100 bg-blue-50 text-blue-700 text-sm hover:bg-blue-100" @click="createInterview(group.current_plan)">入口</button>
+                  <button class="h-8 w-8 rounded-lg text-red-400 hover:bg-red-50" title="删除流程" @click="removeGroup(group)"><i class="fa fa-trash-o"></i></button>
+                </div>
               </td>
             </tr>
           </tbody>
         </table>
-        <div v-if="!loading && !groupedPlanList.length" class="text-center py-12 text-gray-400"><i class="fa fa-inbox text-3xl mb-2 block"></i>暂无面试计划</div>
+        <div v-if="!loading && !groupedPlanList.length" class="text-center py-14 text-gray-400">
+          <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-[#1677ff]">
+            <i class="fa fa-calendar-check-o text-2xl"></i>
+          </div>
+          <div class="text-sm font-medium text-gray-700">暂无匹配的面试计划</div>
+          <div class="mt-1 text-xs text-gray-400">可以从简历管理中为候选人创建流程，或调整当前筛选条件。</div>
+          <button class="mt-4 rounded-lg bg-[#1677ff] px-4 py-2 text-sm text-white hover:bg-blue-600" @click="router.push('/resume-manager')">去简历管理</button>
+        </div>
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
@@ -562,7 +737,8 @@ const previewQuestions = computed(() => {
               <div class="flex items-center gap-2">
                 <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="openPlanPreview(plan)">预览</button>
                 <button class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="startEditPlan(plan)">{{ editingPlanId === plan.id ? '正在编辑' : '编辑' }}</button>
-                <button v-if="['wait', 'running'].includes(plan.status)" class="px-3 py-1.5 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50" @click="createInterview(plan)">发起</button>
+                <button v-if="plan.status === 'wait'" class="px-3 py-1.5 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50" @click="createInterview(plan)">发起</button>
+                <button v-else-if="plan.status === 'running'" class="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-sm hover:bg-blue-50" @click="createInterview(plan)">查看入口</button>
                 <span v-else-if="plan.status === 'pending'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-400 text-sm">等待上一轮完成</span>
                 <button v-if="plan.status === 'cancel'" class="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-sm hover:bg-blue-50" @click="updateStatus(plan.id, 'wait')">重新发起</button>
                 <button class="px-3 py-1.5 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50" @click="removePlan(plan.id)">删除</button>
@@ -599,7 +775,7 @@ const previewQuestions = computed(() => {
                 <select v-model="editForm.status" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
                   <option value="wait">待发起面试</option>
                   <option value="pending">待前序完成</option>
-                  <option value="running">面试中</option>
+                  <option value="running">已发起/面试中</option>
                   <option value="finish">已完成面试</option>
                   <option value="cancel">已作废</option>
                 </select>
@@ -632,7 +808,7 @@ const previewQuestions = computed(() => {
       <div class="bg-white rounded-xl w-full max-w-xl shadow-xl overflow-hidden">
         <div class="px-6 py-4 border-b flex items-center justify-between">
           <div>
-            <h3 class="text-lg font-bold text-gray-900">发起面试</h3>
+            <h3 class="text-lg font-bold text-gray-900">{{ launchPlan.status === 'running' ? '面试入口' : '发起面试' }}</h3>
             <p class="text-sm text-gray-500 mt-1">{{ launchPlan.candidate_name }} · {{ launchPlan.interview_round || '面试' }}</p>
           </div>
           <button class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100" @click="launchPlan = null"><i class="fa fa-times"></i></button>
@@ -640,7 +816,7 @@ const previewQuestions = computed(() => {
 
         <div class="p-6 space-y-4 text-sm">
           <div class="rounded-xl border border-blue-100 bg-blue-50 p-4 text-blue-700">
-            这个按钮现在用于生成候选人的登录入口信息。把下面这组地址和账号发给候选人，对方登录后会自动进入当前可参加的面试环节。
+            当前环节已标记为“已发起/面试中”。把下面这组地址和账号发给候选人，对方登录后会自动进入当前可参加的面试环节。
           </div>
 
           <div class="grid grid-cols-1 gap-3">
