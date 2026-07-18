@@ -50,8 +50,18 @@ const axes = computed(() => {
 const labels = computed(() => {
   return dimNames.value.map((name, i) => {
     const angle = (Math.PI * 2 * i) / dimCount.value - Math.PI / 2
-    const r = maxR + 28
-    return { name, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) + 5 }
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    const r = maxR + 34
+    let anchor = 'middle'
+    if (cos > 0.35) anchor = 'start'
+    if (cos < -0.35) anchor = 'end'
+    return {
+      name,
+      x: cx + r * cos,
+      y: cy + r * sin + 5,
+      anchor,
+    }
   })
 })
 
@@ -224,14 +234,13 @@ onMounted(async () => {
             </div>
             <div class="relative flex min-h-[310px] items-center justify-center">
               <div class="absolute inset-8 rounded-full bg-white/60 blur-3xl"></div>
-              <svg viewBox="0 0 320 320" class="relative z-10 h-[330px] w-[330px] max-w-full">
+              <svg viewBox="-70 -18 460 356" class="relative z-10 h-[330px] w-full max-w-[520px] overflow-visible">
                 <polygon v-for="g in bgGrids" :key="g.level" :points="g.pts" fill="#ffffff" fill-opacity="0.36" stroke="#c7d2fe" stroke-width="1" />
                 <line v-for="(a,i) in axes" :key="'a'+i" :x1="cx" :y1="cy" :x2="a.x" :y2="a.y" stroke="#c7d2fe" stroke-width="1" />
                 <polygon :points="scorePolygon" fill="#6366f1" fill-opacity="0.18" stroke="#6366f1" stroke-width="3" />
                 <circle v-for="(p,i) in reportDots" :key="'d'+i" :cx="p.x" :cy="p.y" r="4.5" fill="#6366f1" />
-                <text v-for="l in labels" :key="l.name" :x="l.x" :y="l.y" fill="#334155" font-size="12" text-anchor="middle" font-weight="700">{{ l.name }}</text>
-                <circle :cx="cx" :cy="cy" r="48" fill="white" stroke="#e0e7ff" stroke-width="2" />
-                <text :x="cx" :y="cy + 7" fill="#7c3aed" font-size="30" text-anchor="middle" font-weight="800">{{ report.overall_score }}</text>
+                <text v-for="l in labels" :key="l.name" :x="l.x" :y="l.y" fill="#334155" font-size="12" :text-anchor="l.anchor" font-weight="700">{{ l.name }}</text>
+                <text :x="cx" :y="cy + 10" fill="#7c3aed" font-size="34" text-anchor="middle" font-weight="900">{{ report.overall_score }}</text>
               </svg>
             </div>
           </div>
