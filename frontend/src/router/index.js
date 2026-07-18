@@ -18,6 +18,7 @@ import Login from '../pages/Login.vue'
 import Register from '../pages/Register.vue'
 import UserCenter from '../pages/UserCenter.vue'
 import UserInterview from '../pages/UserInterview.vue'
+import TaskCenter from '../pages/TaskCenter.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -35,6 +36,7 @@ const routes = [
   { path: '/record-list', component: RecordList },
   { path: '/report-list', component: ReportList },
   { path: '/settings', component: Settings },
+  { path: '/tasks', component: TaskCenter },
   { path: '/login', component: Login },
   { path: '/user/login', component: Login },
   { path: '/register', component: Register },
@@ -123,7 +125,7 @@ router.beforeEach(async (to, from) => {
   if (candidatePages.includes(to.path) && role && role !== 'candidate') {
     return { path: '/' }
   }
-  const adminPages = ['/interviewer', '/interviewer/chat', '/interviewee', '/jd-manager', '/resume-manager', '/ai-tools', '/plan-manager', '/report', '/interview-record', '/record-list', '/report-list', '/interview-archive', '/settings', '/user-center']
+  const adminPages = ['/interviewer', '/interviewer/chat', '/interviewee', '/jd-manager', '/resume-manager', '/ai-tools', '/plan-manager', '/report', '/interview-record', '/record-list', '/report-list', '/interview-archive', '/settings', '/tasks', '/user-center']
   if (adminPages.includes(to.path)) {
     if (role !== 'admin') {
       try { window.alert('仅管理员可查看面试记录和面试报告') } catch (_) {}

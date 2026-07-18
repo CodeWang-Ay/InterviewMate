@@ -122,8 +122,7 @@ def process_message(session_id: str, user_msg: str) -> tuple[str, str]:
         else:
             session["state"] = "COMPLETED"
             if session.get("plan_id"):
-                plan_repo.update(session["plan_id"], {"status": "finish", "active_session_id": ""})
-                plan_repo.activate_next_stage(session["plan_id"])
+                plan_repo.mark_finished(session["plan_id"])
             reply = (
                 "好的，所有问题都已经问完了。感谢你今天的参与和真诚的回答！\n\n"
                 "我们会综合评估你的表现，如有后续安排会及时联系你。祝你好运！🍀"

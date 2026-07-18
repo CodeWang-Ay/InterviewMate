@@ -55,6 +55,16 @@ class WorkflowCreate(BaseModel):
     stages: list[WorkflowStage]
 
 
+class PlanAction(BaseModel):
+    action: str
+    scheduled_at: str | None = None
+    interviewer: str | None = None
+    meeting_url: str | None = None
+    interview_result: str | None = None
+    result_score: int | None = None
+    result_note: str | None = None
+
+
 @router.get("")
 async def list_plans(search: str = "", status: str = "", _: dict = Depends(require_admin)):
     return plan_repo.list_all(search, status)
@@ -142,6 +152,18 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
 async def update_plan(pid: int, body: PlanUpdate, _: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     p = plan_repo.update(pid, data)
+    if not p:
+        raise HTTPException(status_code=404, detail="计划不存在")
+    return p
+
+
+@router.post("/{pid}/action")
+async def plan_action(pid: int, body: PlanAction, _: dict = Depends(require_admin)):
+    data = {k: v for k, v in body.model_dump().items() if v is not None and k != "action"}
+    try:
+        p = plan_repo.transition(pid, body.action, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not p:
         raise HTTPException(status_code=404, detail="计划不存在")
     return p

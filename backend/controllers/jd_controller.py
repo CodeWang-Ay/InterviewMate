@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from backend.controllers.auth_controller import require_admin
 from backend.repositories import jd_repo
 from backend.services.jd_copilot_service import generate_jd_draft, optimize_jd_draft
+from backend.services.task_service import create_task
 
 router = APIRouter(prefix="/api/jds", tags=["jds"])
 
@@ -83,12 +84,41 @@ async def generate_jd(body: JdGenerateBody, _: dict = Depends(require_admin)):
     )
 
 
+@router.post("/generate-task")
+async def generate_jd_task(body: JdGenerateBody, admin: dict = Depends(require_admin)):
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="岗位名称不能为空")
+
+    async def runner():
+        return await generate_jd_draft(
+            name=body.name,
+            summary=body.summary,
+            category=body.category,
+            location=body.location,
+            recruitment_type=body.recruitment_type,
+        )
+
+    return create_task("jd_generate", f"生成 JD：{body.name}", {"kind": "admin", "username": admin.get("username", "")}, runner)
+
+
 @router.post("/{jd_id}/optimize-draft")
 async def optimize_jd(jd_id: int, _: dict = Depends(require_admin)):
     jd = jd_repo.get_by_id(jd_id)
     if not jd:
         raise HTTPException(status_code=404, detail="JD 不存在")
     return await optimize_jd_draft(jd)
+
+
+@router.post("/{jd_id}/optimize-task")
+async def optimize_jd_task(jd_id: int, admin: dict = Depends(require_admin)):
+    jd = jd_repo.get_by_id(jd_id)
+    if not jd:
+        raise HTTPException(status_code=404, detail="JD 不存在")
+
+    async def runner():
+        return await optimize_jd_draft(jd)
+
+    return create_task("jd_optimize", f"优化 JD：{jd.get('name', jd_id)}", {"kind": "admin", "username": admin.get("username", "")}, runner)
 
 
 @router.get("/{jd_id}/versions")

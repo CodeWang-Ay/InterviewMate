@@ -11,6 +11,7 @@ from backend.config import UPLOAD_DIR
 from backend.repositories import resume_parse_cache_repo, resume_repo, upload_repo
 from backend.services.file_service import parse_resume
 from backend.services.resume_copilot_service import polish_resume, score_resume
+from backend.services.task_service import create_task
 from backend.models.schemas import ResumeAssistBody
 from backend.utils.resume_normalizer import format_education_summary
 
@@ -146,51 +147,72 @@ async def delete_resume(rid: int, _: dict = Depends(require_admin)):
 
 @router.post("/{rid}/parse")
 async def parse_resume_api(rid: int, force: bool = Query(False), _: dict = Depends(require_admin)):
+    try:
+        return await _parse_resume_record(rid, force)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as e:
+        resume_repo.update(rid, {"parse_status": "fail"})
+        raise HTTPException(status_code=500, detail=f"解析失败: {e}") from e
+
+
+@router.post("/{rid}/parse-task")
+async def parse_resume_task(rid: int, force: bool = Query(False), admin: dict = Depends(require_admin)):
     r = resume_repo.get_by_id(rid)
     if not r:
         raise HTTPException(status_code=404, detail="简历不存在")
+    title = f"解析简历：{r.get('original_name') or r.get('name') or rid}"
+
+    async def runner():
+        return await _parse_resume_record(rid, force)
+
+    return create_task("resume_parse", title, {"kind": "admin", "username": admin.get("username", "")}, runner)
+
+
+async def _parse_resume_record(rid: int, force: bool = False) -> dict:
+    r = resume_repo.get_by_id(rid)
+    if not r:
+        raise FileNotFoundError("简历不存在")
     file_path = r.get("file_path")
     if not file_path:
-        raise HTTPException(status_code=400, detail="简历未关联文件")
+        raise ValueError("简历未关联文件")
     abs_path = os.path.join(UPLOAD_DIR, "resume", file_path)
     if not os.path.exists(abs_path):
-        raise HTTPException(status_code=404, detail="文件不存在")
+        raise FileNotFoundError("文件不存在")
 
-    try:
-        file_md5 = _file_md5(abs_path)
-        if not force:
-            cached = resume_parse_cache_repo.get(file_md5)
-            if cached:
-                structured = json.loads(cached.get("structured_data") or "{}")
-                resume_repo.update(rid, {
-                    "name": cached.get("name") or r["name"],
-                    "target_position": cached.get("target_position") or "",
-                    "education": cached.get("education") or "",
-                    "skills": cached.get("skills") or "",
-                    "parse_status": "success",
-                    "structured_data": cached.get("structured_data") or "{}",
-                })
-                return {"status": "ok", "structured": structured, "cache_hit": True}
+    file_md5 = _file_md5(abs_path)
+    if not force:
+        cached = resume_parse_cache_repo.get(file_md5)
+        if cached:
+            structured = json.loads(cached.get("structured_data") or "{}")
+            resume_repo.update(rid, {
+                "name": cached.get("name") or r["name"],
+                "target_position": cached.get("target_position") or "",
+                "education": cached.get("education") or "",
+                "skills": cached.get("skills") or "",
+                "parse_status": "success",
+                "structured_data": cached.get("structured_data") or "{}",
+            })
+            return {"status": "ok", "structured": structured, "cache_hit": True, "resume": resume_repo.get_by_id(rid)}
 
-        result = await parse_resume(file_path)
-        structured = result["structured"]
-        update_data = _build_resume_parse_update(r, structured, result["raw"])
-        resume_repo.update(rid, update_data)
-        resume_parse_cache_repo.upsert({
-            "file_md5": file_md5,
-            "original_name": r.get("original_name") or file_path,
-            "file_size": os.path.getsize(abs_path),
-            "raw_text": result["raw"],
-            "structured_data": update_data["structured_data"],
-            "name": update_data["name"],
-            "target_position": update_data["target_position"],
-            "education": update_data["education"],
-            "skills": update_data["skills"],
-        })
-        return {"status": "ok", "structured": structured, "cache_hit": False}
-    except Exception as e:
-        resume_repo.update(rid, {"parse_status": "fail"})
-        raise HTTPException(status_code=500, detail=f"解析失败: {e}")
+    result = await parse_resume(file_path)
+    structured = result["structured"]
+    update_data = _build_resume_parse_update(r, structured, result["raw"])
+    resume_repo.update(rid, update_data)
+    resume_parse_cache_repo.upsert({
+        "file_md5": file_md5,
+        "original_name": r.get("original_name") or file_path,
+        "file_size": os.path.getsize(abs_path),
+        "raw_text": result["raw"],
+        "structured_data": update_data["structured_data"],
+        "name": update_data["name"],
+        "target_position": update_data["target_position"],
+        "education": update_data["education"],
+        "skills": update_data["skills"],
+    })
+    return {"status": "ok", "structured": structured, "cache_hit": False, "resume": resume_repo.get_by_id(rid)}
 
 
 @router.post("/{rid}/score")

@@ -2,6 +2,8 @@ import sqlite3
 import json
 from backend.config import DB_PATH
 
+PLAN_STATUSES = {"pending", "wait", "running", "finish", "cancel"}
+
 
 def _conn():
     c = sqlite3.connect(DB_PATH)
@@ -228,6 +230,17 @@ def list_by_workflow_id(workflow_id: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def list_by_candidate_username_group(username: str) -> list[dict]:
+    if not username:
+        return []
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM plans WHERE candidate_username=? ORDER BY workflow_id DESC, stage_order ASC, id ASC",
+            (username,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def list_by_resume_filename(resume_filename: str) -> list[dict]:
     if not resume_filename:
         return []
@@ -282,6 +295,8 @@ def update(pid: int, data: dict) -> dict | None:
     existing = get_by_id(pid)
     if not existing:
         return None
+    if "status" in data:
+        data["status"] = normalize_status(data.get("status"))
     allowed = ["candidate_name", "jd_name", "interview_round", "match_score", "question_count", "status",
                "jd_filename", "resume_filename", "questions", "candidate_username", "candidate_password",
                "workflow_id", "workflow_name", "stage_order", "stage_count", "active_session_id",
@@ -294,6 +309,68 @@ def update(pid: int, data: dict) -> dict | None:
     with _conn() as conn:
         conn.execute(f"UPDATE plans SET {', '.join(sets)} WHERE id=?", vals)
     return get_by_id(pid)
+
+
+def normalize_status(status: str | None) -> str:
+    text = str(status or "").strip()
+    return text if text in PLAN_STATUSES else "pending"
+
+
+def transition(pid: int, action: str, payload: dict | None = None) -> dict | None:
+    payload = payload or {}
+    current = get_by_id(pid)
+    if not current:
+        return None
+    action = str(action or "").strip()
+    if action == "start":
+        if current.get("status") not in {"wait", "running"}:
+            raise ValueError("当前环节还不能发起，请先完成前序面试")
+        return update(pid, {"status": "running", **_pick_plan_payload(payload)})
+    if action == "finish":
+        data = {"status": "finish", "active_session_id": "", **_pick_result_payload(payload)}
+        updated = update(pid, data)
+        activate_next_stage(pid)
+        return updated
+    if action == "cancel":
+        updated = update(pid, {"status": "cancel", "active_session_id": "", **_pick_result_payload(payload)})
+        _reconcile_workflow_for_plan(pid)
+        return updated
+    if action == "reopen":
+        target_status = "wait" if _previous_stages_finished(current) else "pending"
+        return update(pid, {"status": target_status, "active_session_id": ""})
+    if action == "reset":
+        target_status = "wait" if int(current.get("stage_order") or 1) == 1 else "pending"
+        return update(pid, {"status": target_status, "active_session_id": "", "interview_result": "", "result_score": 0, "result_note": ""})
+    raise ValueError("不支持的状态动作")
+
+
+def mark_finished(pid: int, payload: dict | None = None) -> dict | None:
+    return transition(pid, "finish", payload or {})
+
+
+def _pick_plan_payload(payload: dict) -> dict:
+    fields = ["scheduled_at", "interviewer", "meeting_url"]
+    return {field: payload[field] for field in fields if field in payload}
+
+
+def _pick_result_payload(payload: dict) -> dict:
+    fields = ["interview_result", "result_score", "result_note"]
+    return {field: payload[field] for field in fields if field in payload}
+
+
+def _previous_stages_finished(plan: dict) -> bool:
+    workflow_id = plan.get("workflow_id")
+    stage_order = int(plan.get("stage_order") or 1)
+    if not workflow_id or stage_order <= 1:
+        return True
+    previous = [p for p in list_by_workflow_id(workflow_id) if int(p.get("stage_order") or 1) < stage_order and p.get("status") != "cancel"]
+    return all(p.get("status") == "finish" for p in previous)
+
+
+def _reconcile_workflow_for_plan(pid: int) -> None:
+    plan = get_by_id(pid)
+    if plan and plan.get("workflow_id"):
+        _reconcile_workflow_status(plan["workflow_id"])
 
 
 def activate_next_stage(pid: int) -> dict | None:
@@ -324,18 +401,19 @@ def _reconcile_workflow_status(workflow_id: str) -> None:
         return
 
     updates: list[tuple[str, int]] = []
+    previous_available = True
     for index, plan in enumerate(plans):
         status = plan.get("status") or "pending"
-        if index == 0:
-            expected = "wait" if status == "pending" else status
+        if status in {"finish", "running", "cancel"}:
+            expected = status
+        elif index == 0:
+            expected = "wait"
         else:
-            prev_status = plans[index - 1].get("status")
-            expected = "wait" if prev_status == "finish" else "pending"
-            if status in {"finish", "running", "cancel"}:
-                expected = status
+            expected = "wait" if previous_available else "pending"
         if status != expected:
             updates.append((expected, plan["id"]))
             plan["status"] = expected
+        previous_available = expected == "finish" or expected == "cancel"
 
     if updates:
         with _conn() as conn:

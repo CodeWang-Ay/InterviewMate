@@ -29,6 +29,7 @@ const navItems = [
   { icon: 'fa-magic', label: 'AI 辅助中心', path: '/ai-tools' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },
   { icon: 'fa-archive', label: '面试档案', path: '/interview-archive', activePaths: ['/interview-archive', '/report', '/interview-record', '/record-list', '/report-list'], adminOnly: true },
+  { icon: 'fa-tasks', label: '任务状态中心', path: '/tasks', adminOnly: true },
   { icon: 'fa-cog', label: '设置', path: '/settings' },
 ]
 

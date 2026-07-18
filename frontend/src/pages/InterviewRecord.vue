@@ -76,7 +76,7 @@ onMounted(async () => {
     <Sidebar />
 
     <main class="flex-1 overflow-y-auto px-6 py-8">
-      <div class="mx-auto grid h-full max-w-[1500px] grid-cols-1 gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div class="mx-auto grid h-full max-w-[1620px] grid-cols-1 gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
         <aside class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-indigo-100/80">
           <router-link to="/interview-archive" class="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 no-underline">
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -109,11 +109,11 @@ onMounted(async () => {
             <div class="grid grid-cols-2 gap-3">
               <div class="rounded-2xl bg-indigo-50 p-4">
                 <p class="text-xs font-semibold text-indigo-400">面试官</p>
-                <p class="mt-1 truncate text-base font-bold text-indigo-700">{{ interviewerName }}</p>
+                  <p class="mt-1 text-base font-bold leading-6 text-indigo-700">{{ interviewerName }}</p>
               </div>
               <div class="rounded-2xl bg-violet-50 p-4">
                 <p class="text-xs font-semibold text-violet-400">面试轮次</p>
-                <p class="mt-1 truncate text-base font-bold text-violet-700">{{ roundSummary }}</p>
+                  <p class="mt-1 text-base font-bold leading-6 text-violet-700">{{ roundSummary }}</p>
               </div>
             </div>
           </div>

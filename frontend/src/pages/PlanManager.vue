@@ -253,26 +253,19 @@ function syncWorkflowGroup() {
 }
 
 async function updateStatus(pid, status) {
-  const res = await fetch(`/api/plans/${pid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
-  if (res.ok && status === 'finish') {
-    const updated = await res.json()
-    await unlockNextPlan(updated)
-  }
-  await fetchList()
-}
-
-async function unlockNextPlan(plan) {
-  const next = planList.value.find((item) => {
-    const sameWorkflow = plan.workflow_id && item.workflow_id === plan.workflow_id
-    const sameAccount = !plan.workflow_id && plan.candidate_username && item.candidate_username === plan.candidate_username
-    return (sameWorkflow || sameAccount) && Number(item.stage_order || 1) === Number(plan.stage_order || 1) + 1 && item.status === 'pending'
-  })
-  if (!next) return
-  await fetch(`/api/plans/${next.id}`, {
-    method: 'PUT',
+  const action = {
+    running: 'start',
+    finish: 'finish',
+    cancel: 'cancel',
+    wait: 'reopen',
+    pending: 'reset',
+  }[status] || 'reopen'
+  await fetch(`/api/plans/${pid}/action`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'wait' }),
+    body: JSON.stringify({ action }),
   }).catch(() => {})
+  await fetchList()
 }
 
 async function removePlan(pid) {
@@ -300,15 +293,11 @@ async function updateSelectedStatus(status) {
   if (!targets.length) return
   batchWorking.value = true
   for (const plan of targets) {
-    const res = await fetch(`/api/plans/${plan.id}`, {
-      method: 'PUT',
+    await fetch(`/api/plans/${plan.id}/action`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ action: status === 'running' ? 'start' : status === 'finish' ? 'finish' : status === 'cancel' ? 'cancel' : 'reopen' }),
     }).catch(() => {})
-    if (res?.ok && status === 'finish') {
-      const updated = await res.json().catch(() => null)
-      if (updated) await unlockNextPlan(updated)
-    }
   }
   selectedPlanIds.value = new Set()
   batchWorking.value = false
@@ -339,17 +328,17 @@ async function createInterview(plan) {
     return
   }
   try {
-    const res = await fetch(`/api/plans/${plan.id}`, {
-      method: 'PUT',
+    const res = await fetch(`/api/plans/${plan.id}/action`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'running' }),
+      body: JSON.stringify({ action: 'start' }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
       alert(err.detail || '发起面试失败')
       return
     }
-    const updated = await res.json()
+    await res.json()
     launchPlan.value = updated
     await fetchList()
   } catch (e) {
@@ -442,7 +431,18 @@ async function savePlanEdit(plan) {
       return
     }
     const updated = await res.json()
-    if (payload.status === 'finish') await unlockNextPlan(updated)
+    if (payload.status === 'finish') {
+      await fetch(`/api/plans/${plan.id}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'finish',
+          interview_result: payload.interview_result,
+          result_score: payload.result_score,
+          result_note: payload.result_note,
+        }),
+      }).catch(() => {})
+    }
     cancelEditPlan()
     await fetchList()
   } catch (e) {

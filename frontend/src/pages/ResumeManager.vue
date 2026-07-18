@@ -431,13 +431,18 @@ async function parseResume(rid, refresh = true, force = false) {
   setParsing(rid, true)
   startFakeParseProgress(rid)
   try {
-    const res = await fetch(`/api/resumes/${rid}/parse${force ? '?force=true' : ''}`, { method: 'POST' })
+    const res = await fetch(`/api/resumes/${rid}/parse-task${force ? '?force=true' : ''}`, { method: 'POST' })
     if (!res.ok) {
       const err = await res.json()
       finishParseProgress(rid, false)
       alert(err.detail || '解析失败')
       return
     }
+    const task = await res.json()
+    await waitTask(task.id, (progress) => {
+      const current = getParseProgress(rid)
+      setParseProgress(rid, { percent: Math.max(current?.percent || 0, progress || 0), phase: '后台解析中' })
+    })
     finishParseProgress(rid, true)
     if (refresh) await fetchList()
   } catch (e) {
@@ -446,6 +451,20 @@ async function parseResume(rid, refresh = true, force = false) {
   } finally {
     setParsing(rid, false)
   }
+}
+
+async function waitTask(taskId, onProgress) {
+  if (!taskId) return null
+  for (let i = 0; i < 120; i += 1) {
+    const res = await fetch(`/api/tasks/${taskId}`)
+    if (!res.ok) throw new Error('任务状态获取失败')
+    const task = await res.json()
+    onProgress?.(task.progress || 0)
+    if (task.status === 'success') return task.result
+    if (task.status === 'failed') throw new Error(task.error || '任务处理失败')
+    await new Promise(resolve => window.setTimeout(resolve, 1000))
+  }
+  throw new Error('任务处理超时，请稍后在任务状态中心查看')
 }
 
 async function parsePendingResumes() {
@@ -458,11 +477,16 @@ async function parsePendingResumes() {
     setParsing(item.id, true)
     startFakeParseProgress(item.id)
     try {
-      const res = await fetch(`/api/resumes/${item.id}/parse`, { method: 'POST' })
+      const res = await fetch(`/api/resumes/${item.id}/parse-task`, { method: 'POST' })
       if (!res.ok) {
         failed += 1
         finishParseProgress(item.id, false)
       } else {
+        const task = await res.json()
+        await waitTask(task.id, (progress) => {
+          const current = getParseProgress(item.id)
+          setParseProgress(item.id, { percent: Math.max(current?.percent || 0, progress || 0), phase: '后台解析中' })
+        })
         finishParseProgress(item.id, true)
       }
     } catch (_) {
