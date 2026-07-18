@@ -1,14 +1,16 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
 
 const router = useRouter()
+const route = useRoute()
 const records = ref([])
 const loading = ref(true)
-const searchText = ref('')
+const searchText = ref(String(route.query.candidate || route.query.search || ''))
 const filterType = ref('')
 const filterConclusion = ref('')
+const filterRound = ref(String(route.query.round || ''))
 const batchMode = ref(false)
 const selectedSessionIds = ref(new Set())
 const batchWorking = ref(false)
@@ -47,7 +49,7 @@ function summarizeRoundItems(items) {
 
 const groupedArchives = computed(() => {
   const groups = new Map()
-  records.value.forEach((record) => {
+  filteredRecords.value.forEach((record) => {
     const key = record.workflow_id || record.candidate_username || `${record.candidate}::${record.position}`
     if (!groups.has(key)) {
       groups.set(key, {
@@ -76,13 +78,19 @@ const groupedArchives = computed(() => {
   }).sort((a, b) => String(b.latest_created_at || '').localeCompare(String(a.latest_created_at || '')))
 })
 
+const filteredRecords = computed(() => {
+  const round = String(filterRound.value || '').trim().toLowerCase()
+  if (!round) return records.value
+  return records.value.filter(record => String(record.interview_round || '').toLowerCase().includes(round))
+})
+
 const totalPages = computed(() => Math.max(1, Math.ceil(groupedArchives.value.length / pageSize.value)))
 const pagedGroups = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return groupedArchives.value.slice(start, start + pageSize.value)
 })
 const pagedSessionIds = computed(() => pagedGroups.value.flatMap(group => group.items.map(item => item.session_id)))
-const selectedRecords = computed(() => records.value.filter(record => selectedSessionIds.value.has(record.session_id)))
+const selectedRecords = computed(() => filteredRecords.value.filter(record => selectedSessionIds.value.has(record.session_id)))
 const allSelected = computed(() => pagedSessionIds.value.length > 0 && pagedSessionIds.value.every(id => selectedSessionIds.value.has(id)))
 const visiblePages = computed(() => {
   const total = totalPages.value
@@ -104,12 +112,16 @@ async function fetchList() {
       records.value = await res.json()
       if (page.value > totalPages.value) page.value = totalPages.value
       syncActiveGroup()
+      openLinkedArchive()
     }
   } catch (_) { /* ignore */ }
   loading.value = false
 }
 
-onMounted(fetchList)
+onMounted(() => {
+  if (route.query.tab === 'reports') detailTab.value = 'reports'
+  fetchList()
+})
 
 function syncActiveGroup() {
   if (!activeGroup.value) return
@@ -150,6 +162,14 @@ function changePageSize(size) {
 function openGroup(group, tab = 'records') {
   activeGroup.value = group
   detailTab.value = tab
+}
+
+function openLinkedArchive() {
+  if (!route.query.candidate && !route.query.round) return
+  const target = groupedArchives.value[0]
+  if (!target) return
+  activeGroup.value = target
+  detailTab.value = route.query.tab === 'reports' ? 'reports' : 'records'
 }
 
 async function removeRecord(sessionId) {
@@ -204,6 +224,7 @@ function resetFilters() {
   searchText.value = ''
   filterType.value = ''
   filterConclusion.value = ''
+  filterRound.value = ''
   page.value = 1
   fetchList()
 }
@@ -253,6 +274,13 @@ function resetFilters() {
             <option value="formal">正式面试（基于面试计划）</option>
             <option value="simulate">求职者模拟面试</option>
           </select>
+          <input
+            v-model="filterRound"
+            type="text"
+            placeholder="面试轮次，如一面/HR 面"
+            class="border rounded-lg px-3 py-2 min-w-[190px] focus:outline-none focus:border-[#1677ff]"
+            @input="page = 1"
+          >
           <select v-model="filterConclusion" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
             <option value="">全部面试结论</option>
             <option value="建议录用">建议录用</option>
@@ -328,7 +356,7 @@ function resetFilters() {
 
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
         <div class="flex items-center gap-3">
-          <span>共 {{ groupedArchives.length }} 位候选人 / {{ records.length }} 条档案记录</span>
+          <span>共 {{ groupedArchives.length }} 位候选人 / {{ filteredRecords.length }} 条档案记录</span>
           <select class="border border-gray-200 rounded-lg px-2 py-1 bg-white" :value="pageSize" @change="changePageSize($event.target.value)">
             <option :value="10">10 条/页</option>
             <option :value="20">20 条/页</option>

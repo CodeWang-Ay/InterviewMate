@@ -371,6 +371,18 @@ function openPlanPreview(plan) {
   previewPlan.value = plan
 }
 
+function archiveQuery(plan, tab = 'records') {
+  return {
+    candidate: plan.candidate_name || '',
+    round: plan.interview_round || '',
+    tab,
+  }
+}
+
+function goPlanArchive(plan, tab = 'records') {
+  router.push({ path: '/interview-archive', query: archiveQuery(plan, tab) })
+}
+
 function startEditPlan(plan) {
   editingPlanId.value = plan.id
   editForm.value = {
@@ -799,6 +811,7 @@ const previewQuestions = computed(() => {
               </div>
               <div class="flex items-center gap-2">
                 <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="openPlanPreview(plan)">预览</button>
+                <button class="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-600 text-sm hover:bg-indigo-50" @click="goPlanArchive(plan, 'records')">档案</button>
                 <button class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="startEditPlan(plan)">{{ editingPlanId === plan.id ? '正在编辑' : '编辑' }}</button>
                 <button v-if="plan.status === 'wait'" class="px-3 py-1.5 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50" @click="createInterview(plan)">发起</button>
                 <button v-else-if="plan.status === 'running'" class="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-sm hover:bg-blue-50" @click="createInterview(plan)">查看入口</button>
@@ -908,6 +921,8 @@ const previewQuestions = computed(() => {
                 </div>
               </div>
               <div class="flex justify-end gap-2">
+                <button class="px-4 py-2 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50" @click="goPlanArchive(plan, 'records')">查看记录</button>
+                <button class="px-4 py-2 rounded-lg border border-violet-200 text-violet-600 hover:bg-violet-50" @click="goPlanArchive(plan, 'reports')">查看报告</button>
                 <button class="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" @click="cancelEditPlan">取消</button>
                 <button class="px-4 py-2 rounded-lg bg-[#1677ff] text-white hover:bg-blue-600 disabled:opacity-50" :disabled="savingPlan" @click="savePlanEdit(plan)">
                   <i v-if="savingPlan" class="fa fa-spinner fa-spin mr-1"></i>保存
@@ -966,7 +981,11 @@ const previewQuestions = computed(() => {
             <h3 class="text-lg font-bold text-gray-900">面试计划预览</h3>
             <p class="text-sm text-gray-500 mt-1">{{ previewPlan.candidate_name }} · {{ previewPlan.interview_round || '面试环节' }}</p>
           </div>
-          <button class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100" @click="previewPlan = null"><i class="fa fa-times"></i></button>
+          <div class="flex items-center gap-2">
+            <button class="h-8 px-3 rounded-lg border border-indigo-200 text-indigo-600 text-xs hover:bg-indigo-50" @click="goPlanArchive(previewPlan, 'records')">记录</button>
+            <button class="h-8 px-3 rounded-lg border border-violet-200 text-violet-600 text-xs hover:bg-violet-50" @click="goPlanArchive(previewPlan, 'reports')">报告</button>
+            <button class="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100" @click="previewPlan = null"><i class="fa fa-times"></i></button>
+          </div>
         </div>
 
         <div class="overflow-auto p-6 space-y-5">
