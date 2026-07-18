@@ -14,6 +14,7 @@ const batchParseProgress = ref({ current: 0, total: 0, percent: 0, active: false
 const searchText = ref('')
 const filterStatus = ref('')
 const filterYears = ref('')
+const filterCandidateStatus = ref('')
 const showJdPicker = ref(false)
 const pendingFile = ref(null)
 const selectedJdId = ref(0)
@@ -34,7 +35,14 @@ const selectedResumeIds = ref(new Set())
 const batchWorking = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
+const total = ref(0)
 const viewMode = ref('list')
+
+const candidateStatusOptions = [
+  '待筛选',
+  '初筛通过',
+  '不合适',
+]
 
 const workflowTemplates = [
   {
@@ -67,11 +75,8 @@ const workflowTemplates = [
 ]
 
 const parseQueue = computed(() => resumeList.value.filter(r => r.file_path && r.parse_status !== 'success'))
-const totalPages = computed(() => Math.max(1, Math.ceil(resumeList.value.length / pageSize.value)))
-const pagedResumeList = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return resumeList.value.slice(start, start + pageSize.value)
-})
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+const pagedResumeList = computed(() => resumeList.value)
 const selectedResumes = computed(() => resumeList.value.filter(r => selectedResumeIds.value.has(r.id)))
 const selectableResumes = computed(() => pagedResumeList.value)
 const allSelected = computed(() => selectableResumes.value.length > 0 && selectableResumes.value.every(r => selectedResumeIds.value.has(r.id)))
@@ -94,7 +99,8 @@ function matchesCurrentFilters(resume) {
 
   const matchesStatus = !filterStatus.value || String(resume.parse_status || '') === String(filterStatus.value)
   const matchesYears = !filterYears.value || String(resume.experience_years || '') === String(filterYears.value)
-  return matchesSearch && matchesStatus && matchesYears
+  const matchesCandidateStatus = !filterCandidateStatus.value || String(resume.candidate_status || '') === String(filterCandidateStatus.value)
+  return matchesSearch && matchesStatus && matchesYears && matchesCandidateStatus
 }
 
 function normalizeEducationLevel(value) {
@@ -123,8 +129,9 @@ function getEducationFromItem(item) {
 
 function insertResumeIntoList(resume) {
   if (!matchesCurrentFilters(resume)) return
-  const next = [resume, ...resumeList.value.filter(item => item.id !== resume.id)]
+  const next = [resume, ...resumeList.value.filter(item => item.id !== resume.id)].slice(0, pageSize.value)
   resumeList.value = next
+  total.value = Math.max(total.value, resumeList.value.length)
 }
 
 async function ensureResumeVisible(rid, fallbackResume = null) {
@@ -232,11 +239,13 @@ function toggleSelectAll() {
 
 function setPage(nextPage) {
   page.value = Math.min(Math.max(1, nextPage), totalPages.value)
+  fetchList()
 }
 
 function changePageSize(size) {
   pageSize.value = Number(size)
   page.value = 1
+  fetchList()
 }
 
 async function fetchList() {
@@ -246,12 +255,21 @@ async function fetchList() {
     if (searchText.value) params.set('search', searchText.value)
     if (filterStatus.value) params.set('parse_status', filterStatus.value)
     if (filterYears.value) params.set('experience_years', filterYears.value)
+    if (filterCandidateStatus.value) params.set('candidate_status', filterCandidateStatus.value)
+    params.set('page', String(page.value))
+    params.set('page_size', String(pageSize.value))
     params.set('_t', String(Date.now()))
     const qs = params.toString()
     const res = await fetch(`/api/resumes${qs ? '?' + qs : ''}`, { cache: 'no-store' })
     if (res.ok) {
-      resumeList.value = await res.json()
-      if (page.value > totalPages.value) page.value = totalPages.value
+      const data = await res.json()
+      resumeList.value = data.items || []
+      total.value = Number(data.total || 0)
+      if (page.value > totalPages.value) {
+        page.value = totalPages.value
+        await fetchList()
+        return
+      }
     }
   } catch (_) {}
   loading.value = false
@@ -303,14 +321,33 @@ async function confirmUpload() {
   uploading.value = true
   showJdPicker.value = false
   try {
+    await submitResumeUpload(false)
+  } catch (_) {}
+  finally {
+    uploading.value = false
+  }
+}
+
+async function submitResumeUpload(allowDuplicate = false) {
     const fd = new FormData()
     fd.append('file', pendingFile.value)
     fd.append('jd_id', pendingUploadJdId.value)
+    if (allowDuplicate) fd.append('allow_duplicate', 'true')
     const uploadRes = await fetch('/api/resumes/upload', { method: 'POST', body: fd })
+    if (uploadRes.status === 409 && !allowDuplicate) {
+      const err = await uploadRes.json().catch(() => ({}))
+      const duplicates = err.detail?.duplicates || []
+      const names = duplicates.map(item => `#${item.id} ${item.name || item.original_name || '未命名简历'}`).join('\n')
+      const ok = confirm(`检测到重复简历，系统里已经存在：\n${names || '同一份文件'}\n\n是否仍然新增一条简历？`)
+      if (ok) return submitResumeUpload(true)
+      resetUploadInput()
+      pendingFile.value = null
+      return null
+    }
     if (!uploadRes.ok) {
       const err = await uploadRes.json().catch(() => ({}))
       alert(err.detail || '上传简历失败')
-      return
+      return null
     }
     const resume = await uploadRes.json()
     const optimisticResume = {
@@ -318,11 +355,13 @@ async function confirmUpload() {
       jd_id: Number(pendingUploadJdId.value),
       jd_name: pendingUploadJdName.value || resume.jd_name || '',
       parse_status: 'wait',
+      candidate_status: resume.candidate_status || '待筛选',
     }
     if (!matchesCurrentFilters(optimisticResume)) {
       searchText.value = ''
       filterStatus.value = ''
       filterYears.value = ''
+      filterCandidateStatus.value = ''
     }
     page.value = 1
     insertResumeIntoList(optimisticResume)
@@ -331,10 +370,8 @@ async function confirmUpload() {
     pendingFile.value = null
     resetPendingUploadJd()
     resetUploadInput()
-  } catch (_) {}
-  finally {
-    uploading.value = false
-  }
+    if (resume.duplicate_of?.length) alert('已按你的确认新增重复简历。')
+    return resume
 }
 
 function confirmJdAndChooseFile() {
@@ -430,6 +467,30 @@ async function deleteSelectedResumes() {
   await fetchList()
 }
 
+async function updateCandidateStatus(resume, status) {
+  if (!resume || resume.candidate_status === status) return
+  const previous = resume.candidate_status
+  resume.candidate_status = status
+  try {
+    const res = await fetch(`/api/resumes/${resume.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidate_status: status }),
+    })
+    if (!res.ok) {
+      resume.candidate_status = previous
+      const err = await res.json().catch(() => ({}))
+      alert(err.detail || '更新初筛状态失败')
+      return
+    }
+    const latest = await res.json()
+    Object.assign(resume, latest)
+  } catch (e) {
+    resume.candidate_status = previous
+    alert('更新初筛状态失败: ' + e.message)
+  }
+}
+
 async function removeResume(rid, name) {
   if (!confirm(`确认删除「${name}」？`)) return
   await fetch(`/api/resumes/${rid}`, { method: 'DELETE' })
@@ -491,6 +552,7 @@ async function createInterviewPlan(resume, round) {
       return
     }
     createdPlan.value = await res.json()
+    await updateCandidateStatus(resume, '初筛通过')
   } catch (e) {
     alert('创建面试计划失败: ' + e.message)
   } finally {
@@ -538,6 +600,7 @@ async function createInterviewWorkflow() {
         return
       }
       results.push(await res.json())
+      await updateCandidateStatus(resume, '初筛通过')
     }
     createdPlan.value = results.length === 1 ? results[0] : { workflow_name: template.name, candidate_name: `已为 ${results.length} 位候选人创建流程`, candidate_username: '-', candidate_password: '-', plans: results.flatMap(item => item.plans || []) }
     showWorkflowPicker.value = false
@@ -712,8 +775,13 @@ function resumePreviewUrl(resume) {
 
 const statusBadge = (s) => ({ success: 'bg-green-100 text-green-600', wait: 'bg-orange-100 text-orange-600', fail: 'bg-red-100 text-red-600' }[s] || 'bg-gray-100 text-gray-500')
 const statusLabel = (s) => ({ success: '解析成功', wait: '待解析', fail: '解析失败' }[s] || s)
+const candidateStatusBadge = (s) => ({
+  待筛选: 'bg-slate-100 text-slate-600 border-slate-200',
+  初筛通过: 'bg-blue-50 text-blue-600 border-blue-100',
+  不合适: 'bg-amber-50 text-amber-700 border-amber-100',
+}[s] || 'bg-slate-100 text-slate-600 border-slate-200')
 
-function resetFilters() { searchText.value = ''; filterStatus.value = ''; filterYears.value = ''; page.value = 1; fetchList() }
+function resetFilters() { searchText.value = ''; filterStatus.value = ''; filterYears.value = ''; filterCandidateStatus.value = ''; page.value = 1; fetchList() }
 </script>
 
 <template>
@@ -799,6 +867,10 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
             <option value="success">解析成功</option>
             <option value="fail">解析失败</option>
           </select>
+          <select v-model="filterCandidateStatus" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
+            <option value="">全部初筛状态</option>
+            <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
+          </select>
           <select v-model="filterYears" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
             <option value="">全部工作年限</option>
             <option value="应届生">应届生</option>
@@ -828,6 +900,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">技能</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">文件</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">解析状态</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">初筛状态</th>
               <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-64">操作</th>
             </tr>
           </thead>
@@ -861,6 +934,15 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
                     </div>
                   </div>
                 </div>
+              </td>
+              <td class="px-4 py-3">
+                <select
+                  :value="r.candidate_status || '待筛选'"
+                  :class="['max-w-[116px] rounded-lg border px-2 py-1.5 text-xs font-medium outline-none transition hover:bg-white', candidateStatusBadge(r.candidate_status || '待筛选')]"
+                  @change="updateCandidateStatus(r, $event.target.value)"
+                >
+                  <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
+                </select>
               </td>
               <td class="px-4 py-3 text-center">
                 <div class="flex items-center justify-center gap-2">
@@ -917,6 +999,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
                   <div class="flex flex-wrap items-center gap-2">
                     <h3 class="text-lg font-semibold text-[#18233e] break-all">{{ r.name || '未命名候选人' }}</h3>
                     <span :class="['px-2.5 py-1 text-xs rounded-full font-medium', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
+                    <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', candidateStatusBadge(r.candidate_status || '待筛选')]">{{ r.candidate_status || '待筛选' }}</span>
                   </div>
                   <div class="mt-1 text-sm font-medium text-[#4f6488]">{{ getResumeHeadline(r) }}</div>
                   <div class="mt-2 text-xs text-[#7c89a2]">{{ getResumeSummary(r) }}</div>
@@ -950,6 +1033,13 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
             <div class="mt-4 flex flex-wrap gap-2">
               <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1 text-xs text-[#5f708f]">{{ r.jd_name || '未关联 JD' }}</span>
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ r.original_name || r.file_path || '无文件名' }}</span>
+              <select
+                :value="r.candidate_status || '待筛选'"
+                class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f] outline-none"
+                @change="updateCandidateStatus(r, $event.target.value)"
+              >
+                <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
+              </select>
             </div>
 
             <div v-if="getParseProgress(r.id)" class="mt-4 rounded-2xl border border-[#e7edfb] bg-[#f9fbff] px-4 py-3">
@@ -1005,7 +1095,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
 
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
         <div class="flex items-center gap-3">
-          <span>共 {{ resumeList.length }} 条</span>
+          <span>共 {{ total }} 条</span>
           <select class="border border-gray-200 rounded-lg px-2 py-1 bg-white" :value="pageSize" @change="changePageSize($event.target.value)">
             <option :value="10">10 条/页</option>
             <option :value="20">20 条/页</option>

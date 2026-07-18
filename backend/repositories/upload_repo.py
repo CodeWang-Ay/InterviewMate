@@ -18,9 +18,13 @@ def validate(file: UploadFile) -> str:
 
 async def save(file: UploadFile, subdir: str, ext: str) -> str:
     content = await file.read()
+    return save_content(content, file.filename or "unknown", subdir, ext)
+
+
+def save_content(content: bytes, original_filename: str, subdir: str, ext: str) -> str:
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="文件大小不能超过 10MB")
-    original = (file.filename or "unknown").rsplit(".", 1)[0]
+    original = (original_filename or "unknown").rsplit(".", 1)[0]
     filename = f"{original}_{uuid.uuid4().hex[:6]}{ext}"
     filepath = os.path.join(UPLOAD_DIR, subdir, filename)
     with open(filepath, "wb") as f:

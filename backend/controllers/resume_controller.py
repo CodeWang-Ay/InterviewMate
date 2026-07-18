@@ -24,14 +24,28 @@ class ResumeUpdate(BaseModel):
     experience_years: str | None = None
     skills: str | None = None
     parse_status: str | None = None
+    candidate_status: str | None = None
     structured_data: str | None = None
     jd_id: int | None = None
     jd_name: str | None = None
 
 
 @router.get("")
-async def list_resumes(search: str = "", parse_status: str = "", experience_years: str = "", _: dict = Depends(require_admin)):
-    return resume_repo.list_all(search, parse_status, experience_years)
+async def list_resumes(
+    search: str = "",
+    parse_status: str = "",
+    experience_years: str = "",
+    candidate_status: str = "",
+    page: int | None = None,
+    page_size: int | None = None,
+    _: dict = Depends(require_admin),
+):
+    if page is not None or page_size is not None:
+        current_page = page or 1
+        current_page_size = page_size or 10
+        items, total = resume_repo.list_paged(search, parse_status, experience_years, candidate_status, current_page, current_page_size)
+        return {"items": items, "total": total, "page": current_page, "page_size": current_page_size}
+    return resume_repo.list_all(search, parse_status, experience_years, candidate_status)
 
 
 @router.get("/{rid}")
@@ -43,9 +57,20 @@ async def get_resume(rid: int, _: dict = Depends(require_admin)):
 
 
 @router.post("/upload")
-async def upload_resume_file(file: UploadFile = File(...), jd_id: int = Form(0), _: dict = Depends(require_admin)):
+async def upload_resume_file(file: UploadFile = File(...), jd_id: int = Form(0), allow_duplicate: bool = Form(False), _: dict = Depends(require_admin)):
     ext = upload_repo.validate(file)
-    filename = await upload_repo.save(file, "resume", ext)
+    content = await file.read()
+    file_md5 = hashlib.md5(content).hexdigest()
+    duplicates = resume_repo.find_duplicates(file_md5)
+    if duplicates and not allow_duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "检测到重复简历",
+                "duplicates": [_public_duplicate(item) for item in duplicates],
+            },
+        )
+    filename = upload_repo.save_content(content, file.filename or "unknown", "resume", ext)
     jd_name = ""
     if jd_id > 0:
         from backend.repositories import jd_repo as jdr
@@ -57,10 +82,14 @@ async def upload_resume_file(file: UploadFile = File(...), jd_id: int = Form(0),
         "file_path": filename,
         "file_type": ext.lstrip("."),
         "parse_status": "wait",
+        "candidate_status": "待筛选",
         "jd_id": jd_id if jd_id > 0 else None,
         "jd_name": jd_name,
         "original_name": file.filename or "",
+        "file_md5": file_md5,
     })
+    if duplicates:
+        resume["duplicate_of"] = [_public_duplicate(item) for item in duplicates]
     return resume
 
 
@@ -201,6 +230,17 @@ def _file_md5(path: str) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _public_duplicate(item: dict) -> dict:
+    return {
+        "id": item.get("id"),
+        "name": item.get("name", ""),
+        "target_position": item.get("target_position", ""),
+        "jd_name": item.get("jd_name", ""),
+        "original_name": item.get("original_name") or item.get("file_path", ""),
+        "created_at": item.get("created_at", ""),
+    }
 
 
 def _build_resume_parse_update(resume: dict, structured: dict, raw: str) -> dict:
