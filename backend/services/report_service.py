@@ -119,6 +119,12 @@ def generate_report(session_id: str) -> dict:
 
     report = {
         "session_id": session_id,
+        "candidate_name": record.get("candidate_name") or record.get("resume_name") or "",
+        "jd_name": record.get("jd_name") or "",
+        "interview_round": record.get("interview_round") or "",
+        "workflow_name": record.get("workflow_name") or "",
+        "workflow_id": record.get("workflow_id") or "",
+        "candidate_username": record.get("candidate_username") or "",
         "duration": duration,
         "total_questions": len(questions),
         "answered_questions": len(answers),

@@ -28,11 +28,15 @@ const navItems = [
   { icon: 'fa-id-card-o', label: '简历管理', path: '/resume-manager' },
   { icon: 'fa-magic', label: 'AI 辅助中心', path: '/ai-tools' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },
-  { icon: 'fa-archive', label: '面试档案', path: '/interview-archive', adminOnly: true },
+  { icon: 'fa-archive', label: '面试档案', path: '/interview-archive', activePaths: ['/interview-archive', '/report', '/interview-record', '/record-list', '/report-list'], adminOnly: true },
   { icon: 'fa-cog', label: '设置', path: '/settings' },
 ]
 
 const visibleNavItems = navItems.filter((item) => !item.adminOnly || role.value === 'admin')
+
+function isActive(item) {
+  return item.activePaths ? item.activePaths.includes(route.path) : route.path === item.path
+}
 </script>
 
 <template>
@@ -51,7 +55,7 @@ const visibleNavItems = navItems.filter((item) => !item.adminOnly || role.value 
         :to="item.path"
         :class="[
           'flex items-center gap-3 px-3 py-2.5 rounded-lg transition no-underline',
-          route.path === item.path
+          isActive(item)
             ? 'bg-blue-50 text-[#1677ff]'
             : 'text-gray-600 hover:bg-gray-200'
         ]"
