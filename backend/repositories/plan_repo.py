@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from backend.config import DB_PATH
 
 
@@ -31,6 +32,16 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS workflow_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                stages TEXT DEFAULT '[]',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
         cols = [c[1] for c in conn.execute("PRAGMA table_info(plans)").fetchall()]
         text_cols = ["interview_round", "candidate_username", "candidate_password", "workflow_id", "workflow_name", "active_session_id"]
         for col in text_cols:
@@ -52,6 +63,114 @@ def init_db():
                 "INSERT INTO plans (candidate_name, jd_name, match_score, question_count, status, created_at) VALUES (?,?,?,?,?,?)",
                 samples,
             )
+        _seed_workflow_templates(conn)
+
+
+def _seed_workflow_templates(conn) -> None:
+    cnt = conn.execute("SELECT COUNT(*) FROM workflow_templates").fetchone()[0]
+    if cnt > 0:
+        return
+    defaults = [
+        {
+            "name": "标准技术岗流程",
+            "description": "技术一面、技术二面、HR 面，适合研发/算法/测试岗位",
+            "stages": [
+                {"name": "技术一面", "question_count": 10},
+                {"name": "技术二面", "question_count": 8},
+                {"name": "HR 面", "question_count": 6},
+            ],
+        },
+        {
+            "name": "快速招聘流程",
+            "description": "综合面试、HR 面，适合应届生和批量初筛",
+            "stages": [
+                {"name": "综合面试", "question_count": 10},
+                {"name": "HR 面", "question_count": 6},
+            ],
+        },
+        {
+            "name": "高级岗位流程",
+            "description": "技术一面、技术二面、交叉面、终面，适合专家/管理岗位",
+            "stages": [
+                {"name": "技术一面", "question_count": 10},
+                {"name": "技术二面", "question_count": 10},
+                {"name": "交叉面", "question_count": 8},
+                {"name": "终面", "question_count": 6},
+            ],
+        },
+    ]
+    conn.executemany(
+        "INSERT INTO workflow_templates (name, description, stages) VALUES (?,?,?)",
+        [(item["name"], item["description"], json.dumps(item["stages"], ensure_ascii=False)) for item in defaults],
+    )
+
+
+def list_workflow_templates() -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute("SELECT * FROM workflow_templates ORDER BY id ASC").fetchall()
+    return [_decode_workflow_template(dict(row)) for row in rows]
+
+
+def save_workflow_template(data: dict, template_id: int | None = None) -> dict:
+    payload = {
+        "name": (data.get("name") or "未命名流程").strip() or "未命名流程",
+        "description": (data.get("description") or data.get("desc") or "").strip(),
+        "stages": _normalize_template_stages(data.get("stages") or []),
+    }
+    stages_json = json.dumps(payload["stages"], ensure_ascii=False)
+    with _conn() as conn:
+        if template_id:
+            existing = conn.execute("SELECT * FROM workflow_templates WHERE id=?", (template_id,)).fetchone()
+            if not existing:
+                return {}
+            conn.execute(
+                "UPDATE workflow_templates SET name=?, description=?, stages=?, updated_at=datetime('now') WHERE id=?",
+                (payload["name"], payload["description"], stages_json, template_id),
+            )
+            row = conn.execute("SELECT * FROM workflow_templates WHERE id=?", (template_id,)).fetchone()
+        else:
+            cur = conn.execute(
+                "INSERT INTO workflow_templates (name, description, stages) VALUES (?,?,?)",
+                (payload["name"], payload["description"], stages_json),
+            )
+            row = conn.execute("SELECT * FROM workflow_templates WHERE id=?", (cur.lastrowid,)).fetchone()
+    return _decode_workflow_template(dict(row)) if row else {}
+
+
+def _normalize_template_stages(stages: list) -> list[dict]:
+    normalized = []
+    for index, item in enumerate(stages, start=1):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or f"第 {index} 轮面试").strip()
+        try:
+            question_count = int(item.get("question_count") or 6)
+        except (TypeError, ValueError):
+            question_count = 6
+        item_data = {"name": name, "question_count": min(max(question_count, 1), 30)}
+        for key in ("x", "y"):
+            if key in item:
+                try:
+                    item_data[key] = int(float(item.get(key) or 0))
+                except (TypeError, ValueError):
+                    item_data[key] = 0
+        normalized.append(item_data)
+    return normalized or [{"name": "综合面试", "question_count": 8}]
+
+
+def _decode_workflow_template(row: dict) -> dict:
+    try:
+        stages = json.loads(row.get("stages") or "[]")
+    except Exception:
+        stages = []
+    return {
+        "id": row.get("id"),
+        "name": row.get("name", ""),
+        "desc": row.get("description", ""),
+        "stages": _normalize_template_stages(stages),
+        "created_at": row.get("created_at", ""),
+        "updated_at": row.get("updated_at", ""),
+    }
 
 
 def list_all(search: str = "", status: str = "") -> list[dict]:

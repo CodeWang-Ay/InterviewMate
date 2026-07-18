@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
 
@@ -30,6 +30,14 @@ const workflowResume = ref(null)
 const workflowBatchMode = ref(false)
 const selectedWorkflowIndex = ref(0)
 const creatingWorkflow = ref(false)
+const workflowTemplates = ref([])
+const editingWorkflowTemplate = ref(null)
+const savingWorkflowTemplate = ref(false)
+const draggedStageIndex = ref(null)
+const workflowCanvasRef = ref(null)
+const workflowFullscreen = ref(false)
+const selectedWorkflowStageIndex = ref(0)
+const draggingWorkflowNode = ref(null)
 const batchMode = ref(false)
 const selectedResumeIds = ref(new Set())
 const batchWorking = ref(false)
@@ -44,7 +52,7 @@ const candidateStatusOptions = [
   '不合适',
 ]
 
-const workflowTemplates = [
+const defaultWorkflowTemplates = [
   {
     name: '标准技术岗流程',
     desc: '技术一面、技术二面、HR 面，适合研发/算法/测试岗位',
@@ -73,6 +81,11 @@ const workflowTemplates = [
     ],
   },
 ]
+
+workflowTemplates.value = defaultWorkflowTemplates.map(template => cloneWorkflowTemplate(template))
+
+const selectedWorkflowTemplate = computed(() => workflowTemplates.value[selectedWorkflowIndex.value] || workflowTemplates.value[0] || null)
+const selectedEditingStage = computed(() => editingWorkflowTemplate.value?.stages?.[selectedWorkflowStageIndex.value] || null)
 
 const parseQueue = computed(() => resumeList.value.filter(r => r.file_path && r.parse_status !== 'success'))
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
@@ -248,6 +261,33 @@ function changePageSize(size) {
   fetchList()
 }
 
+function cloneWorkflowTemplate(template) {
+  return {
+    id: template?.id || null,
+    name: template?.name || '未命名流程',
+    desc: template?.desc || template?.description || '',
+    stages: (template?.stages || []).map((stage, index) => ({
+      name: stage?.name || `第 ${index + 1} 轮面试`,
+      question_count: Number(stage?.question_count || 6),
+      x: Number.isFinite(Number(stage?.x)) ? Number(stage.x) : 90 + index * 230,
+      y: Number.isFinite(Number(stage?.y)) ? Number(stage.y) : 210 + (index % 2) * 18,
+    })),
+  }
+}
+
+async function loadWorkflowTemplates() {
+  try {
+    const res = await fetch('/api/plans/workflow-templates')
+    if (res.ok) {
+      const data = await res.json()
+      workflowTemplates.value = (Array.isArray(data) && data.length ? data : defaultWorkflowTemplates).map(template => cloneWorkflowTemplate(template))
+      if (selectedWorkflowIndex.value >= workflowTemplates.value.length) selectedWorkflowIndex.value = 0
+    }
+  } catch (_) {
+    workflowTemplates.value = defaultWorkflowTemplates.map(template => cloneWorkflowTemplate(template))
+  }
+}
+
 async function fetchList() {
   loading.value = true
   try {
@@ -275,7 +315,10 @@ async function fetchList() {
   loading.value = false
 }
 
-onMounted(fetchList)
+onMounted(() => {
+  fetchList()
+  loadWorkflowTemplates()
+})
 
 function resetUploadInput() {
   if (uploadInput.value) uploadInput.value.value = ''
@@ -529,6 +572,11 @@ async function viewResume(r) {
   } catch (_) {}
 }
 
+function goCandidatePlans(resume) {
+  const candidate = resume?.name || fieldValue(basicInfo.value, ['姓名'], '')
+  router.push({ path: '/plan-manager', query: candidate ? { candidate } : {} })
+}
+
 async function createInterviewPlan(resume, round) {
   const roundLabel = round === 'second' ? '二面' : '一面'
   creatingPlanKey.value = `${resume.id}-${round}`
@@ -560,23 +608,40 @@ async function createInterviewPlan(resume, round) {
   }
 }
 
-function openWorkflowPicker(resume) {
+async function openWorkflowPicker(resume) {
   workflowResume.value = resume
   workflowBatchMode.value = false
   selectedWorkflowIndex.value = 0
+  editingWorkflowTemplate.value = null
+  workflowFullscreen.value = false
+  await loadWorkflowTemplates()
   showWorkflowPicker.value = true
 }
 
-function openBatchWorkflowPicker() {
+async function openBatchWorkflowPicker() {
   if (!selectedResumes.value.length) return
   workflowResume.value = null
   workflowBatchMode.value = true
   selectedWorkflowIndex.value = 0
+  editingWorkflowTemplate.value = null
+  workflowFullscreen.value = false
+  await loadWorkflowTemplates()
   showWorkflowPicker.value = true
 }
 
+function closeWorkflowPicker() {
+  showWorkflowPicker.value = false
+  workflowFullscreen.value = false
+  draggingWorkflowNode.value = null
+}
+
+function toggleWorkflowFullscreen() {
+  workflowFullscreen.value = !workflowFullscreen.value
+  window.requestAnimationFrame(() => fitWorkflowTemplateIntoCanvas())
+}
+
 async function createInterviewWorkflow() {
-  const template = workflowTemplates[selectedWorkflowIndex.value]
+  const template = selectedWorkflowTemplate.value
   const targets = workflowBatchMode.value ? selectedResumes.value.filter(r => r.parse_status === 'success') : [workflowResume.value].filter(Boolean)
   if (!targets.length || !template) return
   creatingWorkflow.value = true
@@ -603,7 +668,7 @@ async function createInterviewWorkflow() {
       await updateCandidateStatus(resume, '初筛通过')
     }
     createdPlan.value = results.length === 1 ? results[0] : { workflow_name: template.name, candidate_name: `已为 ${results.length} 位候选人创建流程`, candidate_username: '-', candidate_password: '-', plans: results.flatMap(item => item.plans || []) }
-    showWorkflowPicker.value = false
+    closeWorkflowPicker()
     workflowResume.value = null
     workflowBatchMode.value = false
     selectedResumeIds.value = new Set()
@@ -613,6 +678,193 @@ async function createInterviewWorkflow() {
     creatingWorkflow.value = false
   }
 }
+
+function startWorkflowTemplateEdit(template = selectedWorkflowTemplate.value) {
+  editingWorkflowTemplate.value = cloneWorkflowTemplate(template || defaultWorkflowTemplates[0])
+  selectedWorkflowStageIndex.value = 0
+  window.requestAnimationFrame(() => fitWorkflowTemplateIntoCanvas())
+}
+
+function cancelWorkflowTemplateEdit() {
+  editingWorkflowTemplate.value = null
+  draggedStageIndex.value = null
+  draggingWorkflowNode.value = null
+}
+
+function addWorkflowStage() {
+  if (!editingWorkflowTemplate.value) return
+  const index = editingWorkflowTemplate.value.stages.length
+  const lastStage = editingWorkflowTemplate.value.stages[index - 1]
+  editingWorkflowTemplate.value.stages.push({
+    name: `第 ${index + 1} 轮面试`,
+    question_count: 8,
+    x: Number(lastStage?.x || 70) + 260,
+    y: Number(lastStage?.y || 210),
+  })
+  selectedWorkflowStageIndex.value = index
+  window.requestAnimationFrame(() => autoLayoutWorkflowCanvas(false))
+}
+
+function removeWorkflowStage(index) {
+  if (!editingWorkflowTemplate.value || editingWorkflowTemplate.value.stages.length <= 1) return
+  editingWorkflowTemplate.value.stages.splice(index, 1)
+  selectedWorkflowStageIndex.value = Math.min(selectedWorkflowStageIndex.value, editingWorkflowTemplate.value.stages.length - 1)
+}
+
+function selectWorkflowStage(index) {
+  selectedWorkflowStageIndex.value = index
+}
+
+function startWorkflowNodeDrag(event, index) {
+  if (!editingWorkflowTemplate.value || event.button !== 0) return
+  const stage = editingWorkflowTemplate.value.stages[index]
+  selectedWorkflowStageIndex.value = index
+  draggingWorkflowNode.value = {
+    index,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: Number(stage.x || 0),
+    originY: Number(stage.y || 0),
+  }
+  window.addEventListener('pointermove', moveWorkflowNode)
+  window.addEventListener('pointerup', stopWorkflowNodeDrag)
+  event.preventDefault()
+}
+
+function moveWorkflowNode(event) {
+  const drag = draggingWorkflowNode.value
+  const stage = editingWorkflowTemplate.value?.stages?.[drag?.index]
+  if (!drag || !stage) return
+  const rect = workflowCanvasRef.value?.getBoundingClientRect()
+  const maxX = Math.max(120, (rect?.width || 900) - 230)
+  const maxY = Math.max(120, (rect?.height || 520) - 130)
+  stage.x = Math.min(Math.max(24, drag.originX + event.clientX - drag.startX), maxX)
+  stage.y = Math.min(Math.max(24, drag.originY + event.clientY - drag.startY), maxY)
+}
+
+function stopWorkflowNodeDrag() {
+  draggingWorkflowNode.value = null
+  window.removeEventListener('pointermove', moveWorkflowNode)
+  window.removeEventListener('pointerup', stopWorkflowNodeDrag)
+}
+
+function getWorkflowNodeStyle(stage) {
+  return {
+    transform: `translate(${Number(stage.x || 0)}px, ${Number(stage.y || 0)}px)`,
+  }
+}
+
+function getWorkflowLineStyle(from, to) {
+  const x1 = Number(from.x || 0) + 196
+  const y1 = Number(from.y || 0) + 49
+  const x2 = Number(to.x || 0) + 14
+  const y2 = Number(to.y || 0) + 49
+  const dx = x2 - x1
+  const dy = y2 - y1
+  return {
+    left: `${x1}px`,
+    top: `${y1}px`,
+    width: `${Math.max(24, Math.sqrt(dx * dx + dy * dy))}px`,
+    transform: `rotate(${Math.atan2(dy, dx)}rad)`,
+  }
+}
+
+function resetWorkflowCanvasLayout() {
+  autoLayoutWorkflowCanvas(true)
+}
+
+function autoLayoutWorkflowCanvas(resetSelection = false) {
+  if (!editingWorkflowTemplate.value) return
+  const stages = editingWorkflowTemplate.value.stages
+  const rect = workflowCanvasRef.value?.getBoundingClientRect()
+  const canvasWidth = rect?.width || 980
+  const nodeWidth = 206
+  const gap = 96
+  const left = 36
+  const top = 210
+  const rowGap = 150
+  const usableWidth = Math.max(nodeWidth, canvasWidth - left * 2)
+  const perRow = Math.max(1, Math.floor((usableWidth + gap) / (nodeWidth + gap)))
+  const rowWidth = Math.min(stages.length, perRow) * nodeWidth + (Math.min(stages.length, perRow) - 1) * gap
+  const startX = Math.max(left, Math.round((canvasWidth - rowWidth) / 2))
+  stages.forEach((stage, index) => {
+    const row = Math.floor(index / perRow)
+    const col = index % perRow
+    stage.x = startX + col * (nodeWidth + gap)
+    stage.y = top + row * rowGap
+  })
+  if (resetSelection) selectedWorkflowStageIndex.value = 0
+  window.requestAnimationFrame(() => fitWorkflowTemplateIntoCanvas())
+}
+
+function fitWorkflowTemplateIntoCanvas() {
+  const stages = editingWorkflowTemplate.value?.stages || []
+  const rect = workflowCanvasRef.value?.getBoundingClientRect()
+  if (!rect || !stages.length) return
+  const maxNodeX = Math.max(...stages.map(stage => Number(stage.x || 0)))
+  const overflow = maxNodeX + 230 - rect.width
+  if (overflow <= 0) return
+  stages.forEach(stage => {
+    stage.x = Math.max(24, Number(stage.x || 0) - overflow - 24)
+  })
+}
+
+function normalizeWorkflowNodeSpacing() {
+  const stages = editingWorkflowTemplate.value?.stages || []
+  if (stages.length < 2) return
+  const minGap = 28
+  for (let i = 1; i < stages.length; i += 1) {
+    const prev = stages[i - 1]
+    const current = stages[i]
+    const sameRow = Math.abs(Number(current.y || 0) - Number(prev.y || 0)) < 90
+    const minX = Number(prev.x || 0) + 206 + minGap
+    if (sameRow && Number(current.x || 0) < minX) current.x = minX
+  }
+  fitWorkflowTemplateIntoCanvas()
+}
+
+async function saveWorkflowTemplate() {
+  if (!editingWorkflowTemplate.value) return
+  normalizeWorkflowNodeSpacing()
+  const template = editingWorkflowTemplate.value
+  const payload = {
+    name: template.name?.trim() || '未命名流程',
+    desc: template.desc?.trim() || '',
+    stages: template.stages.map(stage => ({
+      name: stage.name?.trim() || '面试环节',
+      question_count: Math.max(1, Math.min(30, Number(stage.question_count || 1))),
+      x: Math.round(Number(stage.x || 0)),
+      y: Math.round(Number(stage.y || 0)),
+    })),
+  }
+  savingWorkflowTemplate.value = true
+  try {
+    const url = template.id ? `/api/plans/workflow-templates/${template.id}` : '/api/plans/workflow-templates'
+    const res = await fetch(url, {
+      method: template.id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.detail || '保存流程模板失败')
+      return
+    }
+    const saved = await res.json()
+    await loadWorkflowTemplates()
+    const savedIndex = workflowTemplates.value.findIndex(item => item.id === saved.id)
+    selectedWorkflowIndex.value = savedIndex >= 0 ? savedIndex : 0
+    editingWorkflowTemplate.value = null
+  } catch (e) {
+    alert('保存流程模板失败: ' + e.message)
+  } finally {
+    savingWorkflowTemplate.value = false
+  }
+}
+
+onBeforeUnmount(() => {
+  stopWorkflowNodeDrag()
+})
 
 function fieldValue(obj, keys, fallback = '-') {
   for (const key of keys) {
@@ -910,7 +1162,11 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
                 <input type="checkbox" :checked="selectedResumeIds.has(r.id)" @change="setSelectedResume(r.id, $event.target.checked)">
               </td>
               <td class="px-4 py-3 text-sm text-gray-500">{{ (page - 1) * pageSize + i + 1 }}</td>
-              <td class="px-4 py-3 font-medium text-sm">{{ r.name || '未命名' }}</td>
+              <td class="px-4 py-3 font-medium text-sm">
+                <button class="text-left text-[#172033] hover:text-[#1677ff] hover:underline underline-offset-4" @click="viewResume(r)">
+                  {{ r.name || '未命名' }}
+                </button>
+              </td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.target_position || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ formatEducationCell(r.education) || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.experience_years || '-' }}</td>
@@ -956,6 +1212,13 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
                     <i :class="['fa', parsingIds.has(r.id) ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
                   </button>
                   <span class="h-5 w-px bg-gray-200"></span>
+                  <button
+                    class="w-8 h-8 rounded-lg text-indigo-600 hover:bg-indigo-50 transition flex items-center justify-center"
+                    title="查看面试计划"
+                    @click="goCandidatePlans(r)"
+                  >
+                    <i class="fa fa-calendar-check-o"></i>
+                  </button>
                   <div v-if="r.parse_status === 'success'" class="flex items-center rounded-lg border border-green-100 bg-green-50 p-0.5">
                     <button
                       class="h-7 px-3 rounded-md text-xs font-medium text-green-700 hover:bg-white transition disabled:cursor-not-allowed disabled:text-gray-300"
@@ -1007,6 +1270,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewResume(r)"><i class="fa fa-eye"></i></button>
+                <button class="w-9 h-9 rounded-xl text-indigo-600 hover:bg-indigo-50 transition flex items-center justify-center" title="查看面试计划" @click="goCandidatePlans(r)"><i class="fa fa-calendar-check-o"></i></button>
                 <button
                   class="w-9 h-9 rounded-xl text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
                   :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
@@ -1122,13 +1386,19 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         <div class="flex-shrink-0 h-[52px] px-6 border-b flex items-center justify-between">
           <button class="text-[#1677ff] text-sm font-medium hover:text-blue-600" @click="viewingResume = null">编辑候选人</button>
           <div class="flex items-center gap-2">
-          <button
-            class="h-8 px-3 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300"
-            :disabled="!viewingResume.file_path"
-            @click="downloadResume(viewingResume)"
-          >
-            <i class="fa fa-download mr-1"></i>下载简历
-          </button>
+            <button
+              class="h-8 px-3 border border-indigo-100 bg-indigo-50 rounded text-xs text-indigo-700 hover:bg-indigo-100"
+              @click="goCandidatePlans(viewingResume)"
+            >
+              <i class="fa fa-calendar-check-o mr-1"></i>面试计划
+            </button>
+            <button
+              class="h-8 px-3 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300"
+              :disabled="!viewingResume.file_path"
+              @click="downloadResume(viewingResume)"
+            >
+              <i class="fa fa-download mr-1"></i>下载简历
+            </button>
             <button
               v-if="!editingResume"
               class="h-8 px-3 bg-[#1677ff] text-white rounded text-xs hover:bg-blue-600"
@@ -1335,47 +1605,229 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
     </div>
 
     <!-- 面试流程模板弹窗 -->
-    <div v-if="showWorkflowPicker" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @click.self="showWorkflowPicker = false">
-      <div class="bg-white rounded-2xl w-[760px] max-w-[96vw] shadow-xl overflow-hidden">
+    <div
+      v-if="showWorkflowPicker"
+      :class="['fixed inset-0 bg-black/40 z-50 flex items-center justify-center', workflowFullscreen ? 'p-0' : 'p-4']"
+      @click.self="closeWorkflowPicker"
+    >
+      <div :class="['bg-white shadow-xl overflow-hidden flex flex-col', workflowFullscreen ? 'w-screen h-screen rounded-none' : 'rounded-2xl w-[min(1500px,98vw)] max-h-[94vh]']">
         <div class="px-6 py-5 border-b flex items-center justify-between">
           <div>
-            <h3 class="text-lg font-bold text-gray-900">选择面试流程</h3>
+            <h3 class="text-lg font-bold text-gray-900">面试流程编排</h3>
             <p class="text-sm text-gray-500 mt-1">
               <template v-if="workflowBatchMode">已选择 {{ selectedResumes.length }} 份简历，将为解析成功的简历创建流程</template>
               <template v-else>{{ workflowResume?.name || '候选人' }} · {{ workflowResume?.jd_name || workflowResume?.target_position || '待定岗位' }}</template>
             </p>
           </div>
-          <button class="text-gray-300 hover:text-gray-500" @click="showWorkflowPicker = false"><i class="fa fa-times text-lg"></i></button>
+          <div class="flex items-center gap-2">
+            <button
+              class="h-9 px-3 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
+              @click="toggleWorkflowFullscreen"
+            >
+              <i :class="['fa mr-1', workflowFullscreen ? 'fa-compress' : 'fa-expand']"></i>{{ workflowFullscreen ? '退出全屏' : '全屏编辑' }}
+            </button>
+            <button class="h-9 w-9 rounded-lg text-gray-300 hover:text-gray-500 hover:bg-gray-50" @click="closeWorkflowPicker"><i class="fa fa-times text-lg"></i></button>
+          </div>
         </div>
-        <div class="p-6 grid grid-cols-1 gap-4">
-          <label
-            v-for="(template, index) in workflowTemplates"
-            :key="template.name"
-            :class="['block rounded-xl border p-4 cursor-pointer transition', selectedWorkflowIndex === index ? 'border-[#1677ff] bg-blue-50' : 'border-gray-200 hover:bg-gray-50']"
-          >
-            <input v-model="selectedWorkflowIndex" type="radio" :value="index" class="hidden">
-            <div class="flex items-start justify-between gap-4">
+        <div :class="['grid grid-cols-[280px_1fr] overflow-hidden', workflowFullscreen ? 'flex-1 min-h-0' : 'min-h-[700px]']">
+          <aside class="border-r border-gray-100 bg-[#f8fbff] p-5 overflow-auto">
+            <div class="flex items-center justify-between gap-3 mb-4">
               <div>
-                <div class="font-semibold text-gray-900">{{ template.name }}</div>
-                <div class="text-xs text-gray-500 mt-1">{{ template.desc }}</div>
+                <div class="text-sm font-semibold text-[#1d2941]">流程模板</div>
+                <div class="text-xs text-[#8b98af] mt-0.5">选择、编辑并保存常用流程</div>
               </div>
-              <span class="px-2 py-1 rounded bg-white text-xs text-[#1677ff] border border-blue-100">{{ template.stages.length }} 个面试计划</span>
+              <button
+                class="h-8 w-8 rounded-lg border border-blue-100 bg-white text-[#1677ff] hover:bg-blue-50"
+                title="新建流程模板"
+                @click="startWorkflowTemplateEdit({ name: '自定义面试流程', desc: '按当前岗位需要自定义面试环节', stages: [{ name: '综合面试', question_count: 8 }] })"
+              >
+                <i class="fa fa-plus"></i>
+              </button>
             </div>
-            <div class="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
-              <template v-for="(stage, stageIndex) in template.stages" :key="stage.name">
-                <div class="flex-shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2 min-w-[110px]">
-                  <div class="text-xs text-gray-400">第 {{ stageIndex + 1 }} 环节</div>
-                  <div class="text-sm font-medium text-gray-800 mt-1">{{ stage.name }}</div>
-                  <div class="text-xs text-gray-400 mt-1">{{ stage.question_count }} 道题</div>
+            <div class="space-y-3">
+              <button
+                v-for="(template, index) in workflowTemplates"
+                :key="template.id || template.name"
+                :class="['w-full text-left rounded-xl border p-4 transition', selectedWorkflowIndex === index ? 'border-[#1677ff] bg-white shadow-sm' : 'border-transparent bg-white/70 hover:bg-white hover:border-blue-100']"
+                @click="selectedWorkflowIndex = index; cancelWorkflowTemplateEdit()"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="font-semibold text-sm text-[#1d2941] truncate">{{ template.name }}</div>
+                    <div class="text-xs text-[#7d8ba5] mt-1 line-clamp-2">{{ template.desc || '暂无描述' }}</div>
+                  </div>
+                  <span class="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-[#1677ff]">{{ template.stages.length }} 轮</span>
                 </div>
-                <i v-if="stageIndex < template.stages.length - 1" class="fa fa-long-arrow-right text-gray-300"></i>
-              </template>
+              </button>
             </div>
-          </label>
+          </aside>
+
+          <section class="overflow-auto p-6 bg-white">
+            <div v-if="!editingWorkflowTemplate && selectedWorkflowTemplate">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="text-xs font-semibold text-[#1677ff]">Workflow template</div>
+                  <h4 class="mt-1 text-2xl font-bold text-[#172033]">{{ selectedWorkflowTemplate.name }}</h4>
+                  <p class="mt-2 text-sm text-[#6b7890]">{{ selectedWorkflowTemplate.desc || '这个流程还没有描述。' }}</p>
+                </div>
+                <button
+                  class="h-9 px-4 rounded-lg border border-blue-100 text-[#1677ff] text-sm hover:bg-blue-50"
+                  @click="startWorkflowTemplateEdit(selectedWorkflowTemplate)"
+                >
+                  <i class="fa fa-pencil mr-1"></i>编辑流程
+                </button>
+              </div>
+
+              <div class="mt-8 flex items-center gap-3 overflow-x-auto pb-4">
+                <template v-for="(stage, stageIndex) in selectedWorkflowTemplate.stages" :key="stageIndex">
+                  <div class="min-w-[170px] rounded-2xl border border-[#e3ebfb] bg-[#fbfdff] p-4 shadow-sm">
+                    <div class="flex items-center justify-between">
+                      <span class="h-8 w-8 rounded-full bg-[#1677ff] text-white flex items-center justify-center text-sm font-semibold">{{ stageIndex + 1 }}</span>
+                      <span class="text-xs text-[#8b98af]">{{ stage.question_count }} 题</span>
+                    </div>
+                    <div class="mt-4 text-base font-semibold text-[#1d2941]">{{ stage.name }}</div>
+                    <div class="mt-2 text-xs text-[#8b98af]">生成第 {{ stageIndex + 1 }} 个面试计划</div>
+                  </div>
+                  <i v-if="stageIndex < selectedWorkflowTemplate.stages.length - 1" class="fa fa-long-arrow-right text-[#b7c4da]"></i>
+                </template>
+              </div>
+            </div>
+
+            <div v-else-if="editingWorkflowTemplate" :class="['h-full grid grid-cols-[1fr_300px] gap-5', workflowFullscreen ? 'min-h-0' : 'min-h-[660px]']">
+              <div class="rounded-2xl border border-[#dbe7fb] bg-[#f7faff] overflow-hidden flex flex-col">
+                <div class="px-4 py-3 border-b border-[#e5edf9] bg-white/90 flex items-end justify-between gap-4">
+                  <div class="min-w-0 flex-1 grid grid-cols-[260px_1fr] gap-3">
+                    <label class="block">
+                      <span class="flex items-center gap-2 text-[11px] font-semibold text-[#7d8ba5]">
+                        <i class="fa fa-pencil text-[#1677ff]"></i>
+                        流程名称
+                      </span>
+                      <input
+                        v-model="editingWorkflowTemplate.name"
+                        class="mt-1 h-10 w-full rounded-xl border border-[#dce7f6] bg-[#fbfdff] px-3 text-base font-bold text-[#172033] outline-none transition focus:border-[#1677ff] focus:bg-white focus:ring-4 focus:ring-blue-50"
+                        placeholder="请输入流程名称"
+                      >
+                    </label>
+                    <label class="block">
+                      <span class="flex items-center gap-2 text-[11px] font-semibold text-[#7d8ba5]">
+                        <i class="fa fa-align-left text-[#94a3b8]"></i>
+                        流程说明
+                      </span>
+                      <input
+                        v-model="editingWorkflowTemplate.desc"
+                        class="mt-1 h-10 w-full rounded-xl border border-[#dce7f6] bg-[#fbfdff] px-3 text-sm text-[#475569] outline-none transition focus:border-[#1677ff] focus:bg-white focus:ring-4 focus:ring-blue-50"
+                        placeholder="请输入流程说明"
+                      >
+                    </label>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button class="h-8 px-3 rounded-lg border border-blue-100 text-xs text-[#1677ff] hover:bg-blue-50" @click="resetWorkflowCanvasLayout">
+                      <i class="fa fa-magic mr-1"></i>整理
+                    </button>
+                    <button class="h-8 px-3 rounded-lg bg-[#1677ff] text-xs text-white hover:bg-blue-600" @click="addWorkflowStage">
+                      <i class="fa fa-plus mr-1"></i>节点
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  ref="workflowCanvasRef"
+                  :class="['relative flex-1 overflow-hidden workflow-flow-canvas', workflowFullscreen ? 'min-h-0' : 'min-h-[620px]']"
+                >
+                  <div class="absolute left-5 top-5 z-10 rounded-xl border border-[#dce7f6] bg-white/90 px-3 py-2 shadow-sm">
+                    <div class="text-xs font-semibold text-[#64748b]">流程画布</div>
+                    <div class="mt-0.5 text-[11px] text-[#9aa7bb]">拖动节点调整位置，右侧编辑节点内容</div>
+                  </div>
+
+                  <div class="absolute inset-0 pointer-events-none">
+                    <template v-for="(stage, stageIndex) in editingWorkflowTemplate.stages.slice(0, -1)" :key="'line-' + stageIndex">
+                      <div class="workflow-flow-line" :style="getWorkflowLineStyle(stage, editingWorkflowTemplate.stages[stageIndex + 1])"></div>
+                      <div class="workflow-flow-line-dot" :style="{ left: `${Number(editingWorkflowTemplate.stages[stageIndex + 1].x || 0) + 6}px`, top: `${Number(editingWorkflowTemplate.stages[stageIndex + 1].y || 0) + 43}px` }"></div>
+                    </template>
+                  </div>
+
+                  <div
+                    v-for="(stage, stageIndex) in editingWorkflowTemplate.stages"
+                    :key="'node-' + stageIndex"
+                    :class="['workflow-flow-node absolute w-[206px] rounded-2xl border bg-white p-4 shadow-sm select-none', selectedWorkflowStageIndex === stageIndex ? 'border-[#1677ff] ring-4 ring-blue-100' : 'border-[#dce7f6] hover:border-blue-200']"
+                    :style="getWorkflowNodeStyle(stage)"
+                    @pointerdown="startWorkflowNodeDrag($event, stageIndex)"
+                    @click.stop="selectWorkflowStage(stageIndex)"
+                  >
+                    <div class="flex items-center justify-between">
+                      <span class="h-8 w-8 rounded-xl bg-[#eef4ff] text-[#1677ff] flex items-center justify-center text-sm font-bold">{{ stageIndex + 1 }}</span>
+                      <span class="rounded-full bg-[#f5f7fb] px-2 py-1 text-[11px] font-semibold text-[#64748b]">{{ stage.question_count }} 题</span>
+                    </div>
+                    <div class="mt-4 truncate text-base font-bold text-[#172033]">{{ stage.name || '面试环节' }}</div>
+                    <div class="mt-2 flex items-center gap-2 text-xs text-[#8a97ad]">
+                      <i class="fa fa-commenting-o text-[#a5b4cc]"></i>
+                      <span>面试计划节点</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <aside class="rounded-2xl border border-[#e3ebf8] bg-white p-4 shadow-sm">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-sm font-bold text-[#172033]">节点属性</div>
+                    <div class="mt-1 text-xs text-[#8b98af]">第 {{ selectedWorkflowStageIndex + 1 }} 个面试环节</div>
+                  </div>
+                  <button
+                    class="h-8 w-8 rounded-lg text-red-400 hover:bg-red-50 disabled:text-gray-300 disabled:hover:bg-transparent"
+                    :disabled="editingWorkflowTemplate.stages.length <= 1"
+                    title="删除节点"
+                    @click="removeWorkflowStage(selectedWorkflowStageIndex)"
+                  >
+                    <i class="fa fa-trash-o"></i>
+                  </button>
+                </div>
+
+                <div v-if="selectedEditingStage" class="mt-5 space-y-4">
+                  <label class="block">
+                    <span class="text-xs font-semibold text-[#687894]">面试名称</span>
+                    <input v-model="selectedEditingStage.name" class="mt-2 h-10 w-full rounded-xl border border-[#dbe5f7] px-3 text-sm outline-none focus:border-[#1677ff]" placeholder="例如：技术一面">
+                  </label>
+                  <label class="block">
+                    <span class="text-xs font-semibold text-[#687894]">题目数量</span>
+                    <input v-model.number="selectedEditingStage.question_count" type="number" min="1" max="30" class="mt-2 h-10 w-full rounded-xl border border-[#dbe5f7] px-3 text-sm outline-none focus:border-[#1677ff]">
+                  </label>
+                  <div class="grid grid-cols-2 gap-3">
+                    <label class="block">
+                      <span class="text-xs font-semibold text-[#687894]">X 坐标</span>
+                      <input v-model.number="selectedEditingStage.x" type="number" class="mt-2 h-10 w-full rounded-xl border border-[#dbe5f7] px-3 text-sm outline-none focus:border-[#1677ff]">
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold text-[#687894]">Y 坐标</span>
+                      <input v-model.number="selectedEditingStage.y" type="number" class="mt-2 h-10 w-full rounded-xl border border-[#dbe5f7] px-3 text-sm outline-none focus:border-[#1677ff]">
+                    </label>
+                  </div>
+                </div>
+
+                <div class="mt-6 rounded-xl bg-[#f7faff] p-3 text-xs leading-5 text-[#6c7a91]">
+                  保存后，这个画布会成为可复用流程模板；生成面试计划时按节点编号依次生成一面、二面、HR 面等计划。
+                </div>
+              </aside>
+            </div>
+          </section>
         </div>
         <div class="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
-          <button class="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-white" :disabled="creatingWorkflow" @click="showWorkflowPicker = false">取消</button>
-          <button class="px-4 py-2 rounded-lg bg-[#1677ff] text-white text-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-blue-300" :disabled="creatingWorkflow" @click="createInterviewWorkflow">
+          <button
+            v-if="editingWorkflowTemplate"
+            class="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-white"
+            :disabled="savingWorkflowTemplate"
+            @click="cancelWorkflowTemplateEdit"
+          >取消编辑</button>
+          <button
+            v-if="editingWorkflowTemplate"
+            class="px-4 py-2 rounded-lg bg-[#1677ff] text-white text-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-blue-300"
+            :disabled="savingWorkflowTemplate"
+            @click="saveWorkflowTemplate"
+          >
+            <i :class="['fa mr-1', savingWorkflowTemplate ? 'fa-spinner fa-spin' : 'fa-save']"></i>{{ savingWorkflowTemplate ? '保存中' : '保存流程' }}
+          </button>
+          <button v-if="!editingWorkflowTemplate" class="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-white" :disabled="creatingWorkflow" @click="closeWorkflowPicker">取消</button>
+          <button v-if="!editingWorkflowTemplate" class="px-4 py-2 rounded-lg bg-[#1677ff] text-white text-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-blue-300" :disabled="creatingWorkflow" @click="createInterviewWorkflow">
             <i :class="['fa mr-1', creatingWorkflow ? 'fa-spinner fa-spin' : 'fa-sitemap']"></i>{{ creatingWorkflow ? '生成中' : '生成面试流程' }}
           </button>
         </div>
@@ -1459,3 +1911,43 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
 
   </div>
 </template>
+
+<style scoped>
+.workflow-flow-canvas {
+  background-color: #f8fbff;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(100, 116, 139, 0.22) 1px, transparent 0),
+    linear-gradient(90deg, rgba(219, 231, 251, 0.5) 1px, transparent 1px),
+    linear-gradient(rgba(219, 231, 251, 0.5) 1px, transparent 1px);
+  background-size: 18px 18px, 90px 90px, 90px 90px;
+}
+
+.workflow-flow-node {
+  touch-action: none;
+  cursor: grab;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.workflow-flow-node:active {
+  cursor: grabbing;
+}
+
+.workflow-flow-line {
+  position: absolute;
+  height: 2px;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, #6ea8ff, #a78bfa);
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.07);
+}
+
+.workflow-flow-line-dot {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 3px solid #ffffff;
+  background: #7c8cff;
+  box-shadow: 0 4px 12px rgba(83, 108, 255, 0.28);
+}
+</style>

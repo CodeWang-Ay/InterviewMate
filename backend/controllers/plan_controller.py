@@ -35,6 +35,12 @@ class WorkflowStage(BaseModel):
     question_count: int = 10
 
 
+class WorkflowTemplateSave(BaseModel):
+    name: str
+    desc: str = ""
+    stages: list[WorkflowStage]
+
+
 class WorkflowCreate(BaseModel):
     candidate_name: str
     jd_name: str = "待定岗位"
@@ -46,6 +52,28 @@ class WorkflowCreate(BaseModel):
 @router.get("")
 async def list_plans(search: str = "", status: str = "", _: dict = Depends(require_admin)):
     return plan_repo.list_all(search, status)
+
+
+@router.get("/workflow-templates")
+async def list_workflow_templates(_: dict = Depends(require_admin)):
+    return plan_repo.list_workflow_templates()
+
+
+@router.post("/workflow-templates")
+async def create_workflow_template(body: WorkflowTemplateSave, _: dict = Depends(require_admin)):
+    if not body.stages:
+        raise HTTPException(status_code=400, detail="流程至少需要一个面试环节")
+    return plan_repo.save_workflow_template(body.model_dump())
+
+
+@router.put("/workflow-templates/{template_id}")
+async def update_workflow_template(template_id: int, body: WorkflowTemplateSave, _: dict = Depends(require_admin)):
+    if not body.stages:
+        raise HTTPException(status_code=400, detail="流程至少需要一个面试环节")
+    template = plan_repo.save_workflow_template(body.model_dump(), template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="流程模板不存在")
+    return template
 
 
 @router.get("/my")

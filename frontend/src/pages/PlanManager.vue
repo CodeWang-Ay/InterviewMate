@@ -1,12 +1,13 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
 
 const router = useRouter()
+const route = useRoute()
 const planList = ref([])
 const loading = ref(true)
-const searchText = ref('')
+const searchText = ref(String(route.query.candidate || route.query.search || ''))
 const filterStatus = ref('')
 const batchMode = ref(false)
 const selectedPlanIds = ref(new Set())
@@ -138,7 +139,10 @@ async function fetchList() {
   loading.value = false
 }
 
-onMounted(fetchList)
+onMounted(() => {
+  if (searchText.value) page.value = 1
+  fetchList()
+})
 
 function syncWorkflowGroup() {
   if (!workflowGroup.value) return
