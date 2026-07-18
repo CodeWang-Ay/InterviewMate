@@ -28,6 +28,12 @@ class PlanUpdate(BaseModel):
     questions: str | None = None
     candidate_username: str | None = None
     candidate_password: str | None = None
+    scheduled_at: str | None = None
+    interviewer: str | None = None
+    meeting_url: str | None = None
+    interview_result: str | None = None
+    result_score: int | None = None
+    result_note: str | None = None
 
 
 class WorkflowStage(BaseModel):

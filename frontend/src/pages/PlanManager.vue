@@ -22,7 +22,7 @@ const launchPlan = ref(null)
 const copiedCredentialKey = ref('')
 const previewPlan = ref(null)
 
-const groupedPlanList = computed(() => {
+const allPlanGroups = computed(() => {
   const map = new Map()
   planList.value.forEach((plan) => {
     const key = groupKey(plan)
@@ -57,6 +57,11 @@ const groupedPlanList = computed(() => {
   }).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
 })
 
+const groupedPlanList = computed(() => {
+  if (!filterStatus.value) return allPlanGroups.value
+  return allPlanGroups.value.filter(group => group.status === filterStatus.value)
+})
+
 const selectedPlans = computed(() => planList.value.filter(p => selectedPlanIds.value.has(p.id)))
 const totalPages = computed(() => Math.max(1, Math.ceil(groupedPlanList.value.length / pageSize.value)))
 const pagedPlanGroups = computed(() => {
@@ -73,7 +78,7 @@ const visiblePages = computed(() => {
 })
 
 const planStats = computed(() => {
-  const groups = groupedPlanList.value
+  const groups = allPlanGroups.value
   const count = (status) => groups.filter(group => group.status === status).length
   const finishedStages = planList.value.filter(plan => plan.status === 'finish').length
   const totalStages = planList.value.length
@@ -104,12 +109,12 @@ function groupKey(plan) {
 }
 
 function groupStatus(plans) {
-  if (plans.some(p => p.status === 'running')) return 'running'
-  if (plans.some(p => p.status === 'wait')) return 'wait'
-  if (plans.some(p => p.status === 'pending')) return 'pending'
   if (plans.length && plans.every(p => p.status === 'finish')) return 'finish'
   if (plans.length && plans.every(p => p.status === 'cancel')) return 'cancel'
+  if (plans.some(p => p.status === 'running')) return 'running'
+  if (plans.some(p => p.status === 'wait')) return 'wait'
   if (plans.some(p => p.status === 'finish')) return 'partial'
+  if (plans.some(p => p.status === 'pending')) return 'pending'
   return plans[0]?.status || 'pending'
 }
 
@@ -135,6 +140,40 @@ function nextActionText(group) {
   if (group.status === 'partial') return '继续推进下一轮'
   if (group.status === 'cancel') return '流程已作废'
   return statusLabel(group.status)
+}
+
+function formatSchedule(value) {
+  if (!value) return '未预约'
+  return String(value).replace('T', ' ').slice(0, 16)
+}
+
+function toDatetimeLocal(value) {
+  if (!value) return ''
+  return String(value).replace(' ', 'T').slice(0, 16)
+}
+
+function currentPlanMeta(group) {
+  const plan = group?.current_plan
+  if (!plan) return '未分配面试官'
+  const interviewer = plan.interviewer || '未分配面试官'
+  return `${formatSchedule(plan.scheduled_at)} · ${interviewer}`
+}
+
+function resultLabel(plan) {
+  if (!plan?.interview_result) return '未录入'
+  return {
+    pass: '通过',
+    reject: '不通过',
+    pending: '待定',
+  }[plan.interview_result] || plan.interview_result
+}
+
+function resultBadgeClass(result) {
+  return {
+    pass: 'bg-green-50 text-green-700 border-green-100',
+    reject: 'bg-red-50 text-red-600 border-red-100',
+    pending: 'bg-amber-50 text-amber-700 border-amber-100',
+  }[result] || 'bg-gray-50 text-gray-500 border-gray-100'
 }
 
 function stagePillClass(status) {
@@ -192,7 +231,6 @@ async function fetchList() {
   try {
     const params = new URLSearchParams()
     if (searchText.value) params.set('search', searchText.value)
-    if (filterStatus.value) params.set('status', filterStatus.value)
     const qs = params.toString()
     const res = await fetch(`/api/plans${qs ? '?' + qs : ''}`)
     if (res.ok) {
@@ -256,7 +294,9 @@ async function removeGroup(group) {
 }
 
 async function updateSelectedStatus(status) {
-  const targets = selectedPlans.value
+  const targets = status === 'running'
+    ? selectedPlans.value.filter(plan => plan.status === 'wait')
+    : selectedPlans.value
   if (!targets.length) return
   batchWorking.value = true
   for (const plan of targets) {
@@ -344,6 +384,12 @@ function startEditPlan(plan) {
     candidate_username: plan.candidate_username || '',
     candidate_password: plan.candidate_password || '',
     questions: plan.questions || '',
+    scheduled_at: toDatetimeLocal(plan.scheduled_at),
+    interviewer: plan.interviewer || '',
+    meeting_url: plan.meeting_url || '',
+    interview_result: plan.interview_result || '',
+    result_score: plan.result_score || 0,
+    result_note: plan.result_note || '',
   }
 }
 
@@ -366,6 +412,12 @@ async function savePlanEdit(plan) {
       candidate_username: editForm.value.candidate_username,
       candidate_password: editForm.value.candidate_password,
       questions: editForm.value.questions,
+      scheduled_at: editForm.value.scheduled_at,
+      interviewer: editForm.value.interviewer,
+      meeting_url: editForm.value.meeting_url,
+      interview_result: editForm.value.interview_result,
+      result_score: Number(editForm.value.result_score || 0),
+      result_note: editForm.value.result_note,
     }
     const res = await fetch(`/api/plans/${plan.id}`, {
       method: 'PUT',
@@ -590,6 +642,7 @@ const previewQuestions = computed(() => {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">面试流程</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">面试者账号</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">进度</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">安排</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">题目数</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">创建时间</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">状态</th>
@@ -639,6 +692,15 @@ const previewQuestions = computed(() => {
                   <div class="h-full bg-[#1677ff]" :style="{ width: `${progressPercent(group)}%` }"></div>
                 </div>
                 <div class="mt-1 text-xs text-gray-400">{{ group.finished_count }}/{{ group.stage_count }} 已完成</div>
+              </td>
+              <td class="px-4 py-3 text-sm text-gray-600">
+                <div>{{ currentPlanMeta(group) }}</div>
+                <a
+                  v-if="group.current_plan?.meeting_url"
+                  :href="group.current_plan.meeting_url"
+                  target="_blank"
+                  class="mt-1 inline-flex text-xs text-[#1677ff] hover:underline"
+                >会议链接</a>
               </td>
               <td class="px-4 py-3 text-sm">{{ group.question_count }} 道</td>
               <td class="px-4 py-3 text-sm text-gray-500">{{ group.created_at?.slice(0, 16) || '-' }}</td>
@@ -730,9 +792,10 @@ const previewQuestions = computed(() => {
                 <span class="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-semibold">{{ plan.stage_order || 1 }}</span>
                 <div>
                   <div class="font-semibold text-gray-900">{{ plan.interview_round || '面试环节' }}</div>
-                  <div class="text-xs text-gray-400">计划 ID：{{ plan.id }} · {{ plan.question_count }} 道题</div>
+                  <div class="text-xs text-gray-400">计划 ID：{{ plan.id }} · {{ plan.question_count }} 道题 · {{ formatSchedule(plan.scheduled_at) }}</div>
                 </div>
                 <span :class="['px-2 py-1 text-xs rounded', statusBadge(plan.status)]">{{ statusLabel(plan.status) }}</span>
+                <span :class="['px-2 py-1 text-xs rounded border', resultBadgeClass(plan.interview_result)]">{{ resultLabel(plan) }}</span>
               </div>
               <div class="flex items-center gap-2">
                 <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="openPlanPreview(plan)">预览</button>
@@ -745,7 +808,10 @@ const previewQuestions = computed(() => {
               </div>
             </div>
 
-            <div v-if="editingPlanId === plan.id" class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div v-if="editingPlanId === plan.id" class="p-4 space-y-5">
+              <div>
+                <div class="mb-3 text-sm font-semibold text-gray-900">基础信息</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label class="text-sm">
                 <span class="block text-gray-500 mb-1">候选人</span>
                 <input v-model="editForm.candidate_name" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
@@ -780,6 +846,53 @@ const previewQuestions = computed(() => {
                   <option value="cancel">已作废</option>
                 </select>
               </label>
+                </div>
+              </div>
+
+              <div>
+                <div class="mb-3 text-sm font-semibold text-gray-900">预约安排</div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <label class="text-sm">
+                    <span class="block text-gray-500 mb-1">预约时间</span>
+                    <input v-model="editForm.scheduled_at" type="datetime-local" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
+                  </label>
+                  <label class="text-sm">
+                    <span class="block text-gray-500 mb-1">面试官</span>
+                    <input v-model="editForm.interviewer" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：王工 / HR 李">
+                  </label>
+                  <label class="text-sm">
+                    <span class="block text-gray-500 mb-1">会议链接</span>
+                    <input v-model="editForm.meeting_url" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="https://...">
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <div class="mb-3 text-sm font-semibold text-gray-900">面试结论</div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <label class="text-sm">
+                    <span class="block text-gray-500 mb-1">结论</span>
+                    <select v-model="editForm.interview_result" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
+                      <option value="">未录入</option>
+                      <option value="pass">通过</option>
+                      <option value="pending">待定</option>
+                      <option value="reject">不通过</option>
+                    </select>
+                  </label>
+                  <label class="text-sm">
+                    <span class="block text-gray-500 mb-1">评分</span>
+                    <input v-model="editForm.result_score" type="number" min="0" max="100" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
+                  </label>
+                  <label class="text-sm md:col-span-1">
+                    <span class="block text-gray-500 mb-1">备注</span>
+                    <input v-model="editForm.result_note" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="面试结论摘要">
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <div class="mb-3 text-sm font-semibold text-gray-900">账号与题目</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label class="text-sm">
                 <span class="block text-gray-500 mb-1">候选人用户名</span>
                 <input v-model="editForm.candidate_username" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
@@ -792,7 +905,9 @@ const previewQuestions = computed(() => {
                 <span class="block text-gray-500 mb-1">题目 JSON</span>
                 <textarea v-model="editForm.questions" rows="4" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder='["请做一下自我介绍"]'></textarea>
               </label>
-              <div class="md:col-span-2 flex justify-end gap-2">
+                </div>
+              </div>
+              <div class="flex justify-end gap-2">
                 <button class="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" @click="cancelEditPlan">取消</button>
                 <button class="px-4 py-2 rounded-lg bg-[#1677ff] text-white hover:bg-blue-600 disabled:opacity-50" :disabled="savingPlan" @click="savePlanEdit(plan)">
                   <i v-if="savingPlan" class="fa fa-spinner fa-spin mr-1"></i>保存
@@ -879,6 +994,36 @@ const previewQuestions = computed(() => {
             <div class="rounded-lg border border-gray-200 p-4">
               <div class="text-gray-400 mb-1">题目数</div>
               <div class="font-medium text-gray-900">{{ previewPlan.question_count || 0 }} 道</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">预约时间</div>
+              <div class="font-medium text-gray-900">{{ formatSchedule(previewPlan.scheduled_at) }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">面试官</div>
+              <div class="font-medium text-gray-900">{{ previewPlan.interviewer || '未分配' }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">会议链接</div>
+              <a
+                v-if="previewPlan.meeting_url"
+                :href="previewPlan.meeting_url"
+                target="_blank"
+                class="font-medium text-[#1677ff] break-all hover:underline"
+              >{{ previewPlan.meeting_url }}</a>
+              <div v-else class="font-medium text-gray-900">未填写</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">面试结论</div>
+              <span :class="['px-2 py-1 text-xs rounded border', resultBadgeClass(previewPlan.interview_result)]">{{ resultLabel(previewPlan) }}</span>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">面试评分</div>
+              <div class="font-medium text-gray-900">{{ previewPlan.result_score || 0 }} 分</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 p-4">
+              <div class="text-gray-400 mb-1">结果备注</div>
+              <div class="font-medium text-gray-900 whitespace-pre-line">{{ previewPlan.result_note || '未填写' }}</div>
             </div>
           </div>
 

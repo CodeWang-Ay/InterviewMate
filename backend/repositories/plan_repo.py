@@ -43,11 +43,14 @@ def init_db():
             )
         """)
         cols = [c[1] for c in conn.execute("PRAGMA table_info(plans)").fetchall()]
-        text_cols = ["interview_round", "candidate_username", "candidate_password", "workflow_id", "workflow_name", "active_session_id"]
+        text_cols = [
+            "interview_round", "candidate_username", "candidate_password", "workflow_id", "workflow_name", "active_session_id",
+            "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_note",
+        ]
         for col in text_cols:
             if col not in cols:
                 conn.execute(f"ALTER TABLE plans ADD COLUMN {col} TEXT DEFAULT ''")
-        int_cols = ["stage_order", "stage_count"]
+        int_cols = ["stage_order", "stage_count", "result_score"]
         for col in int_cols:
             if col not in cols:
                 conn.execute(f"ALTER TABLE plans ADD COLUMN {col} INTEGER DEFAULT 1")
@@ -186,6 +189,8 @@ def list_all(search: str = "", status: str = "") -> list[dict]:
     sql += " ORDER BY id DESC"
     with _conn() as conn:
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    if not any(row.get("workflow_id") for row in rows):
+        return rows
     _reconcile_workflows(rows)
     with _conn() as conn:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
@@ -248,7 +253,14 @@ def find_latest_by_resume_filename(resume_filename: str) -> dict | None:
 def create(data: dict) -> dict:
     with _conn() as conn:
         cur = conn.execute(
-            "INSERT INTO plans (candidate_name, jd_name, workflow_id, workflow_name, stage_order, stage_count, interview_round, match_score, question_count, status, jd_filename, resume_filename, questions, candidate_username, candidate_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            """
+            INSERT INTO plans (
+                candidate_name, jd_name, workflow_id, workflow_name, stage_order, stage_count,
+                interview_round, match_score, question_count, status, jd_filename, resume_filename,
+                questions, candidate_username, candidate_password, scheduled_at, interviewer,
+                meeting_url, interview_result, result_score, result_note
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
             (data.get("candidate_name", ""), data.get("jd_name", ""),
              data.get("workflow_id", ""), data.get("workflow_name", ""),
              data.get("stage_order", 1), data.get("stage_count", 1),
@@ -257,7 +269,10 @@ def create(data: dict) -> dict:
              data.get("question_count", 0), data.get("status", "wait"),
              data.get("jd_filename", ""), data.get("resume_filename", ""),
              data.get("questions", "[]"), data.get("candidate_username", ""),
-             data.get("candidate_password", "")),
+             data.get("candidate_password", ""), data.get("scheduled_at", ""),
+             data.get("interviewer", ""), data.get("meeting_url", ""),
+             data.get("interview_result", ""), data.get("result_score", 0),
+             data.get("result_note", "")),
         )
         row = conn.execute("SELECT * FROM plans WHERE id=?", (cur.lastrowid,)).fetchone()
         return dict(row) if row else {}
@@ -269,7 +284,8 @@ def update(pid: int, data: dict) -> dict | None:
         return None
     allowed = ["candidate_name", "jd_name", "interview_round", "match_score", "question_count", "status",
                "jd_filename", "resume_filename", "questions", "candidate_username", "candidate_password",
-               "workflow_id", "workflow_name", "stage_order", "stage_count", "active_session_id"]
+               "workflow_id", "workflow_name", "stage_order", "stage_count", "active_session_id",
+               "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_score", "result_note"]
     sets = [f"{f}=?" for f in allowed if f in data]
     vals = [data[f] for f in allowed if f in data]
     if not sets:
