@@ -19,6 +19,8 @@ def save_record(session_id: str):
     stage_order = session.get("stage_order", 1)
     stage_count = session.get("stage_count", 1)
     candidate_username = session.get("candidate_username") or ""
+    interviewer = session.get("interviewer") or ""
+    scheduled_at = session.get("scheduled_at") or ""
     plan_id = session.get("plan_id")
     if plan_id:
         try:
@@ -33,6 +35,8 @@ def save_record(session_id: str):
                 stage_order = plan.get("stage_order", 1)
                 stage_count = plan.get("stage_count", 1)
                 candidate_username = plan.get("candidate_username", "")
+                interviewer = plan.get("interviewer", "")
+                scheduled_at = plan.get("scheduled_at", "")
         except Exception:
             pass
     record = {
@@ -47,6 +51,8 @@ def save_record(session_id: str):
         "stage_order": stage_order,
         "stage_count": stage_count,
         "candidate_username": candidate_username,
+        "interviewer": interviewer,
+        "scheduled_at": scheduled_at,
         "jd_filename": session.get("jd_filename"),
         "resume_filename": session.get("resume_filename"),
         "questions": session.get("questions", []),
@@ -112,6 +118,8 @@ def restore_session(session_id: str) -> dict | None:
         "stage_order": record.get("stage_order", 1),
         "stage_count": record.get("stage_count", 1),
         "candidate_username": record.get("candidate_username", ""),
+        "interviewer": record.get("interviewer", ""),
+        "scheduled_at": record.get("scheduled_at", ""),
         "persona": record.get("persona", {}),
         "history": record.get("history", []),
         "created_at": record.get("created_at"),

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from backend.controllers.auth_controller import require_admin
 from backend.repositories.interview_repo import load_record, load_report
+from backend.repositories import plan_repo
 from backend.services.report_service import generate_report
 
 router = APIRouter(prefix="/api", tags=["report"])
@@ -29,9 +30,20 @@ def _enrich_report(session_id: str, report: dict) -> dict:
         "workflow_id",
         "candidate_username",
         "resume_name",
+        "interviewer",
+        "scheduled_at",
+        "stage_order",
+        "stage_count",
     ):
         if not enriched.get(key) and record.get(key):
             enriched[key] = record.get(key)
+    plan_id = record.get("plan_id")
+    if plan_id:
+        plan = plan_repo.get_by_id(int(plan_id))
+        if plan:
+            for key in ("interviewer", "scheduled_at", "interview_round", "stage_order", "stage_count"):
+                if not enriched.get(key) and plan.get(key):
+                    enriched[key] = plan.get(key)
     if not enriched.get("history") and record.get("history"):
         enriched["history"] = record.get("history")
     return enriched
