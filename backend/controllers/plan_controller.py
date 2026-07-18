@@ -159,6 +159,15 @@ async def update_plan(pid: int, body: PlanUpdate, _: dict = Depends(require_admi
 
 @router.post("/{pid}/action")
 async def plan_action(pid: int, body: PlanAction, _: dict = Depends(require_admin)):
+    return _apply_plan_action(pid, body)
+
+
+@router.put("/{pid}/action")
+async def plan_action_compat(pid: int, body: PlanAction, _: dict = Depends(require_admin)):
+    return _apply_plan_action(pid, body)
+
+
+def _apply_plan_action(pid: int, body: PlanAction):
     data = {k: v for k, v in body.model_dump().items() if v is not None and k != "action"}
     try:
         p = plan_repo.transition(pid, body.action, data)

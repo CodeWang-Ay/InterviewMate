@@ -338,7 +338,7 @@ async function createInterview(plan) {
       alert(err.detail || '发起面试失败')
       return
     }
-    await res.json()
+    const updated = await res.json()
     launchPlan.value = updated
     await fetchList()
   } catch (e) {
