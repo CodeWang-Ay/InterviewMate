@@ -19,6 +19,7 @@ from backend.controllers.ai_tools_controller import router as ai_tools_router
 from backend.controllers.task_controller import router as task_router
 from backend.controllers.archive_controller import router as archive_router
 from backend.controllers.voice_controller import router as voice_router
+from backend.services.voice_service import preload_voice_models
 from backend.repositories.admin_repo import init_db as init_admin_db
 from backend.repositories.candidate_repo import init_db as init_candidate_db
 from backend.repositories.jd_repo import init_db as init_jd_db
@@ -65,6 +66,11 @@ FRONTEND_INDEX = os.path.join(FRONTEND_DIST_DIR, "index.html")
 
 if os.path.isdir(FRONTEND_ASSETS_DIR):
     app.mount("/assets", StaticFiles(directory=FRONTEND_ASSETS_DIR), name="assets")
+
+
+@app.on_event("startup")
+async def preload_models_on_startup():
+    await preload_voice_models()
 
 
 @app.get("/{full_path:path}")

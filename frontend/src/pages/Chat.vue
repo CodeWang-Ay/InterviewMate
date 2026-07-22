@@ -1,8 +1,13 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import humanIdle from '../assets/digital-human/human_1_cut.png'
+import humanTalkA from '../assets/digital-human/human_2_cut.png'
+import humanTalkB from '../assets/digital-human/human_3_cut.png'
+import humanTalkC from '../assets/digital-human/human_4_cut.png'
 
 const route = useRoute()
+const router = useRouter()
 const messages = ref([])
 const input = ref('')
 const state = ref('READY_CHECK')
@@ -25,6 +30,16 @@ const recordStartedAt = ref(0)
 const currentAudio = ref(null)
 const activeVoicePointerId = ref(null)
 const pendingVoiceRelease = ref(false)
+const voiceSocket = ref(null)
+const voiceStreamReady = ref(false)
+const streamingAudioBuffer = ref([])
+const completionDialogVisible = ref(false)
+const avatarPosition = ref({ x: 0, y: 0 })
+const avatarDragging = ref(false)
+const avatarDragOffset = ref({ x: 0, y: 0 })
+const digitalHumanFrames = [humanIdle, humanTalkA, humanTalkB, humanTalkC]
+const TARGET_SAMPLE_RATE = 16000
+const STREAM_CHUNK_MS = 200
 const isAdmin = computed(() => role.value === 'admin')
 const backPath = computed(() => isAdmin.value ? '/interviewee' : '/user')
 const voiceSupported = computed(() => typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia))
@@ -46,6 +61,14 @@ const statusText = computed(() => ({
   COMPLETED: '面试已完成',
 }[state.value] || state.value)
 )
+const interviewerMood = computed(() => {
+  if (state.value === 'COMPLETED') return '已完成'
+  if (voiceBusy.value) return '正在理解你的回答'
+  if (isRecording.value) return '正在聆听'
+  if (sending.value) return '正在思考'
+  return '在线候场'
+})
+const avatarTalking = computed(() => Boolean(currentAudio.value))
 
 function nowIso() {
   return new Date().toISOString()
@@ -76,6 +99,7 @@ function safeGetLocalStorage(key, fallback = '') {
 onMounted(async () => {
   window.addEventListener('keydown', handleGlobalVoiceKeydown)
   window.addEventListener('keyup', handleGlobalVoiceKeyup)
+  restoreAvatarPosition()
   const jd = route.query.jd
   const resume = route.query.resume
   const planId = route.query.plan_id
@@ -96,6 +120,7 @@ onMounted(async () => {
       ? data.history.map(withTimestamp)
       : [withTimestamp({ role: 'interviewer', content: data.message, timestamp: nowIso() })]
     state.value = data.state
+    if (state.value === 'COMPLETED') showCompletionDialog()
     if (voiceMode.value) speakText(messages.value.at(-1)?.content || '')
     await scrollDown()
   } catch (e) {
@@ -143,11 +168,78 @@ async function sendMessage() {
     messages.value.push(withTimestamp({ role: 'interviewer', content: data.message, timestamp: nowIso() }))
     state.value = data.state
     if (voiceMode.value && autoSpeak.value) speakText(data.message)
+    if (state.value === 'COMPLETED') showCompletionDialog()
     await scrollDown()
   } catch (e) {
     messages.value.push(withTimestamp({ role: 'system', content: '发送失败: ' + e.message, timestamp: nowIso() }))
   } finally {
     sending.value = false
+  }
+}
+
+function showCompletionDialog() {
+  stopRecording()
+  stopSpeaking()
+  closeVoiceStream()
+  completionDialogVisible.value = true
+}
+
+function returnAfterCompletion() {
+  completionDialogVisible.value = false
+  router.push(backPath.value)
+}
+
+function restoreAvatarPosition() {
+  const fallback = {
+    x: Math.max(24, window.innerWidth - 340),
+    y: 112,
+  }
+  try {
+    const saved = JSON.parse(window.localStorage?.getItem('interview_avatar_position') || 'null')
+    avatarPosition.value = saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)
+      ? clampAvatarPosition(saved)
+      : fallback
+  } catch (_) {
+    avatarPosition.value = fallback
+  }
+}
+
+function clampAvatarPosition(pos) {
+  const maxX = Math.max(16, window.innerWidth - 324)
+  const maxY = Math.max(16, window.innerHeight - 344)
+  return {
+    x: Math.min(Math.max(16, pos.x), maxX),
+    y: Math.min(Math.max(16, pos.y), maxY),
+  }
+}
+
+function startAvatarDrag(event) {
+  if (event.button !== undefined && event.button !== 0) return
+  const rect = event.currentTarget.getBoundingClientRect()
+  avatarDragging.value = true
+  avatarDragOffset.value = {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  }
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+}
+
+function moveAvatar(event) {
+  if (!avatarDragging.value) return
+  avatarPosition.value = clampAvatarPosition({
+    x: event.clientX - avatarDragOffset.value.x,
+    y: event.clientY - avatarDragOffset.value.y,
+  })
+}
+
+function endAvatarDrag(event) {
+  if (!avatarDragging.value) return
+  avatarDragging.value = false
+  event.currentTarget.releasePointerCapture?.(event.pointerId)
+  try {
+    window.localStorage?.setItem('interview_avatar_position', JSON.stringify(avatarPosition.value))
+  } catch (_) {
+    // ignore
   }
 }
 
@@ -162,6 +254,8 @@ async function startRecording() {
     voiceText.value = ''
     voiceError.value = ''
     audioBuffers.value = []
+    voiceBusy.value = true
+    await openVoiceStream()
     mediaStream.value = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -171,26 +265,34 @@ async function startRecording() {
       },
     })
     const AudioCtx = window.AudioContext || window.webkitAudioContext
-    audioContext.value = new AudioCtx()
+    audioContext.value = new AudioCtx({ sampleRate: TARGET_SAMPLE_RATE })
     const source = audioContext.value.createMediaStreamSource(mediaStream.value)
     scriptProcessor.value = audioContext.value.createScriptProcessor(4096, 1, 1)
+    streamingAudioBuffer.value = []
+    const chunkSamples = Math.round(TARGET_SAMPLE_RATE * (STREAM_CHUNK_MS / 1000))
     scriptProcessor.value.onaudioprocess = (event) => {
       if (!isRecording.value) return
       const inputData = event.inputBuffer.getChannelData(0)
-      const pcmData = new Int16Array(inputData.length)
-      for (let i = 0; i < inputData.length; i += 1) {
-        pcmData[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768))
+      const resampled = audioContext.value.sampleRate === TARGET_SAMPLE_RATE
+        ? inputData
+        : resampleLinear(inputData, audioContext.value.sampleRate, TARGET_SAMPLE_RATE)
+      audioBuffers.value.push(new Float32Array(resampled))
+      streamingAudioBuffer.value.push(...resampled)
+      while (streamingAudioBuffer.value.length >= chunkSamples) {
+        sendVoiceChunk(new Float32Array(streamingAudioBuffer.value.splice(0, chunkSamples)))
       }
-      audioBuffers.value.push(pcmData)
     }
     source.connect(scriptProcessor.value)
     scriptProcessor.value.connect(audioContext.value.destination)
     recordStartedAt.value = Date.now()
     isRecording.value = true
+    voiceBusy.value = false
     voiceText.value = '正在录音...'
     return true
   } catch (error) {
-    voiceError.value = `无法访问麦克风：${error.message || '请确认浏览器已授权'}`
+    voiceError.value = `无法启动语音识别：${error.message || '请确认麦克风权限和语音服务'}`
+    voiceBusy.value = false
+    closeVoiceStream()
     releaseAudioResources()
     return false
   }
@@ -203,14 +305,15 @@ async function stopRecording() {
   if (duration < 600) {
     voiceError.value = '录音时间太短，请至少说 1 秒。'
     voiceText.value = ''
+    closeVoiceStream()
     releaseAudioResources()
     return
   }
-  voiceText.value = '录音完成，正在用 FunASR 识别...'
-  const sampleRate = audioContext.value?.sampleRate || 16000
-  const wavBlob = encodeWAV(concatInt16(audioBuffers.value), sampleRate)
+  voiceText.value = voiceText.value && voiceText.value !== '正在录音...' ? voiceText.value : '录音完成，正在做二次精校...'
+  voiceBusy.value = true
+  flushVoiceTailChunk()
+  sendVoiceStreamEnd()
   releaseAudioResources()
-  await transcribeVoice(wavBlob)
 }
 
 async function startHoldRecording(event) {
@@ -264,6 +367,7 @@ function cancelHoldRecording(event) {
   isRecording.value = false
   voiceText.value = ''
   voiceError.value = '录音已取消，请重新按住说话。'
+  closeVoiceStream()
   releaseAudioResources()
 }
 
@@ -306,6 +410,136 @@ function releaseAudioResources() {
     try { audioContext.value.close() } catch (_) {}
     audioContext.value = null
   }
+}
+
+function openVoiceStream() {
+  return new Promise((resolve, reject) => {
+    const token = safeGetLocalStorage('token', '')
+    if (!token) {
+      reject(new Error('未登录，无法使用语音识别'))
+      return
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const ws = new WebSocket(`${protocol}://${window.location.host}/api/voice/asr-stream?token=${encodeURIComponent(token)}`)
+    voiceSocket.value = ws
+    voiceStreamReady.value = false
+
+    const timer = window.setTimeout(() => {
+      reject(new Error('语音流连接超时'))
+      closeVoiceStream()
+    }, 8000)
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'audio_stream_start' }))
+    }
+    ws.onerror = () => {
+      window.clearTimeout(timer)
+      reject(new Error('语音流连接失败'))
+    }
+    ws.onclose = () => {
+      voiceStreamReady.value = false
+      if (voiceBusy.value && isRecording.value) {
+        voiceBusy.value = false
+        voiceError.value = '语音流连接已断开，请重新按住说话。'
+      }
+    }
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data || '{}')
+      if (data.type === 'audio_stream_start_reply') {
+        window.clearTimeout(timer)
+        voiceStreamReady.value = true
+        resolve()
+        return
+      }
+      if (data.type === 'asr_partial' && data.text) {
+        voiceText.value = data.text
+        input.value = data.text
+        return
+      }
+      if (data.type === 'asr_final') {
+        const text = String(data.text || '').trim()
+        if (text) {
+          voiceText.value = text
+          input.value = text
+          if (data.pass === 2) {
+            voiceBusy.value = false
+            closeVoiceStream()
+            voiceText.value = ''
+            await sendMessage()
+          }
+        } else if (!input.value.trim()) {
+          voiceError.value = 'FunASR 没有识别到有效文字'
+          voiceText.value = ''
+          voiceBusy.value = false
+          closeVoiceStream()
+        }
+        return
+      }
+      if (data.type === 'asr_error') {
+        voiceError.value = data.message || '语音识别失败'
+        voiceBusy.value = false
+      }
+    }
+  })
+}
+
+function sendVoiceChunk(audioChunk) {
+  const ws = voiceSocket.value
+  if (!ws || ws.readyState !== WebSocket.OPEN || !voiceStreamReady.value) return
+  ws.send(JSON.stringify({
+    type: 'audio_stream_chunk',
+    data: arrayBufferToBase64(audioChunk.buffer),
+  }))
+}
+
+function sendVoiceStreamEnd() {
+  const ws = voiceSocket.value
+  if (!ws || ws.readyState !== WebSocket.OPEN || !voiceStreamReady.value) {
+    voiceBusy.value = false
+    voiceError.value = '语音流未连接，请重新按住说话。'
+    return
+  }
+  ws.send(JSON.stringify({ type: 'audio_stream_end' }))
+}
+
+function closeVoiceStream() {
+  const ws = voiceSocket.value
+  voiceSocket.value = null
+  voiceStreamReady.value = false
+  if (ws && [WebSocket.CONNECTING, WebSocket.OPEN].includes(ws.readyState)) {
+    ws.close()
+  }
+}
+
+function flushVoiceTailChunk() {
+  if (!streamingAudioBuffer.value.length) return
+  sendVoiceChunk(new Float32Array(streamingAudioBuffer.value))
+  streamingAudioBuffer.value = []
+}
+
+function resampleLinear(input, srcSr, dstSr) {
+  if (srcSr === dstSr) return input
+  const ratio = dstSr / srcSr
+  const outLen = Math.max(0, Math.round(input.length * ratio))
+  const out = new Float32Array(outLen)
+  for (let i = 0; i < outLen; i += 1) {
+    const x = i / ratio
+    const x0 = Math.floor(x)
+    const x1 = Math.min(x0 + 1, input.length - 1)
+    const t = x - x0
+    out[i] = input[x0] * (1 - t) + input[x1] * t
+  }
+  return out
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return window.btoa(binary)
 }
 
 function concatInt16(chunks) {
@@ -370,17 +604,6 @@ async function transcribeVoice(blob) {
   }
 }
 
-async function sendVoiceText() {
-  const text = (voiceText.value || input.value || '').trim()
-  if (!text) {
-    voiceError.value = '还没有识别到可发送的内容。'
-    return
-  }
-  input.value = text
-  voiceText.value = ''
-  await sendMessage()
-}
-
 function toggleVoiceMode() {
   voiceMode.value = !voiceMode.value
   voiceError.value = ''
@@ -402,9 +625,16 @@ async function speakText(text) {
     const data = await res.json().catch(() => ({}))
     if (!res.ok || !data.audio) throw new Error(data.detail || '语音合成失败')
     const audio = new Audio(`data:${data.format || 'audio/mpeg'};base64,${data.audio}`)
+    audio.onended = () => {
+      if (currentAudio.value === audio) currentAudio.value = null
+    }
+    audio.onerror = () => {
+      if (currentAudio.value === audio) currentAudio.value = null
+    }
     currentAudio.value = audio
     await audio.play()
   } catch (error) {
+    currentAudio.value = null
     voiceError.value = error.message || '语音合成失败'
   }
 }
@@ -555,72 +785,95 @@ function roleShort(roleName) {
             </div>
           </header>
 
-          <div ref="chatBox" class="min-h-0 flex-1 overflow-y-auto bg-[#eef2f8] px-6 py-5">
-            <div class="space-y-5">
-              <div
-                v-for="(msg, i) in messages"
-                :key="i"
-                :class="['flex gap-3', msg.role === 'candidate' ? 'justify-end' : 'justify-start']"
-              >
-                <div v-if="msg.role !== 'candidate'" class="mt-7 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-base font-bold text-white shadow-sm">
-                  {{ roleShort(msg.role) }}
-                </div>
-                <div :class="['max-w-[68%]', msg.role === 'candidate' ? 'text-right' : 'text-left']">
-                  <div :class="['mb-1.5 flex items-center gap-2', msg.role === 'candidate' ? 'justify-end' : 'justify-start']">
-                    <span class="text-[17px] font-bold text-slate-700">{{ roleLabel(msg.role) }}</span>
-                    <span v-if="formatMessageTime(msg.timestamp)" class="text-[15px] font-semibold text-slate-400">{{ formatMessageTime(msg.timestamp) }}</span>
-                  </div>
-                  <div
-                    :class="[
-                      'inline-block rounded-2xl px-4 py-3 text-left text-[19px] leading-9 whitespace-pre-wrap shadow-sm',
-                      msg.role === 'candidate'
-                        ? 'rounded-tr-md bg-[#95ec69] text-slate-950 shadow-emerald-100'
-                        : msg.role === 'system'
-                          ? 'rounded-tl-md bg-red-50 text-red-600 ring-1 ring-red-100'
-                          : 'rounded-tl-md bg-white text-slate-700 ring-1 ring-slate-100'
-                    ]"
-                  >
-                    {{ msg.content }}
+          <div class="relative min-h-0 flex-1 bg-[#eef2f8]">
+            <div ref="chatBox" class="h-full overflow-y-auto px-6 py-5 pb-28">
+              <div class="space-y-5">
+                <div class="rounded-[28px] border border-white/80 bg-white/75 p-5 shadow-sm shadow-indigo-100/60 backdrop-blur">
+                  <div class="flex items-center gap-5">
+                    <div class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-3xl bg-indigo-50 text-xl font-black text-indigo-600">AI</div>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <p class="text-xs font-black uppercase tracking-[0.22em] text-indigo-400">Digital interviewer</p>
+                        <span class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600">{{ interviewerMood }}</span>
+                      </div>
+                      <h3 class="mt-2 text-2xl font-black text-slate-950">{{ interviewerName }}</h3>
+                      <p class="mt-1 text-sm font-semibold leading-6 text-slate-500">{{ roundSummary }} · 面向「{{ jobName }}」的结构化面试</p>
+                    </div>
+                    <div class="hidden rounded-2xl bg-indigo-50 px-4 py-3 text-right sm:block">
+                      <p class="text-xs font-bold text-indigo-400">当前进度</p>
+                      <p class="mt-1 text-lg font-black text-indigo-700">{{ candidateCount }} / {{ interviewerCount }}</p>
+                    </div>
                   </div>
                 </div>
-                <div v-if="msg.role === 'candidate'" class="mt-7 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-base font-bold text-white shadow-sm">
-                  {{ roleShort(msg.role) }}
+
+                <div
+                  v-for="(msg, i) in messages"
+                  :key="i"
+                  :class="['flex gap-3', msg.role === 'candidate' ? 'justify-end' : 'justify-start']"
+                >
+                  <div v-if="msg.role !== 'candidate'" class="mt-7 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-base font-bold text-white shadow-sm">
+                    <div v-if="msg.role !== 'system'" class="digital-interviewer-mini">
+                      <span></span>
+                      <span></span>
+                    </div>
+                    <span v-else>{{ roleShort(msg.role) }}</span>
+                  </div>
+                  <div :class="['max-w-[68%]', msg.role === 'candidate' ? 'text-right' : 'text-left']">
+                    <div :class="['mb-1.5 flex items-center gap-2', msg.role === 'candidate' ? 'justify-end' : 'justify-start']">
+                      <span class="text-[17px] font-bold text-slate-700">{{ roleLabel(msg.role) }}</span>
+                      <span v-if="formatMessageTime(msg.timestamp)" class="text-[15px] font-semibold text-slate-400">{{ formatMessageTime(msg.timestamp) }}</span>
+                    </div>
+                    <div
+                      :class="[
+                        'inline-block rounded-2xl px-4 py-3 text-left text-[19px] leading-9 whitespace-pre-wrap shadow-sm',
+                        msg.role === 'candidate'
+                          ? 'rounded-tr-md bg-[#95ec69] text-slate-950 shadow-emerald-100'
+                          : msg.role === 'system'
+                            ? 'rounded-tl-md bg-red-50 text-red-600 ring-1 ring-red-100'
+                            : 'rounded-tl-md bg-white text-slate-700 ring-1 ring-slate-100'
+                      ]"
+                    >
+                      {{ msg.content }}
+                    </div>
+                  </div>
+                  <div v-if="msg.role === 'candidate'" class="mt-7 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-base font-bold text-white shadow-sm">
+                    {{ roleShort(msg.role) }}
+                  </div>
+                </div>
+
+                <div v-if="sending" class="flex justify-start gap-3">
+                  <div class="mt-1 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-base font-bold text-white shadow-sm">官</div>
+                  <div class="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-lg text-slate-400 ring-1 ring-slate-100">
+                    <span class="inline-flex gap-1">
+                      <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 0ms"></span>
+                      <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 150ms"></span>
+                      <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 300ms"></span>
+                    </span>
+                  </div>
                 </div>
               </div>
+            </div>
 
-              <div v-if="sending" class="flex justify-start gap-3">
-                <div class="mt-1 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-base font-bold text-white shadow-sm">官</div>
-                <div class="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-lg text-slate-400 ring-1 ring-slate-100">
-                  <span class="inline-flex gap-1">
-                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 0ms"></span>
-                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 150ms"></span>
-                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 300ms"></span>
-                  </span>
+            <div
+              v-if="voiceMode || isRecording || voiceBusy || voiceText || voiceError"
+              class="pointer-events-none absolute inset-x-6 bottom-5 z-10 flex justify-center"
+            >
+              <div class="pointer-events-auto w-full max-w-2xl rounded-3xl border border-indigo-100 bg-white/95 px-5 py-4 shadow-2xl shadow-indigo-200/40 backdrop-blur">
+                <div class="flex items-start gap-4">
+                  <div :class="['mt-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl text-white shadow-sm', isRecording ? 'bg-red-500' : voiceBusy ? 'bg-indigo-600' : 'bg-emerald-500']">
+                    {{ isRecording ? '●' : voiceBusy ? '识' : '✓' }}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-base font-black text-slate-900">{{ isRecording ? '正在听你说话' : voiceBusy ? '正在二次精校' : '语音识别内容' }}</p>
+                    <p class="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-500">{{ voiceText || input || '按住空格或按住右侧按钮说话，松开后自动发送到聊天框。' }}</p>
+                    <p v-if="voiceError" class="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-500">{{ voiceError }}</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           <footer class="flex-shrink-0 border-t border-slate-100 bg-white px-5 py-4">
-            <div
-              v-if="voiceMode || isRecording || voiceBusy || voiceText || voiceError"
-              class="mb-3 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3"
-            >
-              <div class="flex flex-wrap items-center gap-3">
-                <div class="min-w-0 flex-1 text-sm">
-                  <p class="font-semibold text-indigo-700">{{ isRecording ? '正在录音，松开后自动识别' : voiceBusy ? 'FunASR 正在识别...' : '语音识别内容' }}</p>
-                  <p class="mt-1 line-clamp-2 text-indigo-500">{{ voiceText || input || '按住空格或按住右侧按钮说话，松开后自动识别。' }}</p>
-                </div>
-                <button
-                  :disabled="voiceBusy || sending || (!voiceText.trim() && !input.trim())"
-                  class="h-12 rounded-2xl bg-emerald-500 px-5 text-sm font-bold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
-                  @click="sendVoiceText"
-                >
-                  发送识别内容
-                </button>
-              </div>
-              <p v-if="voiceError" class="mt-2 rounded-xl bg-white px-3 py-2 text-sm text-red-500">{{ voiceError }}</p>
-            </div>
             <div class="flex items-end gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-2">
               <textarea
                 v-model="input"
@@ -658,18 +911,309 @@ function roleShort(roleName) {
                 {{ voiceBusy ? '识别中' : isRecording ? '松开' : '按住说话' }}
               </button>
             </div>
-            <p v-if="state === 'COMPLETED'" class="mt-3 text-center text-xs text-slate-500">
-              本轮面试已结束
-              <template v-if="isAdmin">
-                ·
-                <router-link :to="{ path: '/report', query: { session_id: sessionId } }" class="font-medium text-emerald-600 hover:text-emerald-700">查看面试报告</router-link>
-              </template>
-              ·
-              <router-link :to="backPath" class="text-blue-500 hover:text-blue-600">返回面试入口</router-link>
-            </p>
           </footer>
         </section>
       </div>
     </main>
+
+    <div
+      v-if="completionDialogVisible"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-6 backdrop-blur-sm"
+    >
+      <div class="w-full max-w-md rounded-[28px] bg-white p-7 text-center shadow-2xl shadow-slate-900/20 ring-1 ring-white/70">
+        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-50 text-3xl text-emerald-500">
+          ✓
+        </div>
+        <p class="mt-5 text-sm font-black uppercase tracking-[0.22em] text-emerald-400">Interview complete</p>
+        <h3 class="mt-2 text-2xl font-black text-slate-950">本轮面试已结束</h3>
+        <p class="mx-auto mt-3 max-w-sm text-sm font-medium leading-7 text-slate-500">
+          感谢你的参与，本轮回答已经保存。你可以回到面试入口查看后续安排。
+        </p>
+        <div class="mt-7 flex flex-col gap-3">
+          <button
+            class="h-12 rounded-2xl bg-emerald-500 px-5 text-base font-black text-white transition hover:bg-emerald-600"
+            @click="returnAfterCompletion"
+          >
+            返回面试入口
+          </button>
+          <router-link
+            v-if="isAdmin"
+            :to="{ path: '/report', query: { session_id: sessionId } }"
+            class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-600 no-underline hover:bg-slate-200"
+          >
+            查看面试报告
+          </router-link>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="floating-interviewer"
+      :class="{ 'floating-interviewer--dragging': avatarDragging, 'floating-interviewer--active': sending || voiceBusy, 'floating-interviewer--listening': isRecording, 'floating-interviewer--talking': avatarTalking }"
+      :style="{ left: `${avatarPosition.x}px`, top: `${avatarPosition.y}px` }"
+      @pointerdown="startAvatarDrag"
+      @pointermove="moveAvatar"
+      @pointerup="endAvatarDrag"
+      @pointercancel="endAvatarDrag"
+    >
+      <div class="human-avatar" aria-hidden="true">
+        <img
+          v-for="(frame, index) in digitalHumanFrames"
+          :key="frame"
+          :src="frame"
+          :class="['human-avatar__frame', `human-avatar__frame--${index}`]"
+          alt=""
+          draggable="false"
+        />
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.digital-interviewer {
+  position: relative;
+  width: 86px;
+  height: 104px;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 18px 24px rgba(79, 70, 229, 0.18));
+}
+
+.digital-interviewer__antenna {
+  position: absolute;
+  left: 39px;
+  top: 0;
+  width: 8px;
+  height: 18px;
+  border-radius: 999px;
+  background: #6366f1;
+}
+
+.digital-interviewer__antenna::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #34d399;
+  box-shadow: 0 0 0 7px rgba(52, 211, 153, 0.14);
+}
+
+.digital-interviewer__face {
+  position: absolute;
+  left: 8px;
+  top: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 70px;
+  height: 62px;
+  border: 4px solid #ffffff;
+  border-radius: 26px;
+  background: linear-gradient(145deg, #4f46e5 0%, #7c3aed 55%, #06b6d4 100%);
+}
+
+.digital-interviewer__eye {
+  width: 9px;
+  height: 16px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  box-shadow: 0 0 12px rgba(224, 242, 254, 0.85);
+}
+
+.digital-interviewer__mouth {
+  position: absolute;
+  left: 28px;
+  bottom: 14px;
+  width: 18px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.digital-interviewer__body {
+  position: absolute;
+  left: 18px;
+  bottom: 0;
+  width: 50px;
+  height: 34px;
+  border-radius: 20px 20px 18px 18px;
+  background: linear-gradient(180deg, #dbeafe 0%, #ffffff 100%);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
+.digital-interviewer--active .digital-interviewer__eye,
+.digital-interviewer--listening .digital-interviewer__eye {
+  animation: digital-eye-pulse 1s ease-in-out infinite;
+}
+
+.digital-interviewer--listening .digital-interviewer__antenna::after {
+  animation: digital-listening 0.9s ease-in-out infinite;
+}
+
+.digital-interviewer-mini {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 24px;
+  height: 22px;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #eef2ff 0%, #e0f2fe 100%);
+}
+
+.digital-interviewer-mini span {
+  width: 4px;
+  height: 8px;
+  border-radius: 999px;
+  background: #4f46e5;
+}
+
+.floating-interviewer {
+  position: fixed;
+  z-index: 40;
+  width: 308px;
+  height: 328px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  background: transparent;
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.floating-interviewer--dragging {
+  cursor: grabbing;
+  transform: scale(1.03);
+  filter: drop-shadow(0 24px 32px rgba(79, 70, 229, 0.2));
+}
+
+.human-avatar {
+  position: relative;
+  width: 300px;
+  height: 320px;
+  z-index: 1;
+  transform-origin: 50% 100%;
+  animation: human-idle-breathe 3.2s ease-in-out infinite;
+}
+
+.human-avatar__frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 20px 26px rgba(15, 23, 42, 0.2));
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: opacity;
+}
+
+.human-avatar__frame--0 {
+  opacity: 1;
+}
+
+.floating-interviewer--talking .human-avatar__frame--0 {
+  animation: avatar-mouth-frame-0 0.86s linear infinite;
+}
+
+.floating-interviewer--talking .human-avatar__frame--1 {
+  animation: avatar-mouth-frame-1 0.86s linear infinite;
+}
+
+.floating-interviewer--talking .human-avatar__frame--2 {
+  animation: avatar-mouth-frame-2 0.86s linear infinite;
+}
+
+.floating-interviewer--talking .human-avatar__frame--3 {
+  animation: avatar-mouth-frame-3 0.86s linear infinite;
+}
+
+.floating-interviewer--listening {
+  filter: drop-shadow(0 22px 30px rgba(16, 185, 129, 0.24));
+}
+
+.floating-interviewer--listening .human-avatar {
+  animation: human-listening-nod 1.8s ease-in-out infinite;
+}
+
+@keyframes digital-eye-pulse {
+  0%, 100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scaleY(0.55);
+    opacity: 0.82;
+  }
+}
+
+@keyframes digital-listening {
+  0%, 100% {
+    box-shadow: 0 0 0 7px rgba(52, 211, 153, 0.14);
+  }
+  50% {
+    box-shadow: 0 0 0 14px rgba(52, 211, 153, 0.04);
+  }
+}
+
+@keyframes human-idle-breathe {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(3px) scale(1.01);
+  }
+}
+
+@keyframes human-listening-nod {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(2px) rotate(-1.5deg);
+  }
+}
+
+@keyframes avatar-mouth-frame-0 {
+  0%, 19%, 100% {
+    opacity: 1;
+  }
+  27%, 92% {
+    opacity: 0;
+  }
+}
+
+@keyframes avatar-mouth-frame-1 {
+  0%, 14%, 36%, 100% {
+    opacity: 0;
+  }
+  22%, 30% {
+    opacity: 1;
+  }
+}
+
+@keyframes avatar-mouth-frame-2 {
+  0%, 29%, 61%, 100% {
+    opacity: 0;
+  }
+  38%, 54% {
+    opacity: 1;
+  }
+}
+
+@keyframes avatar-mouth-frame-3 {
+  0%, 53%, 91%, 100% {
+    opacity: 0;
+  }
+  63%, 82% {
+    opacity: 1;
+  }
+}
+</style>
