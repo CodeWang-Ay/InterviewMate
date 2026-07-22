@@ -18,6 +18,7 @@ from backend.controllers.assistant_controller import router as assistant_router
 from backend.controllers.ai_tools_controller import router as ai_tools_router
 from backend.controllers.task_controller import router as task_router
 from backend.controllers.archive_controller import router as archive_router
+from backend.controllers.voice_controller import router as voice_router
 from backend.repositories.admin_repo import init_db as init_admin_db
 from backend.repositories.candidate_repo import init_db as init_candidate_db
 from backend.repositories.jd_repo import init_db as init_jd_db
@@ -55,6 +56,7 @@ app.include_router(assistant_router)
 app.include_router(ai_tools_router)
 app.include_router(task_router)
 app.include_router(archive_router)
+app.include_router(voice_router)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 FRONTEND_DIST_DIR = os.path.join(BASE_DIR, "frontend", "dist")
