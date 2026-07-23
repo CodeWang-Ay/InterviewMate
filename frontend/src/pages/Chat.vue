@@ -205,8 +205,8 @@ function returnAfterCompletion() {
 
 function restoreAvatarPosition() {
   const fallback = {
-    x: Math.max(24, window.innerWidth - 340),
-    y: 112,
+    x: Math.max(24, window.innerWidth - 892),
+    y: 32,
   }
   try {
     const saved = JSON.parse(window.localStorage?.getItem('interview_avatar_position') || 'null')
@@ -219,8 +219,8 @@ function restoreAvatarPosition() {
 }
 
 function clampAvatarPosition(pos) {
-  const maxX = Math.max(16, window.innerWidth - 364)
-  const maxY = Math.max(16, window.innerHeight - 404)
+  const maxX = Math.max(16, window.innerWidth - 884)
+  const maxY = Math.max(16, window.innerHeight - 1024)
   return {
     x: Math.min(Math.max(16, pos.x), maxX),
     y: Math.min(Math.max(16, pos.y), maxY),
@@ -694,8 +694,8 @@ async function initLive2D() {
     if (!live2dCanvas.value) return
     await ensureLive2DRuntime()
     const PIXI = window.PIXI
-    const width = 348
-    const height = 392
+    const width = 860
+    const height = 1000
     const app = new PIXI.Application({
       view: live2dCanvas.value,
       width,
@@ -707,12 +707,12 @@ async function initLive2D() {
     })
     const model = await PIXI.live2d.Live2DModel.from(LIVE2D_MODEL_URL)
     app.stage.addChild(model)
-    const scale = Math.min((width / model.width) * 0.82, (height / model.height) * 0.98)
+    const scale = Math.min((width / model.width) * 1.05, (height / model.height) * 1.2)
     model.scale.set(scale)
     if (model.anchor?.set) {
       model.anchor.set(0.5, 0.5)
       model.x = width / 2
-      model.y = height / 2 + 18
+      model.y = height / 2 + 56
     } else {
       model.x = (width - model.width) / 2
       model.y = height - model.height + 8
@@ -1251,8 +1251,8 @@ function roleShort(roleName) {
 .floating-interviewer {
   position: fixed;
   z-index: 40;
-  width: 348px;
-  height: 392px;
+  width: 860px;
+  height: 1000px;
   cursor: grab;
   user-select: none;
   touch-action: none;
@@ -1290,8 +1290,8 @@ function roleShort(roleName) {
 
 .human-avatar {
   position: relative;
-  width: 300px;
-  height: 320px;
+  width: 820px;
+  height: 936px;
   z-index: 1;
   transform-origin: 50% 100%;
   animation: human-idle-breathe 3.2s ease-in-out infinite;
