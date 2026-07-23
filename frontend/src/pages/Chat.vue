@@ -2,9 +2,9 @@
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import humanIdle from '../assets/digital-human/human_1_cut.png'
-import humanTalkA from '../assets/digital-human/human_2_cut.png'
-import humanTalkB from '../assets/digital-human/human_3_cut.png'
-import humanTalkC from '../assets/digital-human/human_4_cut.png'
+import humanMouthA from '../assets/digital-human/human_mouth_2.png'
+import humanMouthB from '../assets/digital-human/human_mouth_3.png'
+import humanMouthC from '../assets/digital-human/human_mouth_4.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,9 +37,21 @@ const completionDialogVisible = ref(false)
 const avatarPosition = ref({ x: 0, y: 0 })
 const avatarDragging = ref(false)
 const avatarDragOffset = ref({ x: 0, y: 0 })
-const digitalHumanFrames = [humanIdle, humanTalkA, humanTalkB, humanTalkC]
+const digitalHumanMouthFrames = [humanMouthA, humanMouthB, humanMouthC]
+const live2dCanvas = ref(null)
+const live2dReady = ref(false)
+const live2dError = ref('')
+const live2dApp = ref(null)
+const live2dModel = ref(null)
+const live2dAudioContext = ref(null)
+const live2dAudioSource = ref(null)
+const live2dAnalyser = ref(null)
+const live2dAudioData = ref(null)
+const live2dMouthFrame = ref(0)
 const TARGET_SAMPLE_RATE = 16000
 const STREAM_CHUNK_MS = 200
+const LIVE2D_MODEL_URL = '/hiyori_pro_zh/runtime/hiyori_pro_t11.model3.json'
+const LIVE2D_SCRIPT_URLS = ['/js/live2dcubismcore.min.js', '/js/pixi.js', '/js/cubism4.min.js']
 const isAdmin = computed(() => role.value === 'admin')
 const backPath = computed(() => isAdmin.value ? '/interviewee' : '/user')
 const voiceSupported = computed(() => typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia))
@@ -100,6 +112,7 @@ onMounted(async () => {
   window.addEventListener('keydown', handleGlobalVoiceKeydown)
   window.addEventListener('keyup', handleGlobalVoiceKeyup)
   restoreAvatarPosition()
+  initLive2D()
   const jd = route.query.jd
   const resume = route.query.resume
   const planId = route.query.plan_id
@@ -136,6 +149,7 @@ onUnmounted(() => {
   pendingVoiceRelease.value = false
   releaseAudioResources()
   stopSpeaking()
+  destroyLive2D()
 })
 
 async function loadPlanInfo(planId) {
@@ -205,8 +219,8 @@ function restoreAvatarPosition() {
 }
 
 function clampAvatarPosition(pos) {
-  const maxX = Math.max(16, window.innerWidth - 324)
-  const maxY = Math.max(16, window.innerHeight - 344)
+  const maxX = Math.max(16, window.innerWidth - 364)
+  const maxY = Math.max(16, window.innerHeight - 404)
   return {
     x: Math.min(Math.max(16, pos.x), maxX),
     y: Math.min(Math.max(16, pos.y), maxY),
@@ -626,24 +640,171 @@ async function speakText(text) {
     if (!res.ok || !data.audio) throw new Error(data.detail || '语音合成失败')
     const audio = new Audio(`data:${data.format || 'audio/mpeg'};base64,${data.audio}`)
     audio.onended = () => {
+      stopLive2DLipSync()
       if (currentAudio.value === audio) currentAudio.value = null
     }
     audio.onerror = () => {
+      stopLive2DLipSync()
       if (currentAudio.value === audio) currentAudio.value = null
     }
     currentAudio.value = audio
+    startLive2DLipSync(audio)
     await audio.play()
   } catch (error) {
+    stopLive2DLipSync()
     currentAudio.value = null
     voiceError.value = error.message || '语音合成失败'
   }
 }
 
 function stopSpeaking() {
+  stopLive2DLipSync()
   if (!currentAudio.value) return
   currentAudio.value.pause()
   currentAudio.value.currentTime = 0
   currentAudio.value = null
+}
+
+function loadExternalScript(src) {
+  if (document.querySelector(`script[data-live2d-src="${src}"]`)) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = src
+    script.async = false
+    script.dataset.live2dSrc = src
+    script.onload = resolve
+    script.onerror = () => reject(new Error(`加载 Live2D 脚本失败: ${src}`))
+    document.head.appendChild(script)
+  })
+}
+
+async function ensureLive2DRuntime() {
+  if (window.PIXI?.live2d?.Live2DModel) return
+  for (const src of LIVE2D_SCRIPT_URLS) {
+    await loadExternalScript(src)
+  }
+  if (!window.PIXI?.live2d?.Live2DModel) {
+    throw new Error('Live2D 运行时未就绪')
+  }
+}
+
+async function initLive2D() {
+  try {
+    await nextTick()
+    if (!live2dCanvas.value) return
+    await ensureLive2DRuntime()
+    const PIXI = window.PIXI
+    const width = 348
+    const height = 392
+    const app = new PIXI.Application({
+      view: live2dCanvas.value,
+      width,
+      height,
+      resolution: window.devicePixelRatio || 1,
+      autoDensity: true,
+      antialias: true,
+      backgroundAlpha: 0,
+    })
+    const model = await PIXI.live2d.Live2DModel.from(LIVE2D_MODEL_URL)
+    app.stage.addChild(model)
+    const scale = Math.min((width / model.width) * 0.82, (height / model.height) * 0.98)
+    model.scale.set(scale)
+    if (model.anchor?.set) {
+      model.anchor.set(0.5, 0.5)
+      model.x = width / 2
+      model.y = height / 2 + 18
+    } else {
+      model.x = (width - model.width) / 2
+      model.y = height - model.height + 8
+    }
+    model.interactive = false
+    live2dApp.value = app
+    live2dModel.value = model
+    live2dReady.value = true
+    live2dError.value = ''
+    model.motion?.('Idle')
+  } catch (error) {
+    live2dReady.value = false
+    live2dError.value = error.message || 'Live2D 加载失败'
+  }
+}
+
+function setLive2DMouth(value) {
+  const coreModel = live2dModel.value?.internalModel?.coreModel
+  if (!coreModel) return
+  coreModel.setParameterValueById('ParamMouthOpenY', Math.max(0, Math.min(1, value)), 0.85)
+}
+
+function startLive2DLipSync(audio) {
+  if (!live2dReady.value || !audio) return
+  stopLive2DLipSync(false)
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext
+    if (!AudioContextCtor) return
+    const audioContext = new AudioContextCtor()
+    const source = audioContext.createMediaElementSource(audio)
+    const analyser = audioContext.createAnalyser()
+    analyser.fftSize = 256
+    const data = new Uint8Array(analyser.frequencyBinCount)
+    source.connect(analyser)
+    analyser.connect(audioContext.destination)
+    live2dAudioContext.value = audioContext
+    live2dAudioSource.value = source
+    live2dAnalyser.value = analyser
+    live2dAudioData.value = data
+    audioContext.resume?.()
+    const tick = () => {
+      if (!currentAudio.value || currentAudio.value !== audio || audio.paused || audio.ended) {
+        stopLive2DLipSync()
+        return
+      }
+      analyser.getByteFrequencyData(data)
+      const average = data.reduce((sum, item) => sum + item, 0) / data.length
+      const mouthValue = Math.min(1, Math.pow((average / 255) * 3.2, 1.45))
+      setLive2DMouth(mouthValue)
+      live2dMouthFrame.value = requestAnimationFrame(tick)
+    }
+    live2dMouthFrame.value = requestAnimationFrame(tick)
+  } catch (_) {
+    let phase = 0
+    const tick = () => {
+      if (!currentAudio.value || currentAudio.value !== audio || audio.paused || audio.ended) {
+        stopLive2DLipSync()
+        return
+      }
+      phase += 0.26
+      setLive2DMouth(0.18 + Math.abs(Math.sin(phase)) * 0.65)
+      live2dMouthFrame.value = requestAnimationFrame(tick)
+    }
+    live2dMouthFrame.value = requestAnimationFrame(tick)
+  }
+}
+
+function stopLive2DLipSync(resetMouth = true) {
+  if (live2dMouthFrame.value) {
+    cancelAnimationFrame(live2dMouthFrame.value)
+    live2dMouthFrame.value = 0
+  }
+  try {
+    live2dAudioSource.value?.disconnect()
+    live2dAnalyser.value?.disconnect()
+    live2dAudioContext.value?.close()
+  } catch (_) {
+    // ignore
+  }
+  live2dAudioContext.value = null
+  live2dAudioSource.value = null
+  live2dAnalyser.value = null
+  live2dAudioData.value = null
+  if (resetMouth) setLive2DMouth(0)
+}
+
+function destroyLive2D() {
+  stopLive2DLipSync()
+  live2dApp.value?.destroy?.(true)
+  live2dModel.value = null
+  live2dApp.value = null
+  live2dReady.value = false
 }
 
 function stripMarkdown(text) {
@@ -956,16 +1117,29 @@ function roleShort(roleName) {
       @pointerup="endAvatarDrag"
       @pointercancel="endAvatarDrag"
     >
-      <div class="human-avatar" aria-hidden="true">
+      <canvas
+        ref="live2dCanvas"
+        v-show="live2dReady"
+        class="live2d-avatar__canvas"
+        aria-label="Live2D AI 面试官"
+      ></canvas>
+      <div v-if="!live2dReady" class="human-avatar" aria-hidden="true">
         <img
-          v-for="(frame, index) in digitalHumanFrames"
+          class="human-avatar__base"
+          :src="humanIdle"
+          alt=""
+          draggable="false"
+        />
+        <img
+          v-for="(frame, index) in digitalHumanMouthFrames"
           :key="frame"
           :src="frame"
-          :class="['human-avatar__frame', `human-avatar__frame--${index}`]"
+          :class="['human-avatar__mouth', `human-avatar__mouth--${index + 1}`]"
           alt=""
           draggable="false"
         />
       </div>
+      <span v-if="live2dError" class="live2d-avatar__hint">PNG 兜底</span>
     </div>
   </div>
 </template>
@@ -1077,8 +1251,8 @@ function roleShort(roleName) {
 .floating-interviewer {
   position: fixed;
   z-index: 40;
-  width: 308px;
-  height: 328px;
+  width: 348px;
+  height: 392px;
   cursor: grab;
   user-select: none;
   touch-action: none;
@@ -1092,6 +1266,28 @@ function roleShort(roleName) {
   filter: drop-shadow(0 24px 32px rgba(79, 70, 229, 0.2));
 }
 
+.live2d-avatar__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  filter: drop-shadow(0 24px 30px rgba(15, 23, 42, 0.16));
+}
+
+.live2d-avatar__hint {
+  position: absolute;
+  right: 22px;
+  bottom: 18px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.62);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  pointer-events: none;
+}
+
 .human-avatar {
   position: relative;
   width: 300px;
@@ -1101,37 +1297,38 @@ function roleShort(roleName) {
   animation: human-idle-breathe 3.2s ease-in-out infinite;
 }
 
-.human-avatar__frame {
+.human-avatar__base,
+.human-avatar__mouth {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  opacity: 0;
   pointer-events: none;
   filter: drop-shadow(0 20px 26px rgba(15, 23, 42, 0.2));
   backface-visibility: hidden;
   transform: translateZ(0);
-  will-change: opacity;
 }
 
-.human-avatar__frame--0 {
+.human-avatar__base {
   opacity: 1;
 }
 
-.floating-interviewer--talking .human-avatar__frame--0 {
-  animation: avatar-mouth-frame-0 0.86s linear infinite;
+.human-avatar__mouth {
+  opacity: 0;
+  filter: none;
+  will-change: opacity;
 }
 
-.floating-interviewer--talking .human-avatar__frame--1 {
+.floating-interviewer--talking .human-avatar__mouth--1 {
   animation: avatar-mouth-frame-1 0.86s linear infinite;
 }
 
-.floating-interviewer--talking .human-avatar__frame--2 {
+.floating-interviewer--talking .human-avatar__mouth--2 {
   animation: avatar-mouth-frame-2 0.86s linear infinite;
 }
 
-.floating-interviewer--talking .human-avatar__frame--3 {
+.floating-interviewer--talking .human-avatar__mouth--3 {
   animation: avatar-mouth-frame-3 0.86s linear infinite;
 }
 
@@ -1181,38 +1378,29 @@ function roleShort(roleName) {
   }
 }
 
-@keyframes avatar-mouth-frame-0 {
-  0%, 19%, 100% {
-    opacity: 1;
-  }
-  27%, 92% {
-    opacity: 0;
-  }
-}
-
 @keyframes avatar-mouth-frame-1 {
-  0%, 14%, 36%, 100% {
+  0%, 10%, 35%, 100% {
     opacity: 0;
   }
-  22%, 30% {
+  18%, 27% {
     opacity: 1;
   }
 }
 
 @keyframes avatar-mouth-frame-2 {
-  0%, 29%, 61%, 100% {
+  0%, 28%, 66%, 100% {
     opacity: 0;
   }
-  38%, 54% {
+  40%, 55% {
     opacity: 1;
   }
 }
 
 @keyframes avatar-mouth-frame-3 {
-  0%, 53%, 91%, 100% {
+  0%, 54%, 94%, 100% {
     opacity: 0;
   }
-  63%, 82% {
+  68%, 83% {
     opacity: 1;
   }
 }

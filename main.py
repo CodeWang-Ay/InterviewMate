@@ -67,6 +67,11 @@ FRONTEND_INDEX = os.path.join(FRONTEND_DIST_DIR, "index.html")
 if os.path.isdir(FRONTEND_ASSETS_DIR):
     app.mount("/assets", StaticFiles(directory=FRONTEND_ASSETS_DIR), name="assets")
 
+for static_route in ("js", "hiyori_pro_zh", "images"):
+    static_dir = os.path.join(FRONTEND_DIST_DIR, static_route)
+    if os.path.isdir(static_dir):
+        app.mount(f"/{static_route}", StaticFiles(directory=static_dir), name=f"frontend_{static_route}")
+
 
 @app.on_event("startup")
 async def preload_models_on_startup():
