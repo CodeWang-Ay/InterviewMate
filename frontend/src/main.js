@@ -22,7 +22,7 @@ function clearAuthAndRedirect() {
     // ignore storage failure
   }
 
-  const path = window.location.pathname.startsWith('/user') ? '/user/login' : '/login'
+  const path = window.location.pathname.startsWith('/user') ? '/user/login' : '/admin/login'
   const redirect = encodeURIComponent(`${window.location.pathname}${window.location.search}`)
   window.location.replace(`${path}?redirect=${redirect}`)
 }

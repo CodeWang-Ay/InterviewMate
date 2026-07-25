@@ -247,7 +247,7 @@ function resetFilters() {
           >
             <i class="fa fa-check-square-o"></i>{{ batchMode ? '退出批量' : '批量管理' }}
           </button>
-          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm" @click="router.push('/interviewee')">
+          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm" @click="router.push('/admin/interviewee')">
             <i class="fa fa-plus"></i> 新建面试
           </button>
         </div>
@@ -412,10 +412,10 @@ function resetFilters() {
                 <span :class="['px-2 py-1 text-xs rounded', conclusionBadge(item.conclusion)]">{{ item.conclusion }}</span>
               </div>
               <div class="flex items-center gap-2">
-                <button v-if="detailTab === 'records'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/interview-record', query: { session_id: item.session_id } })">对话回放</button>
-                <button v-if="detailTab === 'records'" class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="router.push({ path: '/report', query: { session_id: item.session_id } })">查看报告</button>
-                <button v-if="detailTab === 'reports'" class="px-3 py-1.5 rounded-lg border border-violet-200 text-violet-600 text-sm hover:bg-violet-50" @click="router.push({ path: '/report', query: { session_id: item.session_id } })">打开完整报告</button>
-                <button v-if="detailTab === 'reports'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/interview-record', query: { session_id: item.session_id } })">关联记录</button>
+                <button v-if="detailTab === 'records'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/admin/interview-record', query: { session_id: item.session_id } })">对话回放</button>
+                <button v-if="detailTab === 'records'" class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="router.push({ path: '/admin/report', query: { session_id: item.session_id } })">查看报告</button>
+                <button v-if="detailTab === 'reports'" class="px-3 py-1.5 rounded-lg border border-violet-200 text-violet-600 text-sm hover:bg-violet-50" @click="router.push({ path: '/admin/report', query: { session_id: item.session_id } })">打开完整报告</button>
+                <button v-if="detailTab === 'reports'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/admin/interview-record', query: { session_id: item.session_id } })">关联记录</button>
                 <button class="px-3 py-1.5 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50" @click="removeRecord(item.session_id)">删除</button>
               </div>
             </div>

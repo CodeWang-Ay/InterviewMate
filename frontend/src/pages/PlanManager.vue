@@ -370,7 +370,7 @@ function archiveQuery(plan, tab = 'records') {
 }
 
 function goPlanArchive(plan, tab = 'records') {
-  router.push({ path: '/interview-archive', query: archiveQuery(plan, tab) })
+  router.push({ path: '/admin/interview-archive', query: archiveQuery(plan, tab) })
 }
 
 function startEditPlan(plan) {
@@ -561,10 +561,10 @@ const previewQuestions = computed(() => {
           >
             <i class="fa fa-check-square-o"></i>{{ batchMode ? '退出批量' : '批量管理' }}
           </button>
-          <button class="border border-[#1677ff] text-[#1677ff] px-4 py-2 rounded-lg hover:bg-blue-50 text-sm" @click="router.push('/interviewee')">
+          <button class="border border-[#1677ff] text-[#1677ff] px-4 py-2 rounded-lg hover:bg-blue-50 text-sm" @click="router.push('/admin/interviewee')">
             <i class="fa fa-file-text-o mr-1"></i>手动新建计划
           </button>
-          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm" @click="router.push('/interviewee')">
+          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm" @click="router.push('/admin/interviewee')">
             <i class="fa fa-magic"></i>AI生成面试计划
           </button>
         </div>
@@ -742,7 +742,7 @@ const previewQuestions = computed(() => {
           </div>
           <div class="text-sm font-medium text-gray-700">暂无匹配的面试计划</div>
           <div class="mt-1 text-xs text-gray-400">可以从简历管理中为候选人创建流程，或调整当前筛选条件。</div>
-          <button class="mt-4 rounded-lg bg-[#1677ff] px-4 py-2 text-sm text-white hover:bg-blue-600" @click="router.push('/resume-manager')">去简历管理</button>
+          <button class="mt-4 rounded-lg bg-[#1677ff] px-4 py-2 text-sm text-white hover:bg-blue-600" @click="router.push('/admin/resume-manager')">去简历管理</button>
         </div>
       </div>
 

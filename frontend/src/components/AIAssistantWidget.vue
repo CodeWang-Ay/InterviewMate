@@ -22,7 +22,7 @@ const dragState = ref({
 const suppressBubbleClick = ref(false)
 const floatingPosition = ref({ x: 0, y: 0, ready: false })
 
-const hiddenPaths = ['/login', '/user/login', '/register']
+const hiddenPaths = ['/login', '/admin/login', '/user/login', '/register']
 const isVisible = computed(() => !hiddenPaths.includes(route.path))
 const floatingStyle = computed(() => {
   if (isExpanded.value || !floatingPosition.value.ready) return {}

@@ -104,7 +104,7 @@ async function startTraining() {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail || '训练会话创建失败')
-    router.push({ path: '/interviewer/chat', query: { session_id: data.session_id } })
+    router.push({ path: '/admin/interviewer/chat', query: { session_id: data.session_id } })
   } catch (err) {
     error.value = err.message || '训练会话创建失败'
   } finally {

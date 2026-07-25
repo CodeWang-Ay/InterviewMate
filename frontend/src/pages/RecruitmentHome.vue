@@ -1,0 +1,283 @@
+<script setup>
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+const loading = ref(false)
+const error = ref('')
+const keyword = ref('')
+const recruitmentType = ref('社招')
+const selectedCategory = ref('')
+const selectedLocation = ref('')
+const jobs = ref([])
+const total = ref(0)
+const username = ref('')
+const nickname = ref('')
+const role = ref('')
+
+const categories = ['技术', '产品', '算法', '数据', '运营', '综合']
+const locations = ['北京', '上海', '深圳', '广州', '杭州', '成都']
+const heroTags = ['大模型', 'AI 面试', 'RAG', '语音交互', '招聘流程', '候选人体验']
+
+const displayedName = computed(() => nickname.value || username.value || '')
+const isLoggedIn = computed(() => Boolean(username.value || localStorage.getItem('token')))
+const centerPath = computed(() => role.value === 'candidate' ? '/user' : '/admin/user-center')
+const recommendedJobs = computed(() => jobs.value.slice(0, 3))
+const collectedEmpty = computed(() => true)
+
+onMounted(() => {
+  readUser()
+  loadJobs()
+})
+
+function readUser() {
+  try {
+    username.value = localStorage.getItem('username') || ''
+    nickname.value = localStorage.getItem('nickname') || ''
+    role.value = localStorage.getItem('role') || ''
+  } catch (_) {
+    username.value = ''
+    nickname.value = ''
+    role.value = ''
+  }
+}
+
+async function loadJobs() {
+  loading.value = true
+  error.value = ''
+  try {
+    const params = new URLSearchParams({
+      page: '1',
+      page_size: '20',
+      recruitment_type: recruitmentType.value,
+    })
+    if (keyword.value.trim()) params.set('search', keyword.value.trim())
+    if (selectedCategory.value) params.set('category', selectedCategory.value)
+    if (selectedLocation.value) params.set('location', selectedLocation.value)
+    const res = await fetch(`/api/jds/public?${params.toString()}`)
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '职位加载失败')
+    jobs.value = Array.isArray(data.items) ? data.items : []
+    total.value = Number(data.total || jobs.value.length)
+  } catch (err) {
+    error.value = err.message || '职位加载失败'
+    jobs.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
+  }
+}
+
+function selectType(type) {
+  recruitmentType.value = type
+  loadJobs()
+}
+
+function toggleCategory(item) {
+  selectedCategory.value = selectedCategory.value === item ? '' : item
+  loadJobs()
+}
+
+function toggleLocation(item) {
+  selectedLocation.value = selectedLocation.value === item ? '' : item
+  loadJobs()
+}
+
+function goLogin() {
+  router.push('/user/login?redirect=/user')
+}
+
+function goCenter() {
+  router.push(centerPath.value)
+}
+
+function goAdmin() {
+  router.push('/admin/login')
+}
+
+function jobSummary(job) {
+  const text = `${job.responsibilities || ''}`.replace(/\s+/g, ' ').trim()
+  return text || '参与核心业务建设，与团队一起探索 AI 招聘与面试体验的更多可能。'
+}
+</script>
+
+<template>
+  <div class="min-h-screen bg-[#f6f7fb] text-[#182033]">
+    <header class="fixed left-0 right-0 top-0 z-30 border-b border-white/10 bg-[#091225]/90 text-white backdrop-blur-xl">
+      <div class="mx-auto flex h-16 max-w-[1680px] items-center justify-between px-5 lg:px-8">
+        <button class="flex items-center gap-3" @click="router.push('/')">
+          <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-sm font-black text-[#1677ff]">AI</span>
+          <span class="text-lg font-bold">InterviewMate 招聘</span>
+        </button>
+        <nav class="hidden items-center gap-8 text-sm font-semibold text-white/82 md:flex">
+          <button class="text-white" @click="router.push('/')">首页</button>
+          <button :class="recruitmentType === '社招' ? 'text-[#74a8ff]' : ''" @click="selectType('社招')">社会招聘</button>
+          <button :class="recruitmentType === '校招' ? 'text-[#74a8ff]' : ''" @click="selectType('校招')">校园招聘</button>
+          <button>了解我们</button>
+          <button @click="goCenter">个人中心</button>
+        </nav>
+        <div class="flex items-center gap-3 text-sm font-semibold">
+          <button v-if="isLoggedIn" class="rounded-full px-3 py-2 text-white/90 hover:bg-white/10" @click="goCenter">
+            你好，{{ displayedName || '用户' }} <i class="fa fa-angle-down ml-1"></i>
+          </button>
+          <button v-else class="rounded-full px-3 py-2 text-white/90 hover:bg-white/10" @click="goLogin">登录/注册</button>
+          <button class="hidden rounded-full border border-white/18 px-4 py-2 text-white/80 hover:bg-white/10 lg:inline-flex" @click="goAdmin">招聘方后台</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="relative min-h-[690px] overflow-hidden bg-[#071126] pt-16 text-white">
+      <div class="absolute inset-0 bg-[radial-gradient(circle_at_48%_48%,rgba(84,111,225,0.56)_0%,rgba(26,45,100,0.40)_24%,rgba(7,17,38,0.94)_62%)]"></div>
+      <div class="absolute left-1/2 top-[52%] h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/14"></div>
+      <div class="absolute left-1/2 top-[52%] h-[860px] w-[860px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-white/18"></div>
+      <div class="absolute left-1/2 top-[52%] h-[1180px] w-[1180px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dotted border-white/16"></div>
+      <div class="absolute inset-0 opacity-70">
+        <span v-for="i in 80" :key="i" class="absolute h-1.5 w-1.5 rounded-full bg-white/70" :style="{ left: `${(i * 37) % 100}%`, top: `${18 + ((i * 53) % 68)}%`, opacity: `${0.25 + ((i * 7) % 60) / 100}` }"></span>
+      </div>
+
+      <div class="relative mx-auto flex min-h-[620px] max-w-[1380px] flex-col items-center justify-center px-6 text-center">
+        <div class="mb-8 rounded-full border border-white/16 bg-white/8 px-5 py-2 text-sm font-semibold tracking-[0.22em] text-white/82">
+          AI RECRUITMENT CENTER
+        </div>
+        <h1 class="text-[52px] font-black leading-tight tracking-tight md:text-[84px]">众里寻你，一起发光</h1>
+        <p class="mt-5 max-w-3xl text-xl leading-9 text-white/78">从岗位投递到 AI 面试，查看你的招聘进度，找到更适合的机会。</p>
+
+        <div class="mt-12 flex w-full max-w-3xl overflow-hidden rounded-none border border-white/60 bg-white/12 shadow-2xl shadow-blue-950/40">
+          <button class="flex min-w-[128px] items-center justify-center border-r border-white/40 px-4 text-left text-white/90">
+            {{ recruitmentType }} <i class="fa fa-angle-down ml-2"></i>
+          </button>
+          <input
+            v-model="keyword"
+            class="min-w-0 flex-1 bg-white/10 px-5 py-4 text-base text-white placeholder:text-white/55 outline-none"
+            placeholder="搜索岗位、技术方向或城市"
+            @keyup.enter="loadJobs"
+          >
+          <button class="bg-white px-8 py-4 font-bold text-[#3559bd] hover:bg-blue-50" @click="loadJobs">搜索职位</button>
+        </div>
+
+        <div class="mt-6 flex flex-wrap justify-center gap-3 text-sm text-white/70">
+          <button v-for="tag in heroTags" :key="tag" class="rounded-full bg-white/8 px-4 py-2 hover:bg-white/14" @click="keyword = tag; loadJobs()">{{ tag }}</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="mx-auto grid max-w-[1240px] gap-8 px-6 py-16 lg:grid-cols-[260px_1fr]">
+      <aside class="h-fit rounded-xl bg-white p-6 shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
+        <h3 class="text-lg font-bold">筛选</h3>
+        <div class="mt-7">
+          <div class="mb-4 font-bold">职位类别</div>
+          <div class="space-y-3">
+            <button v-for="item in categories" :key="item" class="flex w-full items-center gap-3 text-left text-[#4a5568]" @click="toggleCategory(item)">
+              <span class="flex h-4 w-4 items-center justify-center border" :class="selectedCategory === item ? 'border-[#4b6cff] bg-[#4b6cff]' : 'border-[#d8dce8]'">
+                <i v-if="selectedCategory === item" class="fa fa-check text-[10px] text-white"></i>
+              </span>
+              {{ item }}
+            </button>
+          </div>
+        </div>
+        <div class="mt-8">
+          <div class="mb-4 font-bold">职位地点</div>
+          <div class="space-y-3">
+            <button v-for="item in locations" :key="item" class="flex w-full items-center gap-3 text-left text-[#4a5568]" @click="toggleLocation(item)">
+              <span class="flex h-4 w-4 items-center justify-center border" :class="selectedLocation === item ? 'border-[#4b6cff] bg-[#4b6cff]' : 'border-[#d8dce8]'">
+                <i v-if="selectedLocation === item" class="fa fa-check text-[10px] text-white"></i>
+              </span>
+              {{ item }}
+            </button>
+          </div>
+        </div>
+        <button class="mt-7 text-[#4b6cff]" @click="selectedCategory = ''; selectedLocation = ''; loadJobs()">+ 重置筛选</button>
+      </aside>
+
+      <main class="min-w-0">
+        <div class="mb-5 flex flex-wrap items-center justify-between gap-4">
+          <div class="text-lg font-bold">{{ total }} 条职位信息</div>
+          <div class="flex overflow-hidden rounded-full bg-[#e9ecf5] p-1">
+            <button class="rounded-full px-6 py-2" :class="recruitmentType === '社招' ? 'bg-[#5572f4] text-white' : 'text-[#667085]'" @click="selectType('社招')">社会招聘</button>
+            <button class="rounded-full px-6 py-2" :class="recruitmentType === '校招' ? 'bg-[#5572f4] text-white' : 'text-[#667085]'" @click="selectType('校招')">校园招聘</button>
+          </div>
+        </div>
+
+        <div v-if="error" class="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-600">{{ error }}</div>
+        <div v-if="loading" class="rounded-xl bg-white p-12 text-center text-[#667085] shadow-sm">正在加载职位...</div>
+
+        <div v-else class="space-y-4">
+          <article v-for="job in jobs" :key="job.id" class="rounded-xl bg-white p-6 shadow-[0_12px_28px_rgba(15,35,80,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(15,35,80,0.12)]">
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-3">
+                  <span class="text-red-500"><i class="fa fa-fire"></i></span>
+                  <h2 class="text-2xl font-bold text-[#202838]">{{ job.name }}</h2>
+                  <span class="rounded-md bg-[#fff2e8] px-2 py-1 text-sm text-[#f26b3a]">{{ job.recruitment_type || recruitmentType }}</span>
+                </div>
+                <div class="mt-3 text-[#687286]">
+                  {{ job.category || '综合' }} ｜ {{ job.location || '地点待定' }} ｜ {{ job.experience_required || '不限经验' }} ｜ {{ String(job.updated_at || job.created_at || '').slice(0, 10) || '近期发布' }}
+                </div>
+                <p class="mt-4 line-clamp-2 leading-7 text-[#3f4b5f]">{{ jobSummary(job) }}</p>
+              </div>
+              <div class="flex shrink-0 gap-3 text-[#9aa3b5]">
+                <button class="h-9 w-9 rounded-full hover:bg-[#f3f5fb]"><i class="fa fa-star-o"></i></button>
+                <button class="h-9 w-9 rounded-full hover:bg-[#f3f5fb]"><i class="fa fa-share-alt"></i></button>
+              </div>
+            </div>
+            <div class="mt-5 flex flex-wrap items-center justify-between gap-4">
+              <div class="flex flex-wrap gap-2">
+                <span v-for="tag in [job.category || '业务方向', job.location || '灵活地点', job.experience_required || '不限经验']" :key="tag" class="rounded-md bg-[#f3f7ff] px-3 py-1.5 text-sm text-[#4d63af]">{{ tag }}</span>
+              </div>
+              <button class="rounded-lg bg-[#5572f4] px-5 py-2.5 font-semibold text-white hover:bg-[#3f5ce0]" @click="goLogin">立即投递</button>
+            </div>
+          </article>
+
+          <div v-if="!jobs.length" class="rounded-xl bg-white p-12 text-center text-[#667085] shadow-sm">
+            暂无匹配职位，换个关键词试试。
+          </div>
+        </div>
+      </main>
+    </section>
+
+    <section v-if="isLoggedIn" class="mx-auto grid max-w-[1240px] gap-8 px-6 pb-20 lg:grid-cols-[1fr_360px]">
+      <div class="rounded-2xl bg-white p-7 shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
+        <div class="flex items-center justify-between">
+          <h2 class="text-2xl font-bold">我的简历</h2>
+          <button class="text-sm text-[#4b6cff]" @click="goCenter">查看进度</button>
+        </div>
+        <div class="mt-6 flex flex-wrap items-center gap-6 rounded-xl bg-[#f2f5fb] p-6">
+          <div class="flex h-16 w-16 items-center justify-center rounded-full bg-[#4b6cff] text-xl font-bold text-white">{{ displayedName.slice(0, 1) || '我' }}</div>
+          <div>
+            <div class="text-2xl font-bold">{{ displayedName || '我的账号' }}</div>
+            <div class="mt-2 text-[#667085]">登录后可查看面试流程、投递记录和 AI 面试安排。</div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="space-y-6">
+        <div class="rounded-2xl bg-white p-7 shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
+          <div class="flex items-center justify-between">
+            <h2 class="text-2xl font-bold">智能职位推荐</h2>
+            <button class="text-sm text-[#4b6cff]">全部职位 &gt;</button>
+          </div>
+          <div class="mt-5 space-y-5">
+            <div v-for="job in recommendedJobs" :key="job.id" class="border-b border-[#edf0f6] pb-5 last:border-0 last:pb-0">
+              <div class="font-bold">{{ job.name }}</div>
+              <div class="mt-2 flex gap-2">
+                <span class="rounded border border-[#5572f4] px-2 py-0.5 text-sm text-[#5572f4]">{{ job.category || '技术' }}</span>
+                <span class="rounded border border-[#d8dce8] px-2 py-0.5 text-sm text-[#667085]">{{ job.location || '深圳' }}</span>
+              </div>
+              <div class="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded bg-[#edf3f8] text-center text-sm text-[#4f5a6d]">
+                <span class="bg-[#f8fbff] py-2">岗位匹配</span>
+                <span class="bg-[#f8fbff] py-2">AI 面试</span>
+                <span class="bg-[#f8fbff] py-2">可投递</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl bg-white p-7 text-center shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
+          <h2 class="text-2xl font-bold">我的收藏</h2>
+          <p class="mt-8 text-[#4f5a6d]">{{ collectedEmpty ? '还是空的，快去看看岗位吧' : '' }}</p>
+          <button class="mt-5 font-semibold text-[#4b6cff]">查看岗位 &gt;</button>
+        </div>
+      </aside>
+    </section>
+  </div>
+</template>

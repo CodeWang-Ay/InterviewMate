@@ -598,7 +598,7 @@ async function viewResume(r) {
 
 function goCandidatePlans(resume) {
   const candidate = resume?.name || fieldValue(basicInfo.value, ['姓名'], '')
-  router.push({ path: '/plan-manager', query: candidate ? { candidate } : {} })
+  router.push({ path: '/admin/plan-manager', query: candidate ? { candidate } : {} })
 }
 
 async function createInterviewPlan(resume, round) {
@@ -1897,7 +1897,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
         </div>
         <div class="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
           <button class="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-white" @click="createdPlan = null">关闭</button>
-          <button class="px-4 py-2 rounded-lg bg-[#1677ff] text-white text-sm hover:bg-blue-600" @click="router.push('/plan-manager')">查看面试计划</button>
+          <button class="px-4 py-2 rounded-lg bg-[#1677ff] text-white text-sm hover:bg-blue-600" @click="router.push('/admin/plan-manager')">查看面试计划</button>
         </div>
       </div>
     </div>

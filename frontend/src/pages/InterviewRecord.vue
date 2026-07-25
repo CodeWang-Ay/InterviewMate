@@ -78,7 +78,7 @@ onMounted(async () => {
     <main class="flex-1 overflow-y-auto px-6 py-8">
         <div class="mx-auto grid h-full max-w-[1620px] grid-cols-1 gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
         <aside class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-indigo-100/80">
-          <router-link to="/interview-archive" class="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 no-underline">
+          <router-link to="/admin/interview-archive" class="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 no-underline">
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
             </svg>
@@ -134,7 +134,7 @@ onMounted(async () => {
           </div>
 
           <router-link
-            :to="{ path: '/report', query: { session_id: route.query.session_id } }"
+            :to="{ path: '/admin/report', query: { session_id: route.query.session_id } }"
             class="mt-8 flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-indigo-200 hover:bg-indigo-700 no-underline"
           >
             查看面试报告
@@ -191,12 +191,12 @@ onMounted(async () => {
 
           <footer class="flex flex-shrink-0 items-center justify-center gap-3 border-t border-slate-100 bg-white px-5 py-4">
             <router-link
-              :to="{ path: '/report', query: { session_id: route.query.session_id } }"
+              :to="{ path: '/admin/report', query: { session_id: route.query.session_id } }"
               class="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 no-underline"
             >
               查看面试报告
             </router-link>
-            <router-link to="/interview-archive" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-50 no-underline">
+            <router-link to="/admin/interview-archive" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-50 no-underline">
               返回档案
             </router-link>
           </footer>

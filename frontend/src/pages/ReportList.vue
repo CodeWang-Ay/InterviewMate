@@ -273,8 +273,8 @@ function resetFilters() {
                 <span :class="['px-2 py-1 text-xs rounded', conclusionBadge(item.conclusion)]">{{ item.conclusion }}</span>
               </div>
               <div class="flex items-center gap-2">
-                <button class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="router.push({ path: '/report', query: { session_id: item.session_id } })">查看报告</button>
-                <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/interview-record', query: { session_id: item.session_id } })">对话回放</button>
+                <button class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="router.push({ path: '/admin/report', query: { session_id: item.session_id } })">查看报告</button>
+                <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="router.push({ path: '/admin/interview-record', query: { session_id: item.session_id } })">对话回放</button>
               </div>
             </div>
             <div class="px-4 py-3 flex items-center justify-between text-sm">

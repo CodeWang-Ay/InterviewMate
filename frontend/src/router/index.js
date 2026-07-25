@@ -19,28 +19,50 @@ import Register from '../pages/Register.vue'
 import UserCenter from '../pages/UserCenter.vue'
 import UserInterview from '../pages/UserInterview.vue'
 import TaskCenter from '../pages/TaskCenter.vue'
+import RecruitmentHome from '../pages/RecruitmentHome.vue'
+
+const redirectWithQuery = (path) => (to) => ({ path, query: to.query })
 
 const routes = [
-  { path: '/', component: Home },
-  { path: '/interviewer', component: Interviewer },
-  { path: '/interviewer/chat', component: InterviewerTrainChat },
-  { path: '/interviewee', component: Interviewee },
+  { path: '/', component: RecruitmentHome },
+  { path: '/jobs', component: RecruitmentHome },
+  { path: '/jobs/social', component: RecruitmentHome },
+  { path: '/admin', component: Home },
+  { path: '/admin/interviewer', component: Interviewer },
+  { path: '/admin/interviewer/chat', component: InterviewerTrainChat },
+  { path: '/admin/interviewee', component: Interviewee },
   { path: '/chat', component: Chat },
-  { path: '/report', component: Report },
-  { path: '/interview-record', component: InterviewRecord },
-  { path: '/jd-manager', component: JdManager },
-  { path: '/resume-manager', component: ResumeManager },
-  { path: '/ai-tools', component: AITools },
-  { path: '/plan-manager', component: PlanManager },
-  { path: '/interview-archive', component: InterviewArchive },
-  { path: '/record-list', component: RecordList },
-  { path: '/report-list', component: ReportList },
-  { path: '/settings', component: Settings },
-  { path: '/tasks', component: TaskCenter },
-  { path: '/login', component: Login },
+  { path: '/admin/report', component: Report },
+  { path: '/admin/interview-record', component: InterviewRecord },
+  { path: '/admin/jd-manager', component: JdManager },
+  { path: '/admin/resume-manager', component: ResumeManager },
+  { path: '/admin/ai-tools', component: AITools },
+  { path: '/admin/plan-manager', component: PlanManager },
+  { path: '/admin/interview-archive', component: InterviewArchive },
+  { path: '/admin/record-list', component: RecordList },
+  { path: '/admin/report-list', component: ReportList },
+  { path: '/admin/settings', component: Settings },
+  { path: '/admin/tasks', component: TaskCenter },
+  { path: '/interviewer', redirect: redirectWithQuery('/admin/interviewer') },
+  { path: '/interviewer/chat', redirect: redirectWithQuery('/admin/interviewer/chat') },
+  { path: '/interviewee', redirect: redirectWithQuery('/admin/interviewee') },
+  { path: '/report', redirect: redirectWithQuery('/admin/report') },
+  { path: '/interview-record', redirect: redirectWithQuery('/admin/interview-record') },
+  { path: '/jd-manager', redirect: redirectWithQuery('/admin/jd-manager') },
+  { path: '/resume-manager', redirect: redirectWithQuery('/admin/resume-manager') },
+  { path: '/ai-tools', redirect: redirectWithQuery('/admin/ai-tools') },
+  { path: '/plan-manager', redirect: redirectWithQuery('/admin/plan-manager') },
+  { path: '/interview-archive', redirect: redirectWithQuery('/admin/interview-archive') },
+  { path: '/record-list', redirect: redirectWithQuery('/admin/record-list') },
+  { path: '/report-list', redirect: redirectWithQuery('/admin/report-list') },
+  { path: '/settings', redirect: redirectWithQuery('/admin/settings') },
+  { path: '/tasks', redirect: redirectWithQuery('/admin/tasks') },
+  { path: '/user-center', redirect: redirectWithQuery('/admin/user-center') },
+  { path: '/login', redirect: redirectWithQuery('/admin/login') },
+  { path: '/admin/login', component: Login },
   { path: '/user/login', component: Login },
   { path: '/register', component: Register },
-  { path: '/user-center', component: UserCenter },
+  { path: '/admin/user-center', component: UserCenter },
   { path: '/user', component: UserInterview },
 ]
 
@@ -101,13 +123,13 @@ async function ensureSessionValid(token) {
 
 // 路由守卫：未登录跳转登录页
 router.beforeEach(async (to, from) => {
-  const publicPages = ['/login', '/user/login', '/register']
+  const publicPages = ['/', '/jobs', '/jobs/social', '/login', '/admin/login', '/user/login', '/register']
   let token = ''
   let role = ''
   try { token = localStorage.getItem('token') || '' } catch (_) {}
   try { role = localStorage.getItem('role') || '' } catch (_) {}
   if (!token && !publicPages.includes(to.path)) {
-    const loginPath = to.path.startsWith('/user') ? '/user/login' : '/login'
+    const loginPath = to.path.startsWith('/user') ? '/user/login' : '/admin/login'
     return { path: loginPath, query: { redirect: to.fullPath } }
   }
   if (token && !publicPages.includes(to.path)) {
@@ -116,20 +138,20 @@ router.beforeEach(async (to, from) => {
       clearLocalAuth()
       sessionCheckedToken = ''
       sessionCheckedRole = ''
-      const loginPath = to.path.startsWith('/user') ? '/user/login' : '/login'
+      const loginPath = to.path.startsWith('/user') ? '/user/login' : '/admin/login'
       return { path: loginPath, query: { redirect: to.fullPath } }
     }
     role = session.role || role
   }
   const candidatePages = ['/user']
   if (candidatePages.includes(to.path) && role && role !== 'candidate') {
-    return { path: '/' }
+    return { path: '/admin' }
   }
-  const adminPages = ['/interviewer', '/interviewer/chat', '/interviewee', '/jd-manager', '/resume-manager', '/ai-tools', '/plan-manager', '/report', '/interview-record', '/record-list', '/report-list', '/interview-archive', '/settings', '/tasks', '/user-center']
+  const adminPages = ['/admin', '/admin/interviewer', '/admin/interviewer/chat', '/admin/interviewee', '/admin/jd-manager', '/admin/resume-manager', '/admin/ai-tools', '/admin/plan-manager', '/admin/report', '/admin/interview-record', '/admin/record-list', '/admin/report-list', '/admin/interview-archive', '/admin/settings', '/admin/tasks', '/admin/user-center']
   if (adminPages.includes(to.path)) {
     if (role !== 'admin') {
       try { window.alert('仅管理员可查看面试记录和面试报告') } catch (_) {}
-      return from.path ? false : { path: '/' }
+      return from.path ? false : { path: '/admin/login' }
     }
   }
 })

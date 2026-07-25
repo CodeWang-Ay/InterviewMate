@@ -7,6 +7,15 @@ const loading = ref(true)
 const plans = ref([])
 const error = ref('')
 const expandedWorkflows = ref(new Set())
+const activeMenu = ref('overview')
+const menus = [
+  { key: 'overview', label: '公司概览', icon: 'fa-building-o' },
+  { key: 'resume', label: '我的简历', icon: 'fa-file-text-o' },
+  { key: 'jobs', label: '投递岗位', icon: 'fa-briefcase' },
+  { key: 'progress', label: '面试进度', icon: 'fa-check-circle-o' },
+  { key: 'message', label: '消息', icon: 'fa-bell-o' },
+  { key: 'settings', label: '设置', icon: 'fa-cog' },
+]
 
 const workflowGroups = computed(() => {
   const map = new Map()
@@ -39,6 +48,13 @@ const workflowGroups = computed(() => {
 })
 const currentPlan = computed(() => workflowGroups.value.find(group => group.current_plan)?.current_plan || null)
 const activeGroup = computed(() => workflowGroups.value.find(group => group.current_plan) || workflowGroups.value[0] || null)
+const allPlanCount = computed(() => plans.value.length)
+const allFinishedCount = computed(() => plans.value.filter(plan => plan.status === 'finish').length)
+const resumeFileName = computed(() => activeGroup.value?.plans.find(plan => plan.resume_filename)?.resume_filename || '')
+const resumeMatchPercent = computed(() => {
+  const score = activeGroup.value?.current_plan?.match_score || activeGroup.value?.plans.find(plan => plan.match_score)?.match_score || 0
+  return score ? Math.min(Math.max(Number(score), 0), 100) : 85
+})
 const currentActionText = computed(() => {
   if (!currentPlan.value) return ''
   return currentPlan.value.status === 'running' ? '继续本轮面试' : '进入本轮面试'
@@ -136,129 +152,257 @@ function groupStatusText(group) {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 lg:p-10">
-    <div class="mx-auto w-full max-w-7xl">
-      <div class="mb-8 flex flex-wrap items-end justify-between gap-5">
-        <div>
-          <div class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 text-2xl font-bold text-white shadow-xl shadow-emerald-900/30">AI</div>
-          <h1 class="text-4xl font-bold tracking-tight text-white">候选人面试入口</h1>
-          <p class="mt-3 text-base text-slate-400">查看你的投递流程与面试进度，点击当前开放轮次即可进入。</p>
-        </div>
-        <div v-if="activeGroup" class="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-4 text-right">
-          <div class="text-sm text-emerald-200">当前流程</div>
-          <div class="mt-1 text-xl font-bold text-white">{{ activeGroup.jd_name }}</div>
-          <div class="mt-1 text-sm text-slate-300">{{ groupStatusText(activeGroup) }}</div>
-        </div>
-      </div>
-
-      <div v-if="loading" class="rounded-2xl border border-slate-700 bg-slate-900/70 p-10 text-center text-slate-300">
-        <span class="inline-block w-5 h-5 border-2 border-slate-500 border-t-white rounded-full animate-spin mr-2 align-middle"></span>
-        正在加载你的面试安排...
-      </div>
-
-      <div v-else-if="error" class="rounded-2xl border border-red-500/30 bg-red-500/10 p-8 text-center">
-        <p class="text-red-200">{{ error }}</p>
-        <button class="mt-4 px-4 py-2 rounded-lg bg-red-500 text-white text-sm hover:bg-red-400" @click="loadPlans">重试</button>
-      </div>
-
-      <div v-else-if="workflowGroups.length" class="space-y-5">
-        <div
-          v-for="group in workflowGroups"
-          :key="group.key"
-          class="overflow-hidden rounded-[28px] border border-slate-700 bg-slate-900/75 shadow-2xl shadow-slate-950/40"
-        >
-          <button
-            class="flex w-full items-center justify-between gap-5 px-7 py-6 text-left transition hover:bg-slate-800/45"
-            @click="toggleWorkflow(group)"
-          >
-            <div class="flex min-w-0 items-center gap-5">
-              <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-950/30">
-                <i class="fa fa-bar-chart text-xl"></i>
-              </div>
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-3">
-                  <h2 class="truncate text-2xl font-bold text-white">{{ group.jd_name }}</h2>
-                  <span class="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{{ group.workflow_name }}</span>
-                  <span class="rounded-full px-3 py-1 text-xs" :class="group.current_plan ? 'bg-emerald-500/15 text-emerald-200' : 'bg-slate-700 text-slate-300'">
-                    {{ groupStatusText(group) }}
-                  </span>
-                </div>
-                <p class="mt-2 truncate text-sm text-slate-400">
-                  {{ group.candidate_name }} · {{ group.finished_count }}/{{ group.plans.length }} 已完成 · 完成度 {{ group.progress_percent }}%
-                </p>
-              </div>
-            </div>
-            <div class="flex shrink-0 items-center gap-4">
-              <div class="hidden w-44 sm:block">
-                <div class="h-2 overflow-hidden rounded-full bg-slate-700">
-                  <div class="h-full bg-emerald-500 transition-all duration-500" :style="{ width: `${group.progress_percent}%` }"></div>
-                </div>
-              </div>
-              <i class="fa text-slate-400 transition" :class="isExpanded(group) ? 'fa-angle-up' : 'fa-angle-down'"></i>
-            </div>
-          </button>
-
-          <div v-show="isExpanded(group)" class="border-t border-slate-700 px-7 py-7">
-            <div class="mb-6 rounded-2xl border border-slate-700 bg-slate-800/60 p-6">
-              <div class="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <div class="text-sm text-slate-400">面试进度</div>
-                  <div class="mt-1 text-3xl font-bold text-white">{{ group.finished_count }}/{{ group.plans.length }}</div>
-                </div>
-                <div class="text-right">
-                  <div class="text-sm text-slate-400">完成度</div>
-                  <div class="mt-1 text-3xl font-bold text-emerald-300">{{ group.progress_percent }}%</div>
-                </div>
-              </div>
-              <div class="mt-5 h-3 w-full overflow-hidden rounded-full bg-slate-700">
-                <div class="h-full bg-emerald-500 transition-all duration-500" :style="{ width: `${group.progress_percent}%` }"></div>
-              </div>
-            </div>
-
-            <div class="flex items-stretch gap-3 overflow-x-auto pb-3">
-              <template v-for="(plan, index) in group.plans" :key="plan.id">
-                <div class="min-h-[150px] min-w-[250px] rounded-2xl border p-5" :class="statusClass(plan.status)">
-                  <div class="text-xs opacity-80">第 {{ plan.stage_order || index + 1 }}/{{ plan.stage_count || group.plans.length }} 环节</div>
-                  <div class="mt-3 text-xl font-semibold">{{ plan.interview_round }}</div>
-                  <div class="mt-4 text-sm">{{ statusLabel(plan.status) }}</div>
-                  <div class="mt-2 text-sm opacity-80">{{ cardTitle(plan) }}</div>
-                </div>
-                <div v-if="index < group.plans.length - 1" class="flex items-center text-slate-600">
-                  <i class="fa fa-long-arrow-right text-lg"></i>
-                </div>
-              </template>
-            </div>
-
-            <div v-if="group.current_plan" class="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-6">
-              <div class="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <div class="text-sm text-emerald-200">当前可操作环节</div>
-                  <div class="mt-2 text-2xl font-bold text-white">{{ group.current_plan.interview_round }}</div>
-                  <p class="mt-3 text-base text-slate-300">
-                    {{ group.current_plan.status === 'running' ? '你可以返回继续完成当前面试。' : '当前轮次已经开放，点击即可正式进入面试。' }}
-                  </p>
-                </div>
-                <button
-                  class="rounded-xl bg-emerald-500 px-7 py-4 font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-400"
-                  @click="enterInterview(group.current_plan)"
-                >
-                  {{ groupActionText(group) }}
-                </button>
-              </div>
-            </div>
-
-            <div v-else class="mt-5 rounded-xl border border-slate-700 bg-slate-800/70 p-5 text-center text-slate-300">
-              <div class="text-base font-semibold text-white">当前暂无可进入的面试</div>
-              <p class="mt-2 text-sm text-slate-400">你的上一轮面试已进入后台评估流程。若通过，招聘方会发起下一轮面试，你将在这里看到入口。</p>
-            </div>
+  <div class="min-h-screen bg-[#061024] text-slate-100">
+    <div class="grid min-h-screen lg:grid-cols-[280px_1fr]">
+      <aside class="border-r border-white/10 bg-[#07142a]/95 p-5 lg:sticky lg:top-0 lg:h-screen">
+        <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-xl shadow-blue-950/40">
+          <div class="flex items-end gap-1">
+            <span class="h-7 w-2 rounded bg-blue-400"></span>
+            <span class="h-10 w-2 rounded bg-blue-500"></span>
+            <span class="h-5 w-2 rounded bg-cyan-400"></span>
           </div>
         </div>
-      </div>
 
-      <div v-else class="rounded-2xl border border-slate-700 bg-slate-900/70 p-10 text-center">
-        <h2 class="text-xl font-bold text-white">暂无面试安排</h2>
-        <p class="text-slate-400 mt-2">请确认你使用的是招聘方提供的候选人账号。</p>
-      </div>
+        <nav class="mt-8 space-y-2">
+          <button
+            v-for="item in menus"
+            :key="item.key"
+            class="flex w-full items-center gap-4 rounded-xl px-4 py-4 text-left text-base font-semibold transition"
+            :class="activeMenu === item.key ? 'bg-emerald-500/20 text-emerald-300 shadow-lg shadow-emerald-950/20' : 'text-slate-300 hover:bg-white/5 hover:text-white'"
+            @click="activeMenu = item.key"
+          >
+            <i class="fa w-6 text-center text-xl" :class="item.icon"></i>
+            <span>{{ item.label }}</span>
+            <span v-if="item.key === 'message'" class="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">2</span>
+          </button>
+        </nav>
+
+        <div class="mt-10 border-t border-white/10 pt-5 lg:absolute lg:bottom-6 lg:left-5 lg:right-5">
+          <div class="flex items-center gap-3">
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-emerald-400 font-bold text-slate-950">
+              {{ (activeGroup?.candidate_name || '候').slice(0, 1) }}
+            </div>
+            <div class="min-w-0">
+              <div class="truncate font-bold text-white">{{ activeGroup?.candidate_name || '候选人' }}</div>
+              <div class="truncate text-xs text-slate-400">candidate account</div>
+            </div>
+            <i class="fa fa-angle-down ml-auto text-slate-500"></i>
+          </div>
+        </div>
+      </aside>
+
+      <main class="min-w-0 p-6 lg:p-8 xl:p-10">
+        <div class="mx-auto max-w-[1540px]">
+          <div class="mb-8 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 class="text-4xl font-bold tracking-tight text-white">候选人面试中心</h1>
+              <p class="mt-3 text-base text-slate-400">查看你的简历、投递岗位与面试进度</p>
+            </div>
+            <button class="rounded-xl border border-white/10 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-white/5">
+              招聘方入口 <i class="fa fa-external-link ml-2"></i>
+            </button>
+          </div>
+
+          <div v-if="loading" class="rounded-2xl border border-white/10 bg-white/[0.04] p-10 text-center text-slate-300">
+            <span class="mr-2 inline-block h-5 w-5 animate-spin rounded-full border-2 border-slate-500 border-t-white align-middle"></span>
+            正在加载你的面试安排...
+          </div>
+
+          <div v-else-if="error" class="rounded-2xl border border-red-500/30 bg-red-500/10 p-8 text-center">
+            <p class="text-red-200">{{ error }}</p>
+            <button class="mt-4 rounded-lg bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-400" @click="loadPlans">重试</button>
+          </div>
+
+          <div v-else-if="workflowGroups.length" class="grid gap-6 xl:grid-cols-[1fr_380px]">
+            <section class="min-w-0 space-y-6">
+              <div class="rounded-2xl border border-white/10 bg-white/[0.045] p-6 shadow-2xl shadow-blue-950/20">
+                <h2 class="text-2xl font-bold text-white">我的简历</h2>
+                <div class="mt-5 grid gap-6 xl:grid-cols-[420px_1fr]">
+                  <div class="flex gap-5">
+                    <div class="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 text-lg font-bold text-white shadow-lg shadow-blue-950/40">
+                      PDF
+                    </div>
+                    <div class="min-w-0">
+                      <div class="break-all text-xl font-bold text-white">{{ resumeFileName || '暂未绑定简历文件' }}</div>
+                      <div class="mt-2 text-sm text-slate-400">绑定候选人：{{ activeGroup?.candidate_name || '-' }}</div>
+                      <div class="mt-6">
+                        <div class="mb-2 flex items-center justify-between text-sm">
+                          <span class="text-slate-300">匹配度</span>
+                          <span class="font-bold text-emerald-300">{{ resumeMatchPercent }}%</span>
+                        </div>
+                        <div class="h-2.5 overflow-hidden rounded-full bg-slate-700">
+                          <div class="h-full rounded-full bg-emerald-400" :style="{ width: `${resumeMatchPercent}%` }"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="grid gap-4 md:grid-cols-2">
+                    <div class="space-y-3 text-sm">
+                      <div class="flex items-center gap-3">
+                        <i class="fa fa-id-card-o w-5 text-slate-400"></i>
+                        <span class="w-20 text-slate-400">当前岗位</span>
+                        <span class="truncate text-slate-100">{{ activeGroup?.jd_name || '-' }}</span>
+                      </div>
+                      <div class="flex items-center gap-3">
+                        <i class="fa fa-briefcase w-5 text-slate-400"></i>
+                        <span class="w-20 text-slate-400">投递流程</span>
+                        <span class="text-slate-100">{{ workflowGroups.length }} 个</span>
+                      </div>
+                      <div class="flex items-center gap-3">
+                        <i class="fa fa-clock-o w-5 text-slate-400"></i>
+                        <span class="w-20 text-slate-400">面试环节</span>
+                        <span class="text-slate-100">{{ allPlanCount }} 个</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div class="mb-3 font-bold text-white">核心技能</div>
+                      <div class="flex flex-wrap gap-2">
+                        <span v-for="skill in ['AI 面试', '岗位匹配', '简历解析', '语音问答', '面试报告', '流程追踪']" :key="skill" class="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200">
+                          {{ skill }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h2 class="text-2xl font-bold text-white">该公司投递岗位</h2>
+                <p class="mt-1 text-slate-400">你在当前招聘流程中的岗位及面试进度</p>
+              </div>
+
+              <div class="space-y-4">
+                <div
+                  v-for="group in workflowGroups"
+                  :key="group.key"
+                  class="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.045] shadow-xl shadow-blue-950/10"
+                >
+                  <button class="flex w-full items-center justify-between gap-5 px-5 py-5 text-left hover:bg-white/[0.035]" @click="toggleWorkflow(group)">
+                    <div class="flex min-w-0 items-center gap-4">
+                      <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+                        <i class="fa fa-bar-chart"></i>
+                      </div>
+                      <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-3">
+                          <h3 class="truncate text-2xl font-bold text-white">{{ group.jd_name }}</h3>
+                          <span class="rounded-lg bg-blue-500/15 px-3 py-1 text-sm text-blue-300">{{ groupStatusText(group) }}</span>
+                        </div>
+                        <div class="mt-2 text-sm text-slate-400">{{ group.workflow_name }} · 已完成 {{ group.finished_count }}/{{ group.plans.length }}</div>
+                      </div>
+                    </div>
+                    <i class="fa text-xl text-slate-400" :class="isExpanded(group) ? 'fa-angle-up' : 'fa-angle-down'"></i>
+                  </button>
+
+                  <div v-show="isExpanded(group)" class="border-t border-white/10 p-5">
+                    <div class="rounded-xl border border-white/10 bg-[#0b1831]/80 p-5">
+                      <div class="mb-5 font-bold text-white">面试进度</div>
+                      <div class="flex min-w-full items-start gap-3 overflow-x-auto pb-4">
+                        <template v-for="(plan, index) in group.plans" :key="plan.id">
+                          <div class="flex min-w-[130px] flex-col items-center text-center">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-full font-bold" :class="plan.status === 'finish' ? 'bg-emerald-400 text-slate-950' : plan.status === 'running' ? 'bg-blue-500 text-white' : plan.status === 'wait' ? 'bg-amber-400 text-slate-950' : 'bg-slate-600 text-slate-200'">
+                              <i v-if="plan.status === 'finish'" class="fa fa-check"></i>
+                              <span v-else>{{ plan.stage_order || index + 1 }}</span>
+                            </div>
+                            <div class="mt-2 font-semibold" :class="plan.status === 'finish' ? 'text-emerald-300' : plan.status === 'running' ? 'text-blue-300' : 'text-slate-300'">{{ plan.interview_round }}</div>
+                            <div class="mt-1 text-xs text-slate-500">{{ statusLabel(plan.status) }}</div>
+                          </div>
+                          <div v-if="index < group.plans.length - 1" class="mt-4 h-px min-w-[80px] flex-1 bg-slate-700"></div>
+                        </template>
+                      </div>
+
+                      <div class="mt-2 overflow-hidden rounded-xl border border-white/10">
+                        <table class="w-full text-left text-sm">
+                          <thead class="bg-white/[0.035] text-slate-400">
+                            <tr>
+                              <th class="px-4 py-3 font-medium">环节</th>
+                              <th class="px-4 py-3 font-medium">面试官 / 方式</th>
+                              <th class="px-4 py-3 font-medium">时间</th>
+                              <th class="px-4 py-3 font-medium">状态</th>
+                              <th class="px-4 py-3 font-medium">操作</th>
+                            </tr>
+                          </thead>
+                          <tbody class="divide-y divide-white/10">
+                            <tr v-for="plan in group.plans" :key="plan.id">
+                              <td class="px-4 py-3 text-white">{{ plan.interview_round }}</td>
+                              <td class="px-4 py-3 text-slate-300">{{ plan.interviewer || 'AI 面试官' }}</td>
+                              <td class="px-4 py-3 text-slate-400">{{ plan.scheduled_at || '-' }}</td>
+                              <td class="px-4 py-3" :class="plan.status === 'finish' ? 'text-emerald-300' : plan.status === 'running' ? 'text-blue-300' : 'text-slate-400'">{{ statusLabel(plan.status) }}</td>
+                              <td class="px-4 py-3">
+                                <button v-if="['wait', 'running'].includes(plan.status)" class="text-blue-300 hover:text-blue-200" @click.stop="enterInterview(plan)">进入面试</button>
+                                <span v-else class="text-slate-500">-</span>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <aside class="space-y-5">
+              <div class="rounded-2xl border border-white/10 bg-emerald-500/10 p-6 shadow-2xl shadow-emerald-950/20">
+                <div class="border-l-4 border-emerald-400 pl-4 text-xl font-bold text-white">当前可操作岗位</div>
+                <div class="mt-8 flex items-center gap-4">
+                  <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white">
+                    <i class="fa fa-bar-chart text-2xl"></i>
+                  </div>
+                  <div>
+                    <div class="text-2xl font-bold text-white">{{ activeGroup?.jd_name || '-' }}</div>
+                    <div class="mt-2 rounded-lg bg-blue-500/20 px-3 py-1 text-sm text-blue-300">{{ currentPlan ? groupStatusText(activeGroup) : '等待通知' }}</div>
+                  </div>
+                </div>
+                <div class="mt-8 space-y-3 text-sm text-slate-300">
+                  <div><i class="fa fa-info-circle mr-2 text-slate-500"></i>下一环节：{{ currentPlan?.interview_round || '等待招聘方通知' }}</div>
+                  <div><i class="fa fa-clock-o mr-2 text-slate-500"></i>面试时间：{{ currentPlan?.scheduled_at || '暂未设置' }}</div>
+                </div>
+                <button
+                  v-if="currentPlan"
+                  class="mt-7 w-full rounded-xl bg-emerald-500 px-5 py-4 font-bold text-slate-950 transition hover:bg-emerald-400"
+                  @click="enterInterview(currentPlan)"
+                >
+                  {{ currentActionText }}
+                </button>
+                <button v-else class="mt-7 w-full cursor-not-allowed rounded-xl bg-slate-700 px-5 py-4 font-bold text-slate-400">等待通知</button>
+              </div>
+
+              <div class="rounded-2xl border border-white/10 bg-white/[0.045] p-6">
+                <div class="text-xl font-bold text-white">面试信息</div>
+                <div class="mt-5 space-y-4 text-sm">
+                  <div class="flex justify-between gap-4">
+                    <span class="text-slate-400">候选人</span>
+                    <span class="font-semibold text-slate-100">{{ activeGroup?.candidate_name || '-' }}</span>
+                  </div>
+                  <div class="flex justify-between gap-4">
+                    <span class="text-slate-400">流程</span>
+                    <span class="font-semibold text-slate-100">{{ activeGroup?.workflow_name || '-' }}</span>
+                  </div>
+                  <div class="flex justify-between gap-4">
+                    <span class="text-slate-400">进度</span>
+                    <span class="font-semibold text-emerald-300">{{ allFinishedCount }}/{{ allPlanCount }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-white/10 bg-white/[0.045] p-6">
+                <div class="text-xl font-bold text-white">面试小贴士</div>
+                <p class="mt-4 text-sm leading-7 text-slate-400">提前了解面试流程，准备好项目经历、技术细节和岗位匹配说明。离开页面后可回到这里继续当前轮次。</p>
+                <div class="mt-5 rounded-xl bg-blue-500/10 p-4 text-blue-200">
+                  <i class="fa fa-lightbulb-o mr-2"></i>
+                  回答时尽量按背景、动作、结果说明。
+                </div>
+              </div>
+            </aside>
+          </div>
+
+          <div v-else class="rounded-2xl border border-white/10 bg-white/[0.04] p-10 text-center">
+            <h2 class="text-xl font-bold text-white">暂无面试安排</h2>
+            <p class="mt-2 text-slate-400">请确认你使用的是招聘方提供的候选人账号。</p>
+          </div>
+        </div>
+      </main>
     </div>
   </div>
 </template>

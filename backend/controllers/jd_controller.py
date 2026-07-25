@@ -44,6 +44,12 @@ async def jd_stats(_: dict = Depends(require_admin)):
     return jd_repo.get_stats()
 
 
+@router.get("/public")
+async def public_jds(category: str = "", location: str = "", search: str = "", recruitment_type: str = "", page: int = 1, page_size: int = 10):
+    items, total = jd_repo.list_all_paged(category, "enable", location, search, recruitment_type, page, page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
 @router.get("")
 async def list_jds(category: str = "", status: str = "", location: str = "", search: str = "", recruitment_type: str = "", page: int = 1, page_size: int = 10, _: dict = Depends(require_admin)):
     items, total = jd_repo.list_all_paged(category, status, location, search, recruitment_type, page, page_size)

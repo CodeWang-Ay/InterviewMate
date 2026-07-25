@@ -55,7 +55,7 @@ async function doLogin() {
     localStorage.setItem('nickname', data.nickname)
     if (data.avatar) localStorage.setItem('avatar', data.avatar)
     localStorage.setItem('role', data.role || 'user')
-    router.push(route.query.redirect || (isCandidateLogin.value ? '/user' : '/'))
+    router.push(route.query.redirect || (isCandidateLogin.value ? '/user' : '/admin'))
   } catch (e) {
     error.value = e.message
   }
@@ -108,7 +108,7 @@ async function doLogin() {
               class="inline-flex rounded-[22px] border border-slate-200 bg-slate-100/80 p-1.5 shadow-sm"
             >
               <router-link
-                to="/login"
+                to="/admin/login"
                 :class="[
                   'inline-flex items-center gap-2 rounded-[16px] px-4 py-2.5 text-sm font-semibold no-underline transition-all whitespace-nowrap',
                   'bg-white text-slate-900 shadow-sm'

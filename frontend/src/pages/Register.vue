@@ -33,7 +33,7 @@ async function doRegister() {
       throw new Error(err.detail || '注册失败')
     }
     success.value = true
-    setTimeout(() => router.push('/login'), 2000)
+    setTimeout(() => router.push('/admin/login'), 2000)
   } catch (e) {
     error.value = e.message
   }
@@ -94,7 +94,7 @@ async function doRegister() {
 
           <p class="text-center text-sm text-gray-500 mt-5">
             已有账号？
-            <router-link to="/login" class="text-[#1677ff] hover:underline font-medium">立即登录</router-link>
+            <router-link to="/admin/login" class="text-[#1677ff] hover:underline font-medium">立即登录</router-link>
           </p>
         </template>
       </div>

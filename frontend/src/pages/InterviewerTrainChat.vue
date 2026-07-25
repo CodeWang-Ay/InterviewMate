@@ -120,7 +120,7 @@ async function finishTraining() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail || '生成训练报告失败')
     state.value = 'COMPLETED'
-    router.push({ path: '/report', query: { session_id: sessionId.value } })
+    router.push({ path: '/admin/report', query: { session_id: sessionId.value } })
   } catch (err) {
     error.value = err.message || '生成训练报告失败'
   } finally {
@@ -138,7 +138,7 @@ function onKeydown(event) {
 onMounted(async () => {
   sessionId.value = String(route.query.session_id || '')
   if (!sessionId.value) {
-    router.replace('/interviewer')
+    router.replace('/admin/interviewer')
     return
   }
   await loadSession()
@@ -149,7 +149,7 @@ onMounted(async () => {
   <div class="min-h-screen bg-[#f3f7ff] px-6 py-6">
     <div class="mx-auto grid max-w-[1540px] gap-6 xl:grid-cols-[330px_minmax(0,1fr)]">
       <aside class="rounded-[28px] border border-[#d9e6fb] bg-white p-6 shadow-[0_20px_55px_rgba(70,110,190,0.11)]">
-        <router-link to="/interviewer" class="inline-flex items-center gap-2 text-sm font-medium text-[#4f6cae] no-underline hover:text-[#214fc5]">
+        <router-link to="/admin/interviewer" class="inline-flex items-center gap-2 text-sm font-medium text-[#4f6cae] no-underline hover:text-[#214fc5]">
           <i class="fa fa-angle-left"></i>
           返回训练台
         </router-link>

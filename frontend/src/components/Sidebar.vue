@@ -18,19 +18,19 @@ if (!avatarUrl.value) {
 
 function doLogout() {
   localStorage.clear()
-  router.push('/login')
+  router.push('/admin/login')
 }
 
 const navItems = [
-  { icon: 'fa-home', label: '首页', path: '/' },
-  { icon: 'fa-comments-o', label: '面试官训练台', path: '/interviewer' },
-  { icon: 'fa-file-text', label: '岗位 JD 管理', path: '/jd-manager' },
-  { icon: 'fa-id-card-o', label: '简历管理', path: '/resume-manager' },
-  { icon: 'fa-magic', label: 'AI 辅助中心', path: '/ai-tools' },
-  { icon: 'fa-list-alt', label: '面试计划管理', path: '/plan-manager' },
-  { icon: 'fa-archive', label: '面试档案', path: '/interview-archive', activePaths: ['/interview-archive', '/report', '/interview-record', '/record-list', '/report-list'], adminOnly: true },
-  { icon: 'fa-tasks', label: '任务状态中心', path: '/tasks', adminOnly: true },
-  { icon: 'fa-cog', label: '设置', path: '/settings' },
+  { icon: 'fa-home', label: '首页', path: '/admin' },
+  { icon: 'fa-comments-o', label: '面试官训练台', path: '/admin/interviewer' },
+  { icon: 'fa-file-text', label: '岗位 JD 管理', path: '/admin/jd-manager' },
+  { icon: 'fa-id-card-o', label: '简历管理', path: '/admin/resume-manager' },
+  { icon: 'fa-magic', label: 'AI 辅助中心', path: '/admin/ai-tools' },
+  { icon: 'fa-list-alt', label: '面试计划管理', path: '/admin/plan-manager' },
+  { icon: 'fa-archive', label: '面试档案', path: '/admin/interview-archive', activePaths: ['/admin/interview-archive', '/admin/report', '/admin/interview-record', '/admin/record-list', '/admin/report-list'], adminOnly: true },
+  { icon: 'fa-tasks', label: '任务状态中心', path: '/admin/tasks', adminOnly: true },
+  { icon: 'fa-cog', label: '设置', path: '/admin/settings' },
 ]
 
 const visibleNavItems = navItems.filter((item) => !item.adminOnly || role.value === 'admin')
@@ -43,7 +43,7 @@ function isActive(item) {
 <template>
   <aside class="w-[220px] bg-[#f7f8fa] flex flex-col p-4 flex-shrink-0 h-screen">
     <!-- Logo -->
-    <router-link to="/" class="flex items-center gap-2 mb-8 no-underline">
+    <router-link to="/admin" class="flex items-center gap-2 mb-8 no-underline">
       <div class="w-9 h-9 bg-[#1677ff] rounded-lg flex items-center justify-center text-white font-bold text-lg">AI</div>
       <span class="text-lg font-semibold text-gray-800">AI 面试助手</span>
     </router-link>
@@ -68,7 +68,7 @@ function isActive(item) {
 
     <!-- 底部用户信息 -->
     <div class="mt-auto pt-4 border-t border-gray-200">
-      <router-link to="/user-center" class="flex items-center gap-3 hover:bg-gray-100 rounded-lg p-2 -mx-2 transition cursor-pointer no-underline">
+      <router-link to="/admin/user-center" class="flex items-center gap-3 hover:bg-gray-100 rounded-lg p-2 -mx-2 transition cursor-pointer no-underline">
         <img :src="avatarUrl" alt="avatar" class="w-10 h-10 rounded-full flex-shrink-0">
         <div class="flex-1">
           <div class="font-medium text-gray-800 text-sm">{{ nickname }}</div>

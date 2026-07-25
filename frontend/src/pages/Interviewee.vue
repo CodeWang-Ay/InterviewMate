@@ -350,7 +350,7 @@ async function generatePlan() {
       </div>
 
       <div class="text-center">
-        <router-link to="/" class="text-slate-500 hover:text-slate-300 text-sm transition-colors">
+        <router-link to="/admin" class="text-slate-500 hover:text-slate-300 text-sm transition-colors">
           ← 返回首页
         </router-link>
       </div>

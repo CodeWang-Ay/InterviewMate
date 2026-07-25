@@ -177,7 +177,7 @@ onMounted(async () => {
       <div v-else-if="!report" class="flex min-h-[60vh] items-center justify-center">
         <div class="rounded-2xl bg-white px-10 py-8 text-center shadow-sm">
           <p class="mb-4 text-sm text-slate-500">报告不可用</p>
-          <router-link to="/" class="text-sm font-semibold text-indigo-600 hover:text-indigo-700">返回首页</router-link>
+          <router-link to="/admin" class="text-sm font-semibold text-indigo-600 hover:text-indigo-700">返回首页</router-link>
         </div>
       </div>
 
@@ -378,7 +378,7 @@ onMounted(async () => {
               </button>
             </div>
             <router-link
-              :to="{ path: '/interview-record', query: { session_id: report.session_id } }"
+              :to="{ path: '/admin/interview-record', query: { session_id: report.session_id } }"
               class="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition"
             >
               打开完整记录页

@@ -20,28 +20,28 @@ const quickLinks = [
     title: '岗位 JD 管理',
     desc: '维护在招岗位、职责要求和启停状态',
     icon: 'fa-file-text-o',
-    to: '/jd-manager',
+    to: '/admin/jd-manager',
     accent: 'from-[#2f6df6] to-[#78a0ff]',
   },
   {
     title: '简历管理',
     desc: '查看解析结果，补齐候选人画像与技能标签',
     icon: 'fa-id-card-o',
-    to: '/resume-manager',
+    to: '/admin/resume-manager',
     accent: 'from-[#159d6d] to-[#52d5a3]',
   },
   {
     title: '面试计划管理',
     desc: '按候选人查看一面、二面、HR 面推进状态',
     icon: 'fa-calendar-check-o',
-    to: '/plan-manager',
+    to: '/admin/plan-manager',
     accent: 'from-[#7a57f6] to-[#b79dff]',
   },
   {
     title: '面试官训练台',
     desc: '用 JD 和简历对练提问、追问与控场',
     icon: 'fa-comments-o',
-    to: '/interviewer',
+    to: '/admin/interviewer',
     accent: 'from-[#f59f0b] to-[#f9c15a]',
   },
 ]
@@ -361,11 +361,11 @@ onMounted(loadDashboard)
               </div>
 
               <div class="mt-8 flex flex-wrap gap-3">
-                <router-link to="/plan-manager" class="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-[#163166] no-underline shadow-sm transition hover:translate-y-[-1px]">
+                <router-link to="/admin/plan-manager" class="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-[#163166] no-underline shadow-sm transition hover:translate-y-[-1px]">
                   <i class="fa fa-play-circle-o text-[#2f6df6]"></i>
                   进入面试计划管理
                 </router-link>
-                <router-link to="/interviewer" class="inline-flex items-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white no-underline transition hover:bg-white/16">
+                <router-link to="/admin/interviewer" class="inline-flex items-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white no-underline transition hover:bg-white/16">
                   <i class="fa fa-comments-o"></i>
                   打开面试官训练台
                 </router-link>
@@ -577,7 +577,7 @@ onMounted(loadDashboard)
                 <div class="text-sm font-semibold text-[#3970e9]">Focus Queue</div>
                 <h2 class="mt-2 text-[28px] font-bold text-[#18233e]">当前推进中的流程</h2>
               </div>
-              <router-link to="/plan-manager" class="text-sm font-semibold text-[#2f6df6] no-underline hover:text-[#184bbd]">查看全部</router-link>
+              <router-link to="/admin/plan-manager" class="text-sm font-semibold text-[#2f6df6] no-underline hover:text-[#184bbd]">查看全部</router-link>
             </div>
 
             <div v-if="loading" class="py-16 text-center text-[#7b88a3]">
@@ -622,7 +622,7 @@ onMounted(loadDashboard)
                       <span>待前序 {{ item.pending }}</span>
                     </div>
                   </div>
-                  <router-link to="/plan-manager" class="inline-flex items-center gap-2 rounded-2xl border border-[#dbe7ff] bg-white px-4 py-3 text-sm font-semibold text-[#274fb5] no-underline transition hover:border-[#97b4ff]">
+                  <router-link to="/admin/plan-manager" class="inline-flex items-center gap-2 rounded-2xl border border-[#dbe7ff] bg-white px-4 py-3 text-sm font-semibold text-[#274fb5] no-underline transition hover:border-[#97b4ff]">
                     进入流程
                     <i class="fa fa-angle-right"></i>
                   </router-link>
@@ -666,7 +666,7 @@ onMounted(loadDashboard)
                 <div class="text-sm font-semibold text-[#3970e9]">Resume Feed</div>
                 <h2 class="mt-2 text-[28px] font-bold text-[#18233e]">最近简历</h2>
               </div>
-              <router-link to="/resume-manager" class="text-sm font-semibold text-[#2f6df6] no-underline hover:text-[#184bbd]">查看全部</router-link>
+              <router-link to="/admin/resume-manager" class="text-sm font-semibold text-[#2f6df6] no-underline hover:text-[#184bbd]">查看全部</router-link>
             </div>
 
             <div class="mt-6 space-y-3">
@@ -694,7 +694,7 @@ onMounted(loadDashboard)
                 <div class="text-sm font-semibold text-[#3970e9]">Archive Feed</div>
                 <h2 class="mt-2 text-[28px] font-bold text-[#18233e]">最近归档</h2>
               </div>
-              <router-link to="/interview-archive" class="text-sm font-semibold text-[#2f6df6] no-underline hover:text-[#184bbd]">查看档案</router-link>
+              <router-link to="/admin/interview-archive" class="text-sm font-semibold text-[#2f6df6] no-underline hover:text-[#184bbd]">查看档案</router-link>
             </div>
 
             <div class="mt-6 space-y-3">

@@ -50,7 +50,7 @@ const LIVE2D_MODEL_URL = '/hiyori_pro_zh/runtime/hiyori_pro_t11.model3.json'
 const LIVE2D_SCRIPT_URLS = ['/js/live2dcubismcore.min.js', '/js/pixi.js', '/js/cubism4.min.js']
 const textDecoder = new TextDecoder('utf-8')
 const isAdmin = computed(() => role.value === 'admin')
-const backPath = computed(() => isAdmin.value ? '/interviewee' : '/user')
+const backPath = computed(() => isAdmin.value ? '/admin/interviewee' : '/user')
 const voiceSupported = computed(() => typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia))
 const candidateName = computed(() => planInfo.value?.candidate_name || safeGetLocalStorage('nickname', '我'))
 const jobName = computed(() => planInfo.value?.jd_name || '目标岗位')
@@ -1156,7 +1156,7 @@ function roleShort(roleName) {
           </button>
           <router-link
             v-if="isAdmin"
-            :to="{ path: '/report', query: { session_id: sessionId } }"
+            :to="{ path: '/admin/report', query: { session_id: sessionId } }"
             class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-600 no-underline hover:bg-slate-200"
           >
             查看面试报告

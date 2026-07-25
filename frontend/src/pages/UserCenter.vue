@@ -157,7 +157,7 @@ async function changePassword() {
 
 function doLogout() {
   localStorage.clear()
-  router.push('/login')
+  router.push('/admin/login')
 }
 </script>
 
