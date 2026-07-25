@@ -141,8 +141,12 @@ onMounted(async () => {
       ? data.history.map(withTimestamp)
       : [withTimestamp({ role: 'interviewer', content: data.message, timestamp: nowIso() })]
     state.value = data.state
-    if (state.value === 'COMPLETED') showCompletionDialog()
-    if (voiceMode.value) speakText(messages.value.at(-1)?.content || '')
+    if (state.value === 'COMPLETED') {
+      if (voiceMode.value && autoSpeak.value) await speakText(messages.value.at(-1)?.content || '')
+      showCompletionDialog()
+    } else if (voiceMode.value && autoSpeak.value) {
+      speakText(messages.value.at(-1)?.content || '')
+    }
     await scrollDown()
   } catch (e) {
     messages.value.push(withTimestamp({ role: 'system', content: '启动面试失败: ' + e.message, timestamp: nowIso() }))
@@ -226,8 +230,12 @@ async function sendMessage() {
     const nextState = res.headers.get('X-Chat-State')
     if (nextState) state.value = nextState
     if (!interviewerMessage.content) interviewerMessage.content = '我刚刚没能正常生成回复，我们继续。'
-    if (voiceMode.value && autoSpeak.value) speakText(interviewerMessage.content)
-    if (state.value === 'COMPLETED') showCompletionDialog()
+    if (state.value === 'COMPLETED') {
+      if (voiceMode.value && autoSpeak.value) await speakText(interviewerMessage.content)
+      showCompletionDialog()
+    } else if (voiceMode.value && autoSpeak.value) {
+      speakText(interviewerMessage.content)
+    }
     await scrollDown()
   } catch (e) {
     if (messages.value[messages.value.length - 1]?.role === 'interviewer' && !messages.value[messages.value.length - 1]?.content) {
@@ -686,23 +694,36 @@ async function speakText(text) {
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok || !data.audio) throw new Error(data.detail || '语音合成失败')
-    const audio = new Audio(`data:${data.format || 'audio/mpeg'};base64,${data.audio}`)
-    audio.onended = () => {
-      stopLive2DLipSync()
-      if (currentAudio.value === audio) currentAudio.value = null
-    }
-    audio.onerror = () => {
-      stopLive2DLipSync()
-      if (currentAudio.value === audio) currentAudio.value = null
-    }
-    currentAudio.value = audio
-    startLive2DLipSync(audio)
-    await audio.play()
+    await playAudioToEnd(`data:${data.format || 'audio/mpeg'};base64,${data.audio}`)
   } catch (error) {
     stopLive2DLipSync()
     currentAudio.value = null
     voiceError.value = error.message || '语音合成失败'
   }
+}
+
+function playAudioToEnd(src) {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(src)
+    const cleanup = () => {
+      stopLive2DLipSync()
+      if (currentAudio.value === audio) currentAudio.value = null
+    }
+    audio.onended = () => {
+      cleanup()
+      resolve()
+    }
+    audio.onerror = () => {
+      cleanup()
+      reject(new Error('语音播放失败'))
+    }
+    currentAudio.value = audio
+    startLive2DLipSync(audio)
+    audio.play().catch((error) => {
+      cleanup()
+      reject(error)
+    })
+  })
 }
 
 function stopSpeaking() {
@@ -994,27 +1015,29 @@ function roleShort(roleName) {
             </div>
           </header>
 
+          <div class="flex-shrink-0 border-b border-slate-100 bg-white/95 px-6 py-4 backdrop-blur">
+            <div class="rounded-[24px] border border-indigo-100 bg-slate-50 px-5 py-4">
+              <div class="flex items-center gap-5">
+                <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-lg font-black text-indigo-600">AI</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="text-xs font-black uppercase tracking-[0.22em] text-indigo-400">Digital interviewer</p>
+                    <span class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600">{{ interviewerMood }}</span>
+                  </div>
+                  <h3 class="mt-1 text-xl font-black text-slate-950">{{ interviewerName }}</h3>
+                  <p class="mt-1 truncate text-sm font-semibold text-slate-500">{{ roundSummary }} · 面向「{{ jobName }}」的结构化面试</p>
+                </div>
+                <div class="rounded-2xl bg-indigo-50 px-4 py-3 text-right">
+                  <p class="text-xs font-bold text-indigo-400">当前进度</p>
+                  <p class="mt-1 text-lg font-black text-indigo-700">{{ candidateCount }} / {{ interviewerCount }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="relative min-h-0 flex-1 bg-[#eef2f8]">
             <div ref="chatBox" class="h-full overflow-y-auto px-6 py-5 pb-28">
               <div class="space-y-5">
-                <div class="rounded-[28px] border border-white/80 bg-white/75 p-5 shadow-sm shadow-indigo-100/60 backdrop-blur">
-                  <div class="flex items-center gap-5">
-                    <div class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-3xl bg-indigo-50 text-xl font-black text-indigo-600">AI</div>
-                    <div class="min-w-0 flex-1">
-                      <div class="flex flex-wrap items-center gap-2">
-                        <p class="text-xs font-black uppercase tracking-[0.22em] text-indigo-400">Digital interviewer</p>
-                        <span class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600">{{ interviewerMood }}</span>
-                      </div>
-                      <h3 class="mt-2 text-2xl font-black text-slate-950">{{ interviewerName }}</h3>
-                      <p class="mt-1 text-sm font-semibold leading-6 text-slate-500">{{ roundSummary }} · 面向「{{ jobName }}」的结构化面试</p>
-                    </div>
-                    <div class="hidden rounded-2xl bg-indigo-50 px-4 py-3 text-right sm:block">
-                      <p class="text-xs font-bold text-indigo-400">当前进度</p>
-                      <p class="mt-1 text-lg font-black text-indigo-700">{{ candidateCount }} / {{ interviewerCount }}</p>
-                    </div>
-                  </div>
-                </div>
-
                 <div
                   v-for="(msg, i) in messages"
                   :key="i"
