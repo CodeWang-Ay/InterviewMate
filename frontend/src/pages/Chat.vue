@@ -1,10 +1,6 @@
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import humanIdle from '../assets/digital-human/human_1_cut.png'
-import humanMouthA from '../assets/digital-human/human_mouth_2.png'
-import humanMouthB from '../assets/digital-human/human_mouth_3.png'
-import humanMouthC from '../assets/digital-human/human_mouth_4.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,6 +10,7 @@ const state = ref('READY_CHECK')
 const sending = ref(false)
 const sessionId = ref('')
 const chatBox = ref(null)
+const answerInputRef = ref(null)
 const role = ref(safeGetLocalStorage('role', 'user'))
 const planInfo = ref(null)
 const voiceMode = ref(false)
@@ -37,7 +34,6 @@ const completionDialogVisible = ref(false)
 const avatarPosition = ref({ x: 0, y: 0 })
 const avatarDragging = ref(false)
 const avatarDragOffset = ref({ x: 0, y: 0 })
-const digitalHumanMouthFrames = [humanMouthA, humanMouthB, humanMouthC]
 const live2dCanvas = ref(null)
 const live2dReady = ref(false)
 const live2dError = ref('')
@@ -52,6 +48,7 @@ const TARGET_SAMPLE_RATE = 16000
 const STREAM_CHUNK_MS = 200
 const LIVE2D_MODEL_URL = '/hiyori_pro_zh/runtime/hiyori_pro_t11.model3.json'
 const LIVE2D_SCRIPT_URLS = ['/js/live2dcubismcore.min.js', '/js/pixi.js', '/js/cubism4.min.js']
+const textDecoder = new TextDecoder('utf-8')
 const isAdmin = computed(() => role.value === 'admin')
 const backPath = computed(() => isAdmin.value ? '/interviewee' : '/user')
 const voiceSupported = computed(() => typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia))
@@ -80,10 +77,21 @@ const interviewerMood = computed(() => {
   if (sending.value) return '正在思考'
   return '在线候场'
 })
-const avatarTalking = computed(() => Boolean(currentAudio.value))
+watch(input, () => {
+  nextTick(resizeAnswerInput)
+})
 
 function nowIso() {
   return new Date().toISOString()
+}
+
+function resizeAnswerInput() {
+  const el = answerInputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  const nextHeight = Math.min(Math.max(el.scrollHeight, 56), 220)
+  el.style.height = `${nextHeight}px`
+  el.style.overflowY = el.scrollHeight > 220 ? 'auto' : 'hidden'
 }
 
 function withTimestamp(message) {
@@ -173,18 +181,58 @@ async function sendMessage() {
   await scrollDown()
 
   try {
-    const res = await fetch('/api/chat/message', {
+    const interviewerMessage = withTimestamp({ role: 'interviewer', content: '', timestamp: nowIso() })
+    messages.value.push(interviewerMessage)
+    await scrollDown()
+
+    const res = await fetch('/api/chat/message/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId.value, message: text }),
     })
-    const data = await res.json()
-    messages.value.push(withTimestamp({ role: 'interviewer', content: data.message, timestamp: nowIso() }))
-    state.value = data.state
-    if (voiceMode.value && autoSpeak.value) speakText(data.message)
+    if (!res.ok) {
+      let errText = '发送失败'
+      try {
+        const data = await res.json()
+        errText = data.detail || errText
+      } catch (_) {
+        // ignore
+      }
+      throw new Error(errText)
+    }
+
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('当前浏览器不支持流式响应')
+
+    let fullText = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      const chunk = textDecoder.decode(value, { stream: true })
+      if (!chunk) continue
+      fullText += chunk
+      interviewerMessage.content = fullText
+      interviewerMessage.timestamp = nowIso()
+      messages.value = [...messages.value]
+      await scrollDown()
+    }
+    const tail = textDecoder.decode()
+    if (tail) {
+      fullText += tail
+      interviewerMessage.content = fullText
+      messages.value = [...messages.value]
+    }
+
+    const nextState = res.headers.get('X-Chat-State')
+    if (nextState) state.value = nextState
+    if (!interviewerMessage.content) interviewerMessage.content = '我刚刚没能正常生成回复，我们继续。'
+    if (voiceMode.value && autoSpeak.value) speakText(interviewerMessage.content)
     if (state.value === 'COMPLETED') showCompletionDialog()
     await scrollDown()
   } catch (e) {
+    if (messages.value[messages.value.length - 1]?.role === 'interviewer' && !messages.value[messages.value.length - 1]?.content) {
+      messages.value.pop()
+    }
     messages.value.push(withTimestamp({ role: 'system', content: '发送失败: ' + e.message, timestamp: nowIso() }))
   } finally {
     sending.value = false
@@ -994,83 +1042,69 @@ function roleShort(roleName) {
                             : 'rounded-tl-md bg-white text-slate-700 ring-1 ring-slate-100'
                       ]"
                     >
-                      {{ msg.content }}
+                      <span v-if="msg.content">{{ msg.content }}</span>
+                      <span v-else-if="msg.role === 'interviewer' && sending" class="inline-flex gap-1 align-middle">
+                        <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 0ms"></span>
+                        <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 150ms"></span>
+                        <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 300ms"></span>
+                      </span>
                     </div>
                   </div>
                   <div v-if="msg.role === 'candidate'" class="mt-7 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-base font-bold text-white shadow-sm">
                     {{ roleShort(msg.role) }}
                   </div>
                 </div>
-
-                <div v-if="sending" class="flex justify-start gap-3">
-                  <div class="mt-1 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-base font-bold text-white shadow-sm">官</div>
-                  <div class="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-lg text-slate-400 ring-1 ring-slate-100">
-                    <span class="inline-flex gap-1">
-                      <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 0ms"></span>
-                      <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 150ms"></span>
-                      <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style="animation-delay: 300ms"></span>
-                    </span>
-                  </div>
-                </div>
               </div>
             </div>
 
-            <div
-              v-if="voiceMode || isRecording || voiceBusy || voiceText || voiceError"
-              class="pointer-events-none absolute inset-x-6 bottom-5 z-10 flex justify-center"
-            >
-              <div class="pointer-events-auto w-full max-w-2xl rounded-3xl border border-indigo-100 bg-white/95 px-5 py-4 shadow-2xl shadow-indigo-200/40 backdrop-blur">
-                <div class="flex items-start gap-4">
-                  <div :class="['mt-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl text-white shadow-sm', isRecording ? 'bg-red-500' : voiceBusy ? 'bg-indigo-600' : 'bg-emerald-500']">
-                    {{ isRecording ? '●' : voiceBusy ? '识' : '✓' }}
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <p class="text-base font-black text-slate-900">{{ isRecording ? '正在听你说话' : voiceBusy ? '正在二次精校' : '语音识别内容' }}</p>
-                    <p class="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-500">{{ voiceText || input || '按住空格或按住右侧按钮说话，松开后自动发送到聊天框。' }}</p>
-                    <p v-if="voiceError" class="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-500">{{ voiceError }}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
 
           <footer class="flex-shrink-0 border-t border-slate-100 bg-white px-5 py-4">
-            <div class="flex items-end gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-2">
-              <textarea
-                v-model="input"
-                :disabled="state === 'COMPLETED' || sending"
-                rows="1"
-                placeholder="输入你的回答，Enter 发送，Shift + Enter 换行"
-                class="max-h-40 min-h-14 flex-1 resize-none rounded-2xl border-0 bg-transparent px-5 py-3 text-[18px] leading-8 text-slate-800 placeholder-slate-400 outline-none transition disabled:opacity-50"
-                @keydown="onKeydown"
-                @input="e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }"
-              ></textarea>
-              <button
-                :disabled="!input.trim() || sending || state === 'COMPLETED'"
-                class="flex h-12 min-w-[78px] flex-shrink-0 items-center justify-center rounded-full bg-emerald-500 px-5 text-sm font-bold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
-                @click="sendMessage"
-              >
-                发送
-              </button>
-              <button
-                :disabled="!voiceSupported || state === 'COMPLETED' || sending || voiceBusy"
-                :aria-pressed="isRecording"
-                :class="[
-                  'flex h-12 min-w-[106px] touch-none select-none items-center justify-center gap-1.5 rounded-full px-5 text-sm font-bold shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40',
-                  isRecording ? 'bg-red-500 text-white shadow-red-100 ring-4 ring-red-100' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                ]"
-                @pointerdown="startHoldRecording"
-                @pointerup="finishHoldRecording"
-                @pointerleave="leaveHoldRecording"
-                @pointercancel="cancelHoldRecording"
-                @lostpointercapture="finishHoldRecording"
-                @keydown="handleHoldKeydown"
-                @keyup="handleHoldKeyup"
-                @contextmenu.prevent
-              >
-                <span class="text-base">{{ isRecording ? '●' : '🎤' }}</span>
-                {{ voiceBusy ? '识别中' : isRecording ? '松开' : '按住说话' }}
-              </button>
+            <div class="rounded-3xl border border-slate-200 bg-slate-50 p-2">
+              <div v-if="isRecording || voiceBusy || voiceError" class="mb-2 flex items-center gap-2 px-4 py-2 text-sm font-semibold">
+                <span :class="['h-2.5 w-2.5 rounded-full', isRecording ? 'animate-pulse bg-red-500' : voiceBusy ? 'animate-pulse bg-indigo-500' : 'bg-red-500']"></span>
+                <span :class="voiceError ? 'text-red-500' : 'text-slate-500'">
+                  {{ voiceError || (isRecording ? '正在听你说话，松开后自动写入输入框并发送。' : '正在识别语音，识别结果会出现在下方输入框。') }}
+                </span>
+              </div>
+              <div class="flex items-end gap-3">
+                <textarea
+                  ref="answerInputRef"
+                  v-model="input"
+                  :disabled="state === 'COMPLETED' || sending"
+                  rows="1"
+                  placeholder="输入你的回答，Enter 发送，Shift + Enter 换行"
+                  class="max-h-[220px] min-h-14 flex-1 resize-none rounded-2xl border-0 bg-transparent px-5 py-3 text-[18px] leading-8 text-slate-800 placeholder-slate-400 outline-none transition disabled:opacity-50"
+                  @keydown="onKeydown"
+                  @input="resizeAnswerInput"
+                ></textarea>
+                <button
+                  :disabled="!input.trim() || sending || state === 'COMPLETED'"
+                  class="flex h-12 min-w-[78px] flex-shrink-0 items-center justify-center rounded-full bg-emerald-500 px-5 text-sm font-bold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  @click="sendMessage"
+                >
+                  发送
+                </button>
+                <button
+                  :disabled="!voiceSupported || state === 'COMPLETED' || sending || voiceBusy"
+                  :aria-pressed="isRecording"
+                  :class="[
+                    'flex h-12 min-w-[106px] touch-none select-none items-center justify-center gap-1.5 rounded-full px-5 text-sm font-bold shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40',
+                    isRecording ? 'bg-red-500 text-white shadow-red-100 ring-4 ring-red-100' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                  ]"
+                  @pointerdown="startHoldRecording"
+                  @pointerup="finishHoldRecording"
+                  @pointerleave="leaveHoldRecording"
+                  @pointercancel="cancelHoldRecording"
+                  @lostpointercapture="finishHoldRecording"
+                  @keydown="handleHoldKeydown"
+                  @keyup="handleHoldKeyup"
+                  @contextmenu.prevent
+                >
+                  <span class="text-base">{{ isRecording ? '●' : '🎤' }}</span>
+                  {{ voiceBusy ? '识别中' : isRecording ? '松开' : '按住说话' }}
+                </button>
+              </div>
             </div>
           </footer>
         </section>
@@ -1110,7 +1144,7 @@ function roleShort(roleName) {
 
     <div
       class="floating-interviewer"
-      :class="{ 'floating-interviewer--dragging': avatarDragging, 'floating-interviewer--active': sending || voiceBusy, 'floating-interviewer--listening': isRecording, 'floating-interviewer--talking': avatarTalking }"
+      :class="{ 'floating-interviewer--dragging': avatarDragging, 'floating-interviewer--active': sending || voiceBusy, 'floating-interviewer--listening': isRecording }"
       :style="{ left: `${avatarPosition.x}px`, top: `${avatarPosition.y}px` }"
       @pointerdown="startAvatarDrag"
       @pointermove="moveAvatar"
@@ -1123,23 +1157,6 @@ function roleShort(roleName) {
         class="live2d-avatar__canvas"
         aria-label="Live2D AI 面试官"
       ></canvas>
-      <div v-if="!live2dReady" class="human-avatar" aria-hidden="true">
-        <img
-          class="human-avatar__base"
-          :src="humanIdle"
-          alt=""
-          draggable="false"
-        />
-        <img
-          v-for="(frame, index) in digitalHumanMouthFrames"
-          :key="frame"
-          :src="frame"
-          :class="['human-avatar__mouth', `human-avatar__mouth--${index + 1}`]"
-          alt=""
-          draggable="false"
-        />
-      </div>
-      <span v-if="live2dError" class="live2d-avatar__hint">PNG 兜底</span>
     </div>
   </div>
 </template>
@@ -1275,69 +1292,8 @@ function roleShort(roleName) {
   filter: drop-shadow(0 24px 30px rgba(15, 23, 42, 0.16));
 }
 
-.live2d-avatar__hint {
-  position: absolute;
-  right: 22px;
-  bottom: 18px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.62);
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 800;
-  color: #fff;
-  pointer-events: none;
-}
-
-.human-avatar {
-  position: relative;
-  width: 820px;
-  height: 936px;
-  z-index: 1;
-  transform-origin: 50% 100%;
-  animation: human-idle-breathe 3.2s ease-in-out infinite;
-}
-
-.human-avatar__base,
-.human-avatar__mouth {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  pointer-events: none;
-  filter: drop-shadow(0 20px 26px rgba(15, 23, 42, 0.2));
-  backface-visibility: hidden;
-  transform: translateZ(0);
-}
-
-.human-avatar__base {
-  opacity: 1;
-}
-
-.human-avatar__mouth {
-  opacity: 0;
-  filter: none;
-  will-change: opacity;
-}
-
-.floating-interviewer--talking .human-avatar__mouth--1 {
-  animation: avatar-mouth-frame-1 0.86s linear infinite;
-}
-
-.floating-interviewer--talking .human-avatar__mouth--2 {
-  animation: avatar-mouth-frame-2 0.86s linear infinite;
-}
-
-.floating-interviewer--talking .human-avatar__mouth--3 {
-  animation: avatar-mouth-frame-3 0.86s linear infinite;
-}
-
 .floating-interviewer--listening {
   filter: drop-shadow(0 22px 30px rgba(16, 185, 129, 0.24));
-}
-
-.floating-interviewer--listening .human-avatar {
-  animation: human-listening-nod 1.8s ease-in-out infinite;
 }
 
 @keyframes digital-eye-pulse {
@@ -1357,51 +1313,6 @@ function roleShort(roleName) {
   }
   50% {
     box-shadow: 0 0 0 14px rgba(52, 211, 153, 0.04);
-  }
-}
-
-@keyframes human-idle-breathe {
-  0%, 100% {
-    transform: translateY(0) scale(1);
-  }
-  50% {
-    transform: translateY(3px) scale(1.01);
-  }
-}
-
-@keyframes human-listening-nod {
-  0%, 100% {
-    transform: translateY(0) rotate(0deg);
-  }
-  50% {
-    transform: translateY(2px) rotate(-1.5deg);
-  }
-}
-
-@keyframes avatar-mouth-frame-1 {
-  0%, 10%, 35%, 100% {
-    opacity: 0;
-  }
-  18%, 27% {
-    opacity: 1;
-  }
-}
-
-@keyframes avatar-mouth-frame-2 {
-  0%, 28%, 66%, 100% {
-    opacity: 0;
-  }
-  40%, 55% {
-    opacity: 1;
-  }
-}
-
-@keyframes avatar-mouth-frame-3 {
-  0%, 54%, 94%, 100% {
-    opacity: 0;
-  }
-  68%, 83% {
-    opacity: 1;
   }
 }
 </style>

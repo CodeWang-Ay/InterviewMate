@@ -1,4 +1,7 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from backend.config import chat_sessions
 from backend.controllers.auth_controller import get_current_identity
@@ -23,7 +26,7 @@ async def chat_start(body: ChatStart, identity: dict = Depends(get_current_ident
     elif identity["kind"] != "admin":
         raise HTTPException(status_code=403, detail="仅管理员可发起自由面试")
 
-    session_id, message, state, history = start_session(body.jd_filename, body.resume_filename, body.plan_id)
+    session_id, message, state, history = await start_session(body.jd_filename, body.resume_filename, body.plan_id)
     save_record(session_id)
     return {"session_id": session_id, "message": message, "state": state, "history": history}
 
@@ -31,13 +34,36 @@ async def chat_start(body: ChatStart, identity: dict = Depends(get_current_ident
 @router.post("/message")
 async def chat_message(body: ChatMessage, identity: dict = Depends(get_current_identity)):
     _ensure_session_access(body.session_id, identity)
-    reply, state = process_message(body.session_id, body.message.strip())
+    reply, state = await process_message(body.session_id, body.message.strip())
     save_record(body.session_id)
 
     if state == "COMPLETED":
         generate_report(body.session_id)
 
     return {"message": reply, "state": state}
+
+
+@router.post("/message/stream")
+async def chat_message_stream(body: ChatMessage, identity: dict = Depends(get_current_identity)):
+    _ensure_session_access(body.session_id, identity)
+    reply, state = await process_message(body.session_id, body.message.strip())
+    save_record(body.session_id)
+
+    if state == "COMPLETED":
+        generate_report(body.session_id)
+
+    async def reply_stream():
+        text = reply or ""
+        chunk_size = 4
+        for index in range(0, len(text), chunk_size):
+            yield text[index:index + chunk_size]
+            await asyncio.sleep(0.018)
+
+    return StreamingResponse(
+        reply_stream(),
+        media_type="text/plain; charset=utf-8",
+        headers={"X-Chat-State": state},
+    )
 
 
 def _ensure_session_access(session_id: str, identity: dict) -> None:

@@ -529,7 +529,14 @@ const previewQuestions = computed(() => {
   if (!previewPlan.value?.questions) return []
   try {
     const parsed = JSON.parse(previewPlan.value.questions)
-    return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map(item => {
+        if (typeof item === 'string') return item
+        if (item && typeof item === 'object') return item.question || item.title || item.content || ''
+        return ''
+      })
+      .filter(Boolean)
   } catch (_) {
     return []
   }
