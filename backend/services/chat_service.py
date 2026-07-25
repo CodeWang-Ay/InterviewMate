@@ -2,6 +2,7 @@ import json
 import os
 import re
 import uuid
+import asyncio
 from datetime import datetime
 
 import json_repair
@@ -40,7 +41,7 @@ async def start_session(jd_filename: str = "", resume_filename: str = "", plan_i
             return active_session_id, last_message, restored.get("state", "READY_CHECK"), history
 
     if plan:
-        questions = await _questions_for_plan(plan)
+        questions, should_generate_async = _questions_for_plan_fast(plan)
         jd_filename = plan.get("jd_filename", "")
         resume_filename = plan.get("resume_filename", "")
         plan_repo.update(plan["id"], {"status": "running"})
@@ -60,6 +61,7 @@ async def start_session(jd_filename: str = "", resume_filename: str = "", plan_i
         "answer_evaluations": [],
         "resume_context": _load_resume_context(resume_filename),
         "jd_context": _load_jd_context(jd_filename, plan),
+        "questions_ready": not should_generate_async,
         "history": [],
         "created_at": _now_iso(),
     }
@@ -79,8 +81,38 @@ async def start_session(jd_filename: str = "", resume_filename: str = "", plan_i
 
     if plan:
         plan_repo.update(plan["id"], {"active_session_id": session_id})
+        if should_generate_async:
+            asyncio.create_task(_generate_questions_for_session(session_id, plan))
 
     return session_id, opening, "READY_CHECK", chat_sessions[session_id]["history"]
+
+
+def _questions_for_plan_fast(plan: dict) -> tuple[list[dict], bool]:
+    try:
+        stored = json.loads(plan.get("questions") or "[]")
+        if isinstance(stored, list) and stored:
+            return [_normalize_question(q, index) for index, q in enumerate(stored, start=1) if _question_text(q)], False
+    except Exception:
+        pass
+    return _fallback_questions_for_plan(plan), True
+
+
+async def _generate_questions_for_session(session_id: str, plan: dict) -> None:
+    generated = await _generate_smart_questions(plan)
+    if not generated:
+        session = chat_sessions.get(session_id)
+        if session:
+            session["questions_ready"] = True
+        return
+
+    questions_json = json.dumps(generated, ensure_ascii=False)
+    plan_repo.update(plan["id"], {"questions": questions_json})
+    session = chat_sessions.get(session_id)
+    if not session or session.get("state") == "COMPLETED":
+        return
+    if int(session.get("question_index") or 0) == 0 and not session.get("question_attempts"):
+        session["questions"] = generated
+    session["questions_ready"] = True
 
 
 async def _questions_for_plan(plan: dict) -> list[dict]:

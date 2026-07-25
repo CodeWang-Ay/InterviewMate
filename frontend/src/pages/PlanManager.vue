@@ -50,7 +50,7 @@ const allPlanGroups = computed(() => {
     group.stage_count = Math.max(...group.plans.map(p => p.stage_count || group.plans.length), group.plans.length)
     group.finished_count = group.plans.filter(p => p.status === 'finish').length
     group.status = groupStatus(group.plans)
-    group.current_plan = group.plans.find(p => ['running', 'wait'].includes(p.status)) || group.plans[0]
+    group.current_plan = group.plans.find(p => ['running', 'wait', 'pending'].includes(p.status)) || group.plans[0]
     group.match_score = Math.round(group.plans.reduce((sum, p) => sum + Number(p.match_score || 0), 0) / group.plans.length)
     group.question_count = group.plans.reduce((sum, p) => sum + Number(p.question_count || 0), 0)
     return group
@@ -134,9 +134,10 @@ function nextActionText(group) {
   const plan = group?.current_plan
   if (!plan) return '暂无动作'
   if (plan.status === 'wait') return '可发起'
+  if (plan.status === 'pending') return '等待后台评估后发起'
   if (plan.status === 'running') return '已发起，等待面试'
   if (group.status === 'finish') return '流程已完成'
-  if (group.status === 'pending') return '等待上一轮完成'
+  if (group.status === 'pending') return '等待评估后发起下一轮'
   if (group.status === 'partial') return '继续推进下一轮'
   if (group.status === 'cancel') return '流程已作废'
   return statusLabel(group.status)
@@ -319,8 +320,8 @@ async function deleteSelectedPlans() {
 }
 
 async function createInterview(plan) {
-  if (!['wait', 'running'].includes(plan.status)) {
-    alert('当前环节还不能发起，请先确认前序面试是否完成。')
+  if (!['pending', 'wait', 'running'].includes(plan.status)) {
+    alert('当前环节状态不支持发起。')
     return
   }
   if (plan.status === 'running') {
@@ -463,7 +464,7 @@ const statusBadge = (s) => ({
 
 const statusLabel = (s) => ({
   wait: '待发起面试',
-  pending: '待前序完成',
+  pending: '待评估/待发起',
   running: '已发起/面试中',
   finish: '已完成面试',
   cancel: '已作废',
@@ -588,7 +589,7 @@ const previewQuestions = computed(() => {
         </button>
         <button class="rounded-2xl border border-amber-100 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" @click="setStatusFilter('pending')">
           <div class="flex items-center justify-between">
-            <span class="text-sm font-medium text-gray-500">待前序完成</span>
+            <span class="text-sm font-medium text-gray-500">待评估/待发起</span>
             <span class="h-9 w-9 rounded-xl bg-amber-50 text-amber-500 flex items-center justify-center"><i class="fa fa-hourglass-half"></i></span>
           </div>
           <div class="mt-3 text-3xl font-bold text-gray-900">{{ planStats.pending }}</div>
@@ -627,7 +628,7 @@ const previewQuestions = computed(() => {
           <select v-model="filterStatus" class="border rounded-lg px-3 py-2 min-w-[160px]" @change="page = 1; fetchList()">
             <option value="">全部流程状态</option>
             <option value="wait">待发起面试</option>
-            <option value="pending">待前序完成</option>
+            <option value="pending">待评估/待发起</option>
             <option value="running">已发起/面试中</option>
             <option value="finish">已完成面试</option>
             <option value="cancel">已作废</option>
@@ -727,7 +728,7 @@ const previewQuestions = computed(() => {
               <td class="px-4 py-3 text-center">
                 <div class="flex items-center justify-center gap-2">
                   <button class="h-8 px-3 rounded-lg border border-blue-100 text-[#1677ff] text-sm hover:bg-blue-50" @click="openWorkflowGroup(group)">查看</button>
-                  <button v-if="group.current_plan && group.current_plan.status === 'wait'" class="h-8 px-3 rounded-lg border border-green-100 bg-green-50 text-green-700 text-sm hover:bg-green-100" @click="createInterview(group.current_plan)">发起</button>
+                  <button v-if="group.current_plan && ['pending', 'wait'].includes(group.current_plan.status)" class="h-8 px-3 rounded-lg border border-green-100 bg-green-50 text-green-700 text-sm hover:bg-green-100" @click="createInterview(group.current_plan)">{{ group.current_plan.status === 'pending' ? '评估通过并发起' : '发起' }}</button>
                   <button v-else-if="group.current_plan && group.current_plan.status === 'running'" class="h-8 px-3 rounded-lg border border-blue-100 bg-blue-50 text-blue-700 text-sm hover:bg-blue-100" @click="createInterview(group.current_plan)">入口</button>
                   <button class="h-8 w-8 rounded-lg text-red-400 hover:bg-red-50" title="删除流程" @click="removeGroup(group)"><i class="fa fa-trash-o"></i></button>
                 </div>
@@ -820,9 +821,8 @@ const previewQuestions = computed(() => {
                 <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-white" @click="openPlanPreview(plan)">预览</button>
                 <button class="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-600 text-sm hover:bg-indigo-50" @click="goPlanArchive(plan, 'records')">档案</button>
                 <button class="px-3 py-1.5 rounded-lg border border-[#1677ff] text-[#1677ff] text-sm hover:bg-blue-50" @click="startEditPlan(plan)">{{ editingPlanId === plan.id ? '正在编辑' : '编辑' }}</button>
-                <button v-if="plan.status === 'wait'" class="px-3 py-1.5 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50" @click="createInterview(plan)">发起</button>
+                <button v-if="['pending', 'wait'].includes(plan.status)" class="px-3 py-1.5 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50" @click="createInterview(plan)">{{ plan.status === 'pending' ? '评估通过并发起' : '发起' }}</button>
                 <button v-else-if="plan.status === 'running'" class="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-sm hover:bg-blue-50" @click="createInterview(plan)">查看入口</button>
-                <span v-else-if="plan.status === 'pending'" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-400 text-sm">等待上一轮完成</span>
                 <button v-if="plan.status === 'cancel'" class="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-sm hover:bg-blue-50" @click="updateStatus(plan.id, 'wait')">重新发起</button>
                 <button class="px-3 py-1.5 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50" @click="removePlan(plan.id)">删除</button>
               </div>
@@ -860,7 +860,7 @@ const previewQuestions = computed(() => {
                 <span class="block text-gray-500 mb-1">状态</span>
                 <select v-model="editForm.status" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
                   <option value="wait">待发起面试</option>
-                  <option value="pending">待前序完成</option>
+                  <option value="pending">待评估/待发起</option>
                   <option value="running">已发起/面试中</option>
                   <option value="finish">已完成面试</option>
                   <option value="cancel">已作废</option>

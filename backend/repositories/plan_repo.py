@@ -323,14 +323,14 @@ def transition(pid: int, action: str, payload: dict | None = None) -> dict | Non
         return None
     action = str(action or "").strip()
     if action == "start":
-        if current.get("status") not in {"wait", "running"}:
+        if current.get("status") == "pending" and not _previous_stages_finished(current):
             raise ValueError("当前环节还不能发起，请先完成前序面试")
+        if current.get("status") not in {"pending", "wait", "running"}:
+            raise ValueError("当前环节状态不支持发起")
         return update(pid, {"status": "running", **_pick_plan_payload(payload)})
     if action == "finish":
         data = {"status": "finish", "active_session_id": "", **_pick_result_payload(payload)}
-        updated = update(pid, data)
-        activate_next_stage(pid)
-        return updated
+        return update(pid, data)
     if action == "cancel":
         updated = update(pid, {"status": "cancel", "active_session_id": "", **_pick_result_payload(payload)})
         _reconcile_workflow_for_plan(pid)
@@ -401,19 +401,21 @@ def _reconcile_workflow_status(workflow_id: str) -> None:
         return
 
     updates: list[tuple[str, int]] = []
-    previous_available = True
+    previous_finished = True
     for index, plan in enumerate(plans):
         status = plan.get("status") or "pending"
         if status in {"finish", "running", "cancel"}:
             expected = status
         elif index == 0:
             expected = "wait"
+        elif status == "wait":
+            expected = "wait" if previous_finished else "pending"
         else:
-            expected = "wait" if previous_available else "pending"
+            expected = "pending"
         if status != expected:
             updates.append((expected, plan["id"]))
             plan["status"] = expected
-        previous_available = expected == "finish" or expected == "cancel"
+        previous_finished = expected == "finish" or expected == "cancel"
 
     if updates:
         with _conn() as conn:
