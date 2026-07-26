@@ -184,6 +184,9 @@ function jobSummary(job) {
           }"
         ></span>
       </div>
+      <div class="meteor-field absolute inset-0 overflow-hidden">
+        <span v-for="i in 4" :key="`meteor-${i}`" class="meteor-line" :class="`meteor-${i}`"></span>
+      </div>
 
       <div :class="['relative mx-auto flex max-w-[1380px] flex-col items-center justify-center px-6 text-center', isHomePage ? 'min-h-[calc(100vh-64px)]' : 'min-h-[560px]']">
         <div class="hero-kicker mb-8 rounded-full border border-white/16 bg-white/8 px-5 py-2 text-sm font-semibold tracking-[0.22em] text-white/82">
@@ -421,6 +424,54 @@ function jobSummary(job) {
   animation-iteration-count: infinite;
 }
 
+.meteor-field {
+  pointer-events: none;
+}
+
+.meteor-line {
+  position: absolute;
+  left: 78%;
+  top: 18%;
+  height: 1px;
+  width: 140px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), rgba(114, 242, 209, 0.12));
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.46));
+  opacity: 0;
+  transform: rotate(-26deg) translate3d(0, 0, 0);
+  animation: meteor-fall 8.5s linear infinite;
+}
+
+.meteor-1 {
+  left: 72%;
+  top: 18%;
+  animation-delay: -1.2s;
+}
+
+.meteor-2 {
+  left: 86%;
+  top: 30%;
+  width: 110px;
+  animation-delay: -4.8s;
+  animation-duration: 10.5s;
+}
+
+.meteor-3 {
+  left: 55%;
+  top: 12%;
+  width: 92px;
+  animation-delay: -7.3s;
+  animation-duration: 12s;
+}
+
+.meteor-4 {
+  left: 94%;
+  top: 42%;
+  width: 128px;
+  animation-delay: -9.5s;
+  animation-duration: 13.5s;
+}
+
 .hero-kicker,
 .hero-title,
 .hero-search,
@@ -488,6 +539,22 @@ function jobSummary(job) {
   }
 }
 
+@keyframes meteor-fall {
+  0%,
+  64% {
+    opacity: 0;
+    transform: rotate(-26deg) translate3d(0, 0, 0);
+  }
+  68% {
+    opacity: 0.85;
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: rotate(-26deg) translate3d(-520px, 230px, 0);
+  }
+}
+
 @keyframes label-float {
   0%,
   100% {
@@ -516,6 +583,7 @@ function jobSummary(job) {
   .orbit-ring,
   .orbit-label,
   .star-point,
+  .meteor-line,
   .hero-kicker,
   .hero-title,
   .hero-search,
