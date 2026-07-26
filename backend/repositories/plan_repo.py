@@ -1,7 +1,19 @@
 import sqlite3
 import json
+
+import bcrypt
+
 from backend.config import DB_PATH
 from backend.repositories import jd_repo
+
+
+def _hash_password(password: str) -> str:
+    if not password:
+        return ""
+    # 如果已经是 bcrypt 哈希（以 $2 开头），不再重复哈希
+    if password.startswith("$2"):
+        return password
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 PLAN_STATUSES = {"pending", "wait", "running", "finish", "cancel"}
 
@@ -215,6 +227,11 @@ def list_by_candidate_username(username: str) -> list[dict]:
         return _hydrate_recruitment_types([dict(r) for r in rows])
 
 
+def update_resume_filename_for_candidate(username: str, filename: str) -> None:
+    with _conn() as conn:
+        conn.execute("UPDATE plans SET resume_filename=? WHERE candidate_username=?", (filename, username))
+
+
 def get_by_id(pid: int) -> dict | None:
     with _conn() as conn:
         row = conn.execute("SELECT * FROM plans WHERE id=?", (pid,)).fetchone()
@@ -286,7 +303,7 @@ def create(data: dict) -> dict:
              data.get("question_count", 0), data.get("status", "wait"),
              data.get("jd_filename", ""), data.get("resume_filename", ""),
              data.get("questions", "[]"), data.get("candidate_username", ""),
-             data.get("candidate_password", ""), data.get("scheduled_at", ""),
+             _hash_password(data.get("candidate_password", "")), data.get("scheduled_at", ""),
              data.get("interviewer", ""), data.get("meeting_url", ""),
              data.get("interview_result", ""), data.get("result_score", 0),
              data.get("result_note", ""), data.get("recruitment_type", "社招")),
@@ -308,6 +325,8 @@ def update(pid: int, data: dict) -> dict | None:
                "workflow_id", "workflow_name", "stage_order", "stage_count", "active_session_id",
                "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_score", "result_note",
                "recruitment_type"]
+    if "candidate_password" in data:
+        data = {**data, "candidate_password": _hash_password(data["candidate_password"])}
     sets = [f"{f}=?" for f in allowed if f in data]
     vals = [data[f] for f in allowed if f in data]
     if not sets:

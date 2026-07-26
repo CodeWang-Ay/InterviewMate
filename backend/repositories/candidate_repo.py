@@ -2,11 +2,24 @@ import hashlib
 import sqlite3
 import uuid
 
+import bcrypt
+
 from backend.config import DB_PATH
 
 
 def _hash(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    if stored_hash.startswith("$2"):
+        return bcrypt.checkpw(password.encode(), stored_hash.encode())
+    old_hash = hashlib.sha256(password.encode()).hexdigest()
+    return old_hash == stored_hash
+
+
+def _needs_rehash(stored_hash: str) -> bool:
+    return not stored_hash.startswith("$2")
 
 
 def _conn():
@@ -82,11 +95,19 @@ def register(username: str, password: str, candidate_name: str = "", phone: str 
 def login(username: str, password: str) -> dict | None:
     with _conn() as conn:
         row = conn.execute(
-            "SELECT * FROM candidates WHERE username=? AND password_hash=?",
-            (username, _hash(password)),
+            "SELECT * FROM candidates WHERE username=?",
+            (username,),
         ).fetchone()
     if not row:
         return None
+    stored_hash = row["password_hash"]
+    if not _verify_password(password, stored_hash):
+        return None
+    if _needs_rehash(stored_hash):
+        conn.execute(
+            "UPDATE candidates SET password_hash=? WHERE username=?",
+            (_hash(password), username),
+        )
     token = uuid.uuid4().hex
     tokens[token] = username
     return {

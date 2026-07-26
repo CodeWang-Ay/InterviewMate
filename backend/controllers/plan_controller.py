@@ -3,17 +3,33 @@ import secrets
 import uuid
 
 import os
+import hashlib
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.controllers.auth_controller import get_current_candidate, require_admin
 from backend.repositories import candidate_repo
 from backend.repositories import plan_repo, resume_repo
+from backend.repositories import upload_repo
+from backend.services.file_service import parse_resume
 from backend.config import UPLOAD_DIR
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
+
+
+def _mask_password(plan: dict) -> dict:
+    """返回脱敏后的 plan，candidate_password 仅创建时可见"""
+    if not plan:
+        return plan
+    if plan.get("candidate_password"):
+        plan = {**plan, "candidate_password": ""}
+    return plan
+
+
+def _mask_plans(plans: list[dict]) -> list[dict]:
+    return [_mask_password(p) for p in plans]
 
 
 class PlanUpdate(BaseModel):
@@ -73,7 +89,7 @@ class PlanAction(BaseModel):
 
 @router.get("")
 async def list_plans(search: str = "", status: str = "", _: dict = Depends(require_admin)):
-    return plan_repo.list_all(search, status)
+    return _mask_plans(plan_repo.list_all(search, status))
 
 
 @router.get("/workflow-templates")
@@ -100,7 +116,7 @@ async def update_workflow_template(template_id: int, body: WorkflowTemplateSave,
 
 @router.get("/my")
 async def my_plans(username: str = Depends(get_current_candidate)):
-    return plan_repo.list_by_candidate_username(username)
+    return _mask_plans(plan_repo.list_by_candidate_username(username))
 
 
 @router.get("/my-resume")
@@ -133,7 +149,7 @@ async def get_plan(pid: int, _: dict = Depends(require_admin)):
     p = plan_repo.get_by_id(pid)
     if not p:
         raise HTTPException(status_code=404, detail="计划不存在")
-    return p
+    return _mask_password(p)
 
 
 @router.post("")
@@ -141,8 +157,9 @@ async def create_plan(body: PlanUpdate, _: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     username, password = _ensure_candidate_account(data)
     data["candidate_username"] = username
-    data["candidate_password"] = password
-    return plan_repo.create(data)
+    data["candidate_password"] = password  # plan_repo.create 内部会 bcrypt 哈希
+    plan = plan_repo.create(data)
+    return {**plan, "candidate_password": password}  # 返回明文，仅此一次
 
 
 @router.post("/workflow")
@@ -186,7 +203,7 @@ async def update_plan(pid: int, body: PlanUpdate, _: dict = Depends(require_admi
     p = plan_repo.update(pid, data)
     if not p:
         raise HTTPException(status_code=404, detail="计划不存在")
-    return p
+    return _mask_password(p)
 
 
 @router.post("/{pid}/action")

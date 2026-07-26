@@ -2,11 +2,27 @@ import hashlib
 import sqlite3
 import uuid
 
+import bcrypt
+
 from backend.config import DB_PATH
 
 
 def _hash(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    """验证密码，兼容旧的 SHA256 哈希与新 bcrypt 哈希"""
+    if stored_hash.startswith("$2"):
+        return bcrypt.checkpw(password.encode(), stored_hash.encode())
+    # 旧版 SHA256（无盐），验证后自动升级
+    old_hash = hashlib.sha256(password.encode()).hexdigest()
+    return old_hash == stored_hash
+
+
+def _needs_rehash(stored_hash: str) -> bool:
+    """判断是否需要从 SHA256 升级到 bcrypt"""
+    return not stored_hash.startswith("$2")
 
 
 def _conn():
@@ -109,11 +125,20 @@ def register(username: str, password: str, nickname: str = "", phone: str = "") 
 def login(username: str, password: str) -> dict | None:
     with _conn() as conn:
         row = conn.execute(
-            "SELECT * FROM admins WHERE username=? AND password_hash=?",
-            (username, _hash(password)),
+            "SELECT * FROM admins WHERE username=?",
+            (username,),
         ).fetchone()
     if not row:
         return None
+    stored_hash = row["password_hash"]
+    if not _verify_password(password, stored_hash):
+        return None
+    # 旧 SHA256 哈希自动升级为 bcrypt
+    if _needs_rehash(stored_hash):
+        conn.execute(
+            "UPDATE admins SET password_hash=? WHERE username=?",
+            (_hash(password), username),
+        )
     token = uuid.uuid4().hex
     tokens[token] = username
     return {
@@ -154,10 +179,12 @@ def update_profile(username: str, data: dict) -> bool:
 def change_password(username: str, old_password: str, new_password: str) -> bool:
     with _conn() as conn:
         row = conn.execute(
-            "SELECT id FROM admins WHERE username=? AND password_hash=?",
-            (username, _hash(old_password)),
+            "SELECT password_hash FROM admins WHERE username=?",
+            (username,),
         ).fetchone()
         if not row:
+            return False
+        if not _verify_password(old_password, row["password_hash"]):
             return False
         conn.execute("UPDATE admins SET password_hash=? WHERE username=?", (_hash(new_password), username))
         return True
