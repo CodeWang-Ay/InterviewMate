@@ -122,11 +122,31 @@ async function loadPlans() {
     }
     plans.value = await res.json()
     ensureDefaultExpanded()
+    // 从简历数据中补全电话/邮箱（如果 localStorage 没有）
+    syncProfileFromResume()
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
+}
+
+async function syncProfileFromResume() {
+  if (phone.value && email.value) return  // 已经有了，跳过
+  const resumeFile = plans.value.find(p => p.resume_filename)?.resume_filename
+  if (!resumeFile) return
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch(`/api/plans/my-resume?filename=${encodeURIComponent(resumeFile)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) return
+    const resume = await res.json()
+    const structured = JSON.parse(resume.structured_data || '{}')
+    const basic = structured['基础信息'] || {}
+    if (!phone.value && basic['电话']) { phone.value = basic['电话']; try { localStorage.setItem('phone', basic['电话']) } catch (_) {} }
+    if (!email.value && basic['邮箱']) { email.value = basic['邮箱']; try { localStorage.setItem('email', basic['邮箱']) } catch (_) {} }
+  } catch (_) {}
 }
 
 async function loadRecommendedJobs() {

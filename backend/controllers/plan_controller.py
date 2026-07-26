@@ -176,6 +176,7 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
     content = await file.read()
     file_md5 = hashlib.md5(content).hexdigest()
     filename = upload_repo.save_content(content, file.filename or "unknown", "resume", ext)
+    candidate = candidate_repo.get_candidate_info(username) or {}
     resume = resume_repo.create({
         "name": os.path.splitext(file.filename or "unknown")[0],
         "file_path": filename,
@@ -197,6 +198,15 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
         "name": (result["structured"].get("基础信息", {}) or {}).get("姓名") or resume["name"],
         "target_position": (result["structured"].get("基础信息", {}) or {}).get("意向岗位") or "",
     })
+    # 同步电话/邮箱到候选人 profile
+    basic = (result.get("structured", {}) or {}).get("基础信息", {}) or {}
+    candidate_updates = {}
+    if basic.get("电话") and not candidate.get("phone"):
+        candidate_updates["phone"] = basic["电话"]
+    if basic.get("邮箱") and not candidate.get("email"):
+        candidate_updates["email"] = basic["邮箱"]
+    if candidate_updates:
+        candidate_repo.update_profile(username, candidate_updates)
     return resume_repo.get_by_id(resume["id"])
 
 

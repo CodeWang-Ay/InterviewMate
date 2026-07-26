@@ -54,6 +54,8 @@ async function doLogin() {
     localStorage.setItem('username', data.username)
     localStorage.setItem('nickname', data.nickname)
     if (data.avatar) localStorage.setItem('avatar', data.avatar)
+    if (data.phone) localStorage.setItem('phone', data.phone)
+    if (data.email) localStorage.setItem('email', data.email)
     localStorage.setItem('role', data.role || 'user')
     router.push(route.query.redirect || (isCandidateLogin.value ? '/user' : '/admin'))
   } catch (e) {
