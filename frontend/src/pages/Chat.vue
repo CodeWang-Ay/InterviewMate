@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useVoice } from '../composables/useVoice.js'
+import { useLive2D } from '../composables/useLive2D.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,45 +15,23 @@ const chatBox = ref(null)
 const answerInputRef = ref(null)
 const role = ref(safeGetLocalStorage('role', 'user'))
 const planInfo = ref(null)
-const voiceMode = ref(false)
-const autoSpeak = ref(true)
-const isRecording = ref(false)
-const voiceText = ref('')
-const voiceError = ref('')
-const voiceBusy = ref(false)
-const mediaStream = ref(null)
-const audioContext = ref(null)
-const scriptProcessor = ref(null)
-const audioBuffers = ref([])
-const recordStartedAt = ref(0)
-const currentAudio = ref(null)
-const activeVoicePointerId = ref(null)
-const pendingVoiceRelease = ref(false)
-const voiceSocket = ref(null)
-const voiceStreamReady = ref(false)
-const streamingAudioBuffer = ref([])
 const completionDialogVisible = ref(false)
-const avatarPosition = ref({ x: 0, y: 0 })
-const avatarDragging = ref(false)
-const avatarDragOffset = ref({ x: 0, y: 0 })
-const live2dCanvas = ref(null)
-const live2dReady = ref(false)
-const live2dError = ref('')
-const live2dApp = ref(null)
-const live2dModel = ref(null)
-const live2dAudioContext = ref(null)
-const live2dAudioSource = ref(null)
-const live2dAnalyser = ref(null)
-const live2dAudioData = ref(null)
-const live2dMouthFrame = ref(0)
-const TARGET_SAMPLE_RATE = 16000
-const STREAM_CHUNK_MS = 200
-const LIVE2D_MODEL_URL = '/hiyori_pro_zh/runtime/hiyori_pro_t11.model3.json'
-const LIVE2D_SCRIPT_URLS = ['/js/live2dcubismcore.min.js', '/js/pixi.js', '/js/cubism4.min.js']
 const textDecoder = new TextDecoder('utf-8')
+
+// ── composables ──────────────────────────────────────────────
+
+async function handleRecognized(text) {
+  input.value = text
+  await sendMessage()
+}
+
+const voice = useVoice({ state, sending, input, onRecognized: handleRecognized })
+const live2d = useLive2D()
+
+// ── computed ─────────────────────────────────────────────────
+
 const isAdmin = computed(() => role.value === 'admin')
 const backPath = computed(() => isAdmin.value ? '/admin/interviewee' : '/user')
-const voiceSupported = computed(() => typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia))
 const candidateName = computed(() => planInfo.value?.candidate_name || safeGetLocalStorage('nickname', '我'))
 const jobName = computed(() => planInfo.value?.jd_name || '目标岗位')
 const interviewerName = computed(() => planInfo.value?.interviewer || 'AI 面试官')
@@ -65,25 +45,21 @@ const roundSummary = computed(() => {
 const interviewerCount = computed(() => messages.value.filter(item => item.role !== 'candidate').length)
 const candidateCount = computed(() => messages.value.filter(item => item.role === 'candidate').length)
 const statusText = computed(() => ({
-  READY_CHECK: '准备确认',
-  INTERVIEWING: '面试进行中',
-  COMPLETED: '面试已完成',
-}[state.value] || state.value)
-)
+  READY_CHECK: '准备确认', INTERVIEWING: '面试进行中', COMPLETED: '面试已完成',
+}[state.value] || state.value))
 const interviewerMood = computed(() => {
   if (state.value === 'COMPLETED') return '已完成'
-  if (voiceBusy.value) return '正在理解你的回答'
-  if (isRecording.value) return '正在聆听'
+  if (voice.voiceBusy.value) return '正在理解你的回答'
+  if (voice.isRecording.value) return '正在聆听'
   if (sending.value) return '正在思考'
   return '在线候场'
 })
-watch(input, () => {
-  nextTick(resizeAnswerInput)
-})
 
-function nowIso() {
-  return new Date().toISOString()
-}
+watch(input, () => nextTick(resizeAnswerInput))
+
+// ── helpers ──────────────────────────────────────────────────
+
+function nowIso() { return new Date().toISOString() }
 
 function resizeAnswerInput() {
   const el = answerInputRef.value
@@ -95,10 +71,7 @@ function resizeAnswerInput() {
 }
 
 function withTimestamp(message) {
-  return {
-    ...message,
-    timestamp: message.timestamp || message.created_at || '',
-  }
+  return { ...message, timestamp: message.timestamp || message.created_at || '' }
 }
 
 function formatMessageTime(value) {
@@ -109,18 +82,33 @@ function formatMessageTime(value) {
 }
 
 function safeGetLocalStorage(key, fallback = '') {
-  try {
-    return window.localStorage?.getItem(key) || fallback
-  } catch (_) {
-    return fallback
-  }
+  try { return window.localStorage?.getItem(key) || fallback } catch (_) { return fallback }
 }
 
+async function scrollDown() {
+  await nextTick()
+  if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight
+}
+
+function roleLabel(roleName) {
+  if (roleName === 'candidate') return '我'
+  if (roleName === 'system') return '系统'
+  return interviewerName.value
+}
+
+function roleShort(roleName) {
+  if (roleName === 'candidate') return '我'
+  if (roleName === 'system') return '!'
+  return '官'
+}
+
+// ── lifecycle ────────────────────────────────────────────────
+
 onMounted(async () => {
-  window.addEventListener('keydown', handleGlobalVoiceKeydown)
-  window.addEventListener('keyup', handleGlobalVoiceKeyup)
-  restoreAvatarPosition()
-  initLive2D()
+  window.addEventListener('keydown', voice.handleGlobalVoiceKeydown)
+  window.addEventListener('keyup', voice.handleGlobalVoiceKeyup)
+  live2d.restoreAvatarPosition()
+  live2d.initLive2D()
   const jd = route.query.jd
   const resume = route.query.resume
   const planId = route.query.plan_id
@@ -131,8 +119,7 @@ onMounted(async () => {
   try {
     if (planId) await loadPlanInfo(Number(planId))
     const res = await fetch('/api/chat/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(planId ? { plan_id: Number(planId) } : { jd_filename: jd, resume_filename: resume }),
     })
     const data = await res.json()
@@ -142,10 +129,10 @@ onMounted(async () => {
       : [withTimestamp({ role: 'interviewer', content: data.message, timestamp: nowIso() })]
     state.value = data.state
     if (state.value === 'COMPLETED') {
-      if (voiceMode.value && autoSpeak.value) await speakText(messages.value.at(-1)?.content || '')
+      if (voice.voiceMode.value && voice.autoSpeak.value) await live2d.speakText(messages.value.at(-1)?.content || '')
       showCompletionDialog()
-    } else if (voiceMode.value && autoSpeak.value) {
-      speakText(messages.value.at(-1)?.content || '')
+    } else if (voice.voiceMode.value && voice.autoSpeak.value) {
+      live2d.speakText(messages.value.at(-1)?.content || '')
     }
     await scrollDown()
   } catch (e) {
@@ -154,15 +141,17 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleGlobalVoiceKeydown)
-  window.removeEventListener('keyup', handleGlobalVoiceKeyup)
-  isRecording.value = false
-  activeVoicePointerId.value = null
-  pendingVoiceRelease.value = false
-  releaseAudioResources()
-  stopSpeaking()
-  destroyLive2D()
+  window.removeEventListener('keydown', voice.handleGlobalVoiceKeydown)
+  window.removeEventListener('keyup', voice.handleGlobalVoiceKeyup)
+  voice.isRecording.value = false
+  voice.activeVoicePointerId.value = null
+  voice.pendingVoiceRelease.value = false
+  voice.releaseAudioResources()
+  live2d.stopSpeaking()
+  live2d.destroyLive2D()
 })
+
+// ── plan info ────────────────────────────────────────────────
 
 async function loadPlanInfo(planId) {
   try {
@@ -171,10 +160,10 @@ async function loadPlanInfo(planId) {
     if (!res.ok) return
     const list = await res.json()
     planInfo.value = Array.isArray(list) ? list.find(item => Number(item.id) === Number(planId)) || null : null
-  } catch (_) {
-    // ignore
-  }
+  } catch (_) {}
 }
+
+// ── messaging ────────────────────────────────────────────────
 
 async function sendMessage() {
   const text = input.value.trim()
@@ -190,18 +179,12 @@ async function sendMessage() {
     await scrollDown()
 
     const res = await fetch('/api/chat/message/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId.value, message: text }),
     })
     if (!res.ok) {
       let errText = '发送失败'
-      try {
-        const data = await res.json()
-        errText = data.detail || errText
-      } catch (_) {
-        // ignore
-      }
+      try { const data = await res.json(); errText = data.detail || errText } catch (_) {}
       throw new Error(errText)
     }
 
@@ -221,20 +204,16 @@ async function sendMessage() {
       await scrollDown()
     }
     const tail = textDecoder.decode()
-    if (tail) {
-      fullText += tail
-      interviewerMessage.content = fullText
-      messages.value = [...messages.value]
-    }
+    if (tail) { fullText += tail; interviewerMessage.content = fullText; messages.value = [...messages.value] }
 
     const nextState = res.headers.get('X-Chat-State')
     if (nextState) state.value = nextState
     if (!interviewerMessage.content) interviewerMessage.content = '我刚刚没能正常生成回复，我们继续。'
     if (state.value === 'COMPLETED') {
-      if (voiceMode.value && autoSpeak.value) await speakText(interviewerMessage.content)
+      if (voice.voiceMode.value && voice.autoSpeak.value) await live2d.speakText(interviewerMessage.content)
       showCompletionDialog()
-    } else if (voiceMode.value && autoSpeak.value) {
-      speakText(interviewerMessage.content)
+    } else if (voice.voiceMode.value && voice.autoSpeak.value) {
+      live2d.speakText(interviewerMessage.content)
     }
     await scrollDown()
   } catch (e) {
@@ -247,667 +226,20 @@ async function sendMessage() {
   }
 }
 
+function onKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
+}
+
 function showCompletionDialog() {
-  stopRecording()
-  stopSpeaking()
-  closeVoiceStream()
+  voice.stopRecording()
+  live2d.stopSpeaking()
+  voice.closeVoiceStream()
   completionDialogVisible.value = true
 }
 
 function returnAfterCompletion() {
   completionDialogVisible.value = false
   router.push(backPath.value)
-}
-
-function restoreAvatarPosition() {
-  const fallback = {
-    x: Math.max(24, window.innerWidth - 892),
-    y: 32,
-  }
-  try {
-    const saved = JSON.parse(window.localStorage?.getItem('interview_avatar_position') || 'null')
-    avatarPosition.value = saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)
-      ? clampAvatarPosition(saved)
-      : fallback
-  } catch (_) {
-    avatarPosition.value = fallback
-  }
-}
-
-function clampAvatarPosition(pos) {
-  const maxX = Math.max(16, window.innerWidth - 884)
-  const maxY = Math.max(16, window.innerHeight - 1024)
-  return {
-    x: Math.min(Math.max(16, pos.x), maxX),
-    y: Math.min(Math.max(16, pos.y), maxY),
-  }
-}
-
-function startAvatarDrag(event) {
-  if (event.button !== undefined && event.button !== 0) return
-  const rect = event.currentTarget.getBoundingClientRect()
-  avatarDragging.value = true
-  avatarDragOffset.value = {
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top,
-  }
-  event.currentTarget.setPointerCapture?.(event.pointerId)
-}
-
-function moveAvatar(event) {
-  if (!avatarDragging.value) return
-  avatarPosition.value = clampAvatarPosition({
-    x: event.clientX - avatarDragOffset.value.x,
-    y: event.clientY - avatarDragOffset.value.y,
-  })
-}
-
-function endAvatarDrag(event) {
-  if (!avatarDragging.value) return
-  avatarDragging.value = false
-  event.currentTarget.releasePointerCapture?.(event.pointerId)
-  try {
-    window.localStorage?.setItem('interview_avatar_position', JSON.stringify(avatarPosition.value))
-  } catch (_) {
-    // ignore
-  }
-}
-
-async function startRecording() {
-  if (state.value === 'COMPLETED' || sending.value || voiceBusy.value || isRecording.value) return false
-  if (!voiceSupported.value) {
-    voiceError.value = '当前浏览器无法访问麦克风，请检查浏览器权限或使用 Chrome / Edge。'
-    return false
-  }
-  stopSpeaking()
-  try {
-    voiceText.value = ''
-    voiceError.value = ''
-    audioBuffers.value = []
-    voiceBusy.value = true
-    await openVoiceStream()
-    mediaStream.value = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
-    const AudioCtx = window.AudioContext || window.webkitAudioContext
-    audioContext.value = new AudioCtx({ sampleRate: TARGET_SAMPLE_RATE })
-    const source = audioContext.value.createMediaStreamSource(mediaStream.value)
-    scriptProcessor.value = audioContext.value.createScriptProcessor(4096, 1, 1)
-    streamingAudioBuffer.value = []
-    const chunkSamples = Math.round(TARGET_SAMPLE_RATE * (STREAM_CHUNK_MS / 1000))
-    scriptProcessor.value.onaudioprocess = (event) => {
-      if (!isRecording.value) return
-      const inputData = event.inputBuffer.getChannelData(0)
-      const resampled = audioContext.value.sampleRate === TARGET_SAMPLE_RATE
-        ? inputData
-        : resampleLinear(inputData, audioContext.value.sampleRate, TARGET_SAMPLE_RATE)
-      audioBuffers.value.push(new Float32Array(resampled))
-      streamingAudioBuffer.value.push(...resampled)
-      while (streamingAudioBuffer.value.length >= chunkSamples) {
-        sendVoiceChunk(new Float32Array(streamingAudioBuffer.value.splice(0, chunkSamples)))
-      }
-    }
-    source.connect(scriptProcessor.value)
-    scriptProcessor.value.connect(audioContext.value.destination)
-    recordStartedAt.value = Date.now()
-    isRecording.value = true
-    voiceBusy.value = false
-    voiceText.value = '正在录音...'
-    return true
-  } catch (error) {
-    voiceError.value = `无法启动语音识别：${error.message || '请确认麦克风权限和语音服务'}`
-    voiceBusy.value = false
-    closeVoiceStream()
-    releaseAudioResources()
-    return false
-  }
-}
-
-async function stopRecording() {
-  if (!isRecording.value || voiceBusy.value) return
-  isRecording.value = false
-  const duration = Date.now() - recordStartedAt.value
-  if (duration < 600) {
-    voiceError.value = '录音时间太短，请至少说 1 秒。'
-    voiceText.value = ''
-    closeVoiceStream()
-    releaseAudioResources()
-    return
-  }
-  voiceText.value = voiceText.value && voiceText.value !== '正在录音...' ? voiceText.value : '录音完成，正在做二次精校...'
-  voiceBusy.value = true
-  flushVoiceTailChunk()
-  sendVoiceStreamEnd()
-  releaseAudioResources()
-}
-
-async function startHoldRecording(event) {
-  if (event?.type === 'pointerdown' && event.button !== 0) return
-  event?.preventDefault?.()
-  if (activeVoicePointerId.value !== null || voiceBusy.value || sending.value) return
-  if (!voiceMode.value) voiceMode.value = true
-  pendingVoiceRelease.value = false
-  activeVoicePointerId.value = event?.pointerId ?? 'keyboard'
-  try {
-    event?.currentTarget?.setPointerCapture?.(event.pointerId)
-  } catch (_) {
-    // pointer capture is best-effort across browsers
-  }
-  const started = await startRecording()
-  if (!started) {
-    activeVoicePointerId.value = null
-    pendingVoiceRelease.value = false
-    return
-  }
-  if (pendingVoiceRelease.value) await finishHoldRecording(event)
-}
-
-async function finishHoldRecording(event) {
-  if (activeVoicePointerId.value === null) return
-  if (event?.pointerId !== undefined && activeVoicePointerId.value !== event.pointerId) return
-  event?.preventDefault?.()
-  if (!isRecording.value) {
-    pendingVoiceRelease.value = true
-    return
-  }
-  try {
-    event?.currentTarget?.releasePointerCapture?.(event.pointerId)
-  } catch (_) {
-    // ignore
-  }
-  activeVoicePointerId.value = null
-  pendingVoiceRelease.value = false
-  await stopRecording()
-}
-
-async function leaveHoldRecording(event) {
-  if (event?.pointerType === 'mouse') await finishHoldRecording(event)
-}
-
-function cancelHoldRecording(event) {
-  if (activeVoicePointerId.value === null) return
-  event?.preventDefault?.()
-  activeVoicePointerId.value = null
-  pendingVoiceRelease.value = false
-  isRecording.value = false
-  voiceText.value = ''
-  voiceError.value = '录音已取消，请重新按住说话。'
-  closeVoiceStream()
-  releaseAudioResources()
-}
-
-async function handleHoldKeydown(event) {
-  if (![' ', 'Enter'].includes(event.key) || event.repeat) return
-  await startHoldRecording(event)
-}
-
-async function handleHoldKeyup(event) {
-  if (![' ', 'Enter'].includes(event.key)) return
-  await finishHoldRecording(event)
-}
-
-function isTypingTarget(target) {
-  const tagName = target?.tagName?.toLowerCase?.()
-  return ['input', 'textarea', 'select'].includes(tagName) || Boolean(target?.isContentEditable)
-}
-
-async function handleGlobalVoiceKeydown(event) {
-  if (event.code !== 'Space' || event.repeat || isTypingTarget(event.target)) return
-  if (event.ctrlKey || event.metaKey || event.altKey) return
-  await startHoldRecording(event)
-}
-
-async function handleGlobalVoiceKeyup(event) {
-  if (event.code !== 'Space' || isTypingTarget(event.target)) return
-  await finishHoldRecording(event)
-}
-
-function releaseAudioResources() {
-  if (scriptProcessor.value) {
-    try { scriptProcessor.value.disconnect() } catch (_) {}
-    scriptProcessor.value = null
-  }
-  if (mediaStream.value) {
-    mediaStream.value.getTracks().forEach(track => track.stop())
-    mediaStream.value = null
-  }
-  if (audioContext.value) {
-    try { audioContext.value.close() } catch (_) {}
-    audioContext.value = null
-  }
-}
-
-function openVoiceStream() {
-  return new Promise((resolve, reject) => {
-    const token = safeGetLocalStorage('token', '')
-    if (!token) {
-      reject(new Error('未登录，无法使用语音识别'))
-      return
-    }
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${protocol}://${window.location.host}/api/voice/asr-stream?token=${encodeURIComponent(token)}`)
-    voiceSocket.value = ws
-    voiceStreamReady.value = false
-
-    const timer = window.setTimeout(() => {
-      reject(new Error('语音流连接超时'))
-      closeVoiceStream()
-    }, 8000)
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'audio_stream_start' }))
-    }
-    ws.onerror = () => {
-      window.clearTimeout(timer)
-      reject(new Error('语音流连接失败'))
-    }
-    ws.onclose = () => {
-      voiceStreamReady.value = false
-      if (voiceBusy.value && isRecording.value) {
-        voiceBusy.value = false
-        voiceError.value = '语音流连接已断开，请重新按住说话。'
-      }
-    }
-    ws.onmessage = async (event) => {
-      const data = JSON.parse(event.data || '{}')
-      if (data.type === 'audio_stream_start_reply') {
-        window.clearTimeout(timer)
-        voiceStreamReady.value = true
-        resolve()
-        return
-      }
-      if (data.type === 'asr_partial' && data.text) {
-        voiceText.value = data.text
-        input.value = data.text
-        return
-      }
-      if (data.type === 'asr_final') {
-        const text = String(data.text || '').trim()
-        if (text) {
-          voiceText.value = text
-          input.value = text
-          if (data.pass === 2) {
-            voiceBusy.value = false
-            closeVoiceStream()
-            voiceText.value = ''
-            await sendMessage()
-          }
-        } else if (!input.value.trim()) {
-          voiceError.value = 'FunASR 没有识别到有效文字'
-          voiceText.value = ''
-          voiceBusy.value = false
-          closeVoiceStream()
-        }
-        return
-      }
-      if (data.type === 'asr_error') {
-        voiceError.value = data.message || '语音识别失败'
-        voiceBusy.value = false
-      }
-    }
-  })
-}
-
-function sendVoiceChunk(audioChunk) {
-  const ws = voiceSocket.value
-  if (!ws || ws.readyState !== WebSocket.OPEN || !voiceStreamReady.value) return
-  ws.send(JSON.stringify({
-    type: 'audio_stream_chunk',
-    data: arrayBufferToBase64(audioChunk.buffer),
-  }))
-}
-
-function sendVoiceStreamEnd() {
-  const ws = voiceSocket.value
-  if (!ws || ws.readyState !== WebSocket.OPEN || !voiceStreamReady.value) {
-    voiceBusy.value = false
-    voiceError.value = '语音流未连接，请重新按住说话。'
-    return
-  }
-  ws.send(JSON.stringify({ type: 'audio_stream_end' }))
-}
-
-function closeVoiceStream() {
-  const ws = voiceSocket.value
-  voiceSocket.value = null
-  voiceStreamReady.value = false
-  if (ws && [WebSocket.CONNECTING, WebSocket.OPEN].includes(ws.readyState)) {
-    ws.close()
-  }
-}
-
-function flushVoiceTailChunk() {
-  if (!streamingAudioBuffer.value.length) return
-  sendVoiceChunk(new Float32Array(streamingAudioBuffer.value))
-  streamingAudioBuffer.value = []
-}
-
-function resampleLinear(input, srcSr, dstSr) {
-  if (srcSr === dstSr) return input
-  const ratio = dstSr / srcSr
-  const outLen = Math.max(0, Math.round(input.length * ratio))
-  const out = new Float32Array(outLen)
-  for (let i = 0; i < outLen; i += 1) {
-    const x = i / ratio
-    const x0 = Math.floor(x)
-    const x1 = Math.min(x0 + 1, input.length - 1)
-    const t = x - x0
-    out[i] = input[x0] * (1 - t) + input[x1] * t
-  }
-  return out
-}
-
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-  }
-  return window.btoa(binary)
-}
-
-function concatInt16(chunks) {
-  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-  const result = new Int16Array(total)
-  let offset = 0
-  chunks.forEach((chunk) => {
-    result.set(chunk, offset)
-    offset += chunk.length
-  })
-  return result
-}
-
-function encodeWAV(pcmData, sampleRate) {
-  const buffer = new ArrayBuffer(44 + pcmData.length * 2)
-  const view = new DataView(buffer)
-  writeString(view, 0, 'RIFF')
-  view.setUint32(4, 36 + pcmData.length * 2, true)
-  writeString(view, 8, 'WAVE')
-  writeString(view, 12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  writeString(view, 36, 'data')
-  view.setUint32(40, pcmData.length * 2, true)
-  let offset = 44
-  for (let i = 0; i < pcmData.length; i += 1) {
-    view.setInt16(offset, pcmData[i], true)
-    offset += 2
-  }
-  return new Blob([buffer], { type: 'audio/wav' })
-}
-
-function writeString(view, offset, text) {
-  for (let i = 0; i < text.length; i += 1) {
-    view.setUint8(offset + i, text.charCodeAt(i))
-  }
-}
-
-async function transcribeVoice(blob) {
-  voiceBusy.value = true
-  voiceError.value = ''
-  try {
-    const formData = new FormData()
-    formData.append('file', blob, `interview-${Date.now()}.wav`)
-    const res = await fetch('/api/voice/asr', { method: 'POST', body: formData })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data.detail || '语音识别失败')
-    const text = String(data.text || '').trim()
-    if (!text) throw new Error('FunASR 没有识别到有效文字')
-    voiceText.value = text
-    input.value = text
-  } catch (error) {
-    voiceError.value = error.message || '语音识别失败'
-    voiceText.value = ''
-  } finally {
-    voiceBusy.value = false
-  }
-}
-
-function toggleVoiceMode() {
-  voiceMode.value = !voiceMode.value
-  voiceError.value = ''
-  if (!voiceMode.value) {
-    stopRecording()
-    stopSpeaking()
-  }
-}
-
-async function speakText(text) {
-  if (!autoSpeak.value || !text) return
-  stopSpeaking()
-  try {
-    const res = await fetch('/api/voice/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: stripMarkdown(text) }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok || !data.audio) throw new Error(data.detail || '语音合成失败')
-    await playAudioToEnd(`data:${data.format || 'audio/mpeg'};base64,${data.audio}`)
-  } catch (error) {
-    stopLive2DLipSync()
-    currentAudio.value = null
-    voiceError.value = error.message || '语音合成失败'
-  }
-}
-
-function playAudioToEnd(src) {
-  return new Promise((resolve, reject) => {
-    const audio = new Audio(src)
-    const cleanup = () => {
-      stopLive2DLipSync()
-      if (currentAudio.value === audio) currentAudio.value = null
-    }
-    audio.onended = () => {
-      cleanup()
-      resolve()
-    }
-    audio.onerror = () => {
-      cleanup()
-      reject(new Error('语音播放失败'))
-    }
-    currentAudio.value = audio
-    startLive2DLipSync(audio)
-    audio.play().catch((error) => {
-      cleanup()
-      reject(error)
-    })
-  })
-}
-
-function stopSpeaking() {
-  stopLive2DLipSync()
-  if (!currentAudio.value) return
-  currentAudio.value.pause()
-  currentAudio.value.currentTime = 0
-  currentAudio.value = null
-}
-
-function loadExternalScript(src) {
-  if (document.querySelector(`script[data-live2d-src="${src}"]`)) return Promise.resolve()
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = src
-    script.async = false
-    script.dataset.live2dSrc = src
-    script.onload = resolve
-    script.onerror = () => reject(new Error(`加载 Live2D 脚本失败: ${src}`))
-    document.head.appendChild(script)
-  })
-}
-
-async function ensureLive2DRuntime() {
-  if (window.PIXI?.live2d?.Live2DModel) return
-  for (const src of LIVE2D_SCRIPT_URLS) {
-    await loadExternalScript(src)
-  }
-  if (!window.PIXI?.live2d?.Live2DModel) {
-    throw new Error('Live2D 运行时未就绪')
-  }
-}
-
-async function initLive2D() {
-  try {
-    await nextTick()
-    if (!live2dCanvas.value) return
-    await ensureLive2DRuntime()
-    const PIXI = window.PIXI
-    const width = 860
-    const height = 1000
-    const app = new PIXI.Application({
-      view: live2dCanvas.value,
-      width,
-      height,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true,
-      antialias: true,
-      backgroundAlpha: 0,
-    })
-    const model = await PIXI.live2d.Live2DModel.from(LIVE2D_MODEL_URL)
-    app.stage.addChild(model)
-    const scale = Math.min((width / model.width) * 1.05, (height / model.height) * 1.2)
-    model.scale.set(scale)
-    if (model.anchor?.set) {
-      model.anchor.set(0.5, 0.5)
-      model.x = width / 2
-      model.y = height / 2 + 56
-    } else {
-      model.x = (width - model.width) / 2
-      model.y = height - model.height + 8
-    }
-    model.interactive = false
-    live2dApp.value = app
-    live2dModel.value = model
-    live2dReady.value = true
-    live2dError.value = ''
-    model.motion?.('Idle')
-  } catch (error) {
-    live2dReady.value = false
-    live2dError.value = error.message || 'Live2D 加载失败'
-  }
-}
-
-function setLive2DMouth(value) {
-  const coreModel = live2dModel.value?.internalModel?.coreModel
-  if (!coreModel) return
-  coreModel.setParameterValueById('ParamMouthOpenY', Math.max(0, Math.min(1, value)), 0.85)
-}
-
-function startLive2DLipSync(audio) {
-  if (!live2dReady.value || !audio) return
-  stopLive2DLipSync(false)
-  try {
-    const AudioContextCtor = window.AudioContext || window.webkitAudioContext
-    if (!AudioContextCtor) return
-    const audioContext = new AudioContextCtor()
-    const source = audioContext.createMediaElementSource(audio)
-    const analyser = audioContext.createAnalyser()
-    analyser.fftSize = 256
-    const data = new Uint8Array(analyser.frequencyBinCount)
-    source.connect(analyser)
-    analyser.connect(audioContext.destination)
-    live2dAudioContext.value = audioContext
-    live2dAudioSource.value = source
-    live2dAnalyser.value = analyser
-    live2dAudioData.value = data
-    audioContext.resume?.()
-    const tick = () => {
-      if (!currentAudio.value || currentAudio.value !== audio || audio.paused || audio.ended) {
-        stopLive2DLipSync()
-        return
-      }
-      analyser.getByteFrequencyData(data)
-      const average = data.reduce((sum, item) => sum + item, 0) / data.length
-      const mouthValue = Math.min(1, Math.pow((average / 255) * 3.2, 1.45))
-      setLive2DMouth(mouthValue)
-      live2dMouthFrame.value = requestAnimationFrame(tick)
-    }
-    live2dMouthFrame.value = requestAnimationFrame(tick)
-  } catch (_) {
-    let phase = 0
-    const tick = () => {
-      if (!currentAudio.value || currentAudio.value !== audio || audio.paused || audio.ended) {
-        stopLive2DLipSync()
-        return
-      }
-      phase += 0.26
-      setLive2DMouth(0.18 + Math.abs(Math.sin(phase)) * 0.65)
-      live2dMouthFrame.value = requestAnimationFrame(tick)
-    }
-    live2dMouthFrame.value = requestAnimationFrame(tick)
-  }
-}
-
-function stopLive2DLipSync(resetMouth = true) {
-  if (live2dMouthFrame.value) {
-    cancelAnimationFrame(live2dMouthFrame.value)
-    live2dMouthFrame.value = 0
-  }
-  try {
-    live2dAudioSource.value?.disconnect()
-    live2dAnalyser.value?.disconnect()
-    live2dAudioContext.value?.close()
-  } catch (_) {
-    // ignore
-  }
-  live2dAudioContext.value = null
-  live2dAudioSource.value = null
-  live2dAnalyser.value = null
-  live2dAudioData.value = null
-  if (resetMouth) setLive2DMouth(0)
-}
-
-function destroyLive2D() {
-  stopLive2DLipSync()
-  live2dApp.value?.destroy?.(true)
-  live2dModel.value = null
-  live2dApp.value = null
-  live2dReady.value = false
-}
-
-function stripMarkdown(text) {
-  return String(text || '')
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/[#>*_`[\]()]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-async function scrollDown() {
-  await nextTick()
-  if (chatBox.value) {
-    chatBox.value.scrollTop = chatBox.value.scrollHeight
-  }
-}
-
-function onKeydown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    sendMessage()
-  }
-}
-
-function roleLabel(roleName) {
-  if (roleName === 'candidate') return '我'
-  if (roleName === 'system') return '系统'
-  return interviewerName.value
-}
-
-function roleShort(roleName) {
-  if (roleName === 'candidate') return '我'
-  if (roleName === 'system') return '!'
-  return '官'
 }
 </script>
 
@@ -981,20 +313,20 @@ function roleShort(roleName) {
             <div class="flex items-center justify-between gap-3">
               <div>
                 <p class="text-xs font-semibold text-indigo-500">语音模式</p>
-                <p class="mt-1 text-sm leading-5 text-indigo-700">{{ voiceMode ? '已开启 FunASR 语音识别与 edge-tts 回复朗读' : '文字输入为主，可切换语音' }}</p>
+                <p class="mt-1 text-sm leading-5 text-indigo-700">{{ voice.voiceMode.value ? '已开启 FunASR 语音识别与 edge-tts 回复朗读' : '文字输入为主，可切换语音' }}</p>
               </div>
               <button
-                :class="['rounded-full px-3 py-1.5 text-xs font-bold transition', voiceMode ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 ring-1 ring-indigo-100']"
-                @click="toggleVoiceMode"
+                :class="[voice.voiceMode.value ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 ring-1 ring-indigo-100']"
+                @click="voice.toggleVoiceMode"
               >
-                {{ voiceMode ? '已开启' : '开启' }}
+                {{ voice.voiceMode.value ? '已开启' : '开启' }}
               </button>
             </div>
             <label class="mt-3 flex items-center gap-2 text-xs font-semibold text-indigo-600">
-              <input v-model="autoSpeak" type="checkbox" class="h-4 w-4 rounded border-indigo-200">
+              <input :checked="voice.autoSpeak.value" @change="voice.autoSpeak.value = $event.target.checked" type="checkbox" class="h-4 w-4 rounded border-indigo-200">
               面试官回复自动朗读
             </label>
-            <p v-if="voiceMode && !voiceSupported" class="mt-3 rounded-xl bg-white px-3 py-2 text-xs leading-5 text-amber-600">当前浏览器无法访问麦克风，请检查麦克风权限或使用 Chrome / Edge。</p>
+            <p v-if="voice.voiceMode.value && !voice.voiceSupported" class="mt-3 rounded-xl bg-white px-3 py-2 text-xs leading-5 text-amber-600">当前浏览器无法访问麦克风，请检查麦克风权限或使用 Chrome / Edge。</p>
           </div>
         </aside>
 
@@ -1007,7 +339,7 @@ function roleShort(roleName) {
             <div class="flex items-center gap-2">
               <button
                 class="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50"
-                @click="stopSpeaking"
+                @click="live2d.stopSpeaking"
               >
                 停止朗读
               </button>
@@ -1084,10 +416,10 @@ function roleShort(roleName) {
 
           <footer class="flex-shrink-0 border-t border-slate-100 bg-white px-5 py-4">
             <div class="rounded-3xl border border-slate-200 bg-slate-50 p-2">
-              <div v-if="isRecording || voiceBusy || voiceError" class="mb-2 flex items-center gap-2 px-4 py-2 text-sm font-semibold">
-                <span :class="['h-2.5 w-2.5 rounded-full', isRecording ? 'animate-pulse bg-red-500' : voiceBusy ? 'animate-pulse bg-indigo-500' : 'bg-red-500']"></span>
-                <span :class="voiceError ? 'text-red-500' : 'text-slate-500'">
-                  {{ voiceError || (isRecording ? '正在听你说话，松开后自动写入输入框并发送。' : '正在识别语音，识别结果会出现在下方输入框。') }}
+              <div v-if="voice.isRecording.value || voice.voiceBusy.value || voice.voiceError.value" class="mb-2 flex items-center gap-2 px-4 py-2 text-sm font-semibold">
+                <span :class="['h-2.5 w-2.5 rounded-full', voice.isRecording.value ? 'animate-pulse bg-red-500' : voice.voiceBusy.value ? 'animate-pulse bg-indigo-500' : 'bg-red-500']"></span>
+                <span :class="voice.voiceError.value ? 'text-red-500' : 'text-slate-500'">
+                  {{ voice.voiceError.value || (voice.isRecording.value ? '正在听你说话，松开后自动写入输入框并发送。' : '正在识别语音，识别结果会出现在下方输入框。') }}
                 </span>
               </div>
               <div class="flex items-end gap-3">
@@ -1109,23 +441,23 @@ function roleShort(roleName) {
                   发送
                 </button>
                 <button
-                  :disabled="!voiceSupported || state === 'COMPLETED' || sending || voiceBusy"
-                  :aria-pressed="isRecording"
+                  :disabled="!voice.voiceSupported || state === 'COMPLETED' || sending || voice.voiceBusy.value"
+                  :aria-pressed="voice.isRecording.value"
                   :class="[
                     'flex h-12 min-w-[106px] touch-none select-none items-center justify-center gap-1.5 rounded-full px-5 text-sm font-bold shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40',
-                    isRecording ? 'bg-red-500 text-white shadow-red-100 ring-4 ring-red-100' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    voice.isRecording.value ? 'bg-red-500 text-white shadow-red-100 ring-4 ring-red-100' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
                   ]"
-                  @pointerdown="startHoldRecording"
-                  @pointerup="finishHoldRecording"
-                  @pointerleave="leaveHoldRecording"
-                  @pointercancel="cancelHoldRecording"
-                  @lostpointercapture="finishHoldRecording"
-                  @keydown="handleHoldKeydown"
-                  @keyup="handleHoldKeyup"
+                  @pointerdown="voice.startHoldRecording"
+                  @pointerup="voice.finishHoldRecording"
+                  @pointerleave="voice.leaveHoldRecording"
+                  @pointercancel="voice.cancelHoldRecording"
+                  @lostpointercapture="voice.finishHoldRecording"
+                  @keydown="voice.startHoldRecording"
+                  @keyup="voice.finishHoldRecording"
                   @contextmenu.prevent
                 >
-                  <span class="text-base">{{ isRecording ? '●' : '🎤' }}</span>
-                  {{ voiceBusy ? '识别中' : isRecording ? '松开' : '按住说话' }}
+                  <span class="text-base">{{ voice.isRecording.value ? '●' : '🎤' }}</span>
+                  {{ voice.voiceBusy.value ? '识别中' : voice.isRecording.value ? '松开' : '按住说话' }}
                 </button>
               </div>
             </div>
@@ -1167,16 +499,16 @@ function roleShort(roleName) {
 
     <div
       class="floating-interviewer"
-      :class="{ 'floating-interviewer--dragging': avatarDragging, 'floating-interviewer--active': sending || voiceBusy, 'floating-interviewer--listening': isRecording }"
-      :style="{ left: `${avatarPosition.x}px`, top: `${avatarPosition.y}px` }"
-      @pointerdown="startAvatarDrag"
-      @pointermove="moveAvatar"
-      @pointerup="endAvatarDrag"
-      @pointercancel="endAvatarDrag"
+      :class="{ 'floating-interviewer--dragging': live2d.avatarDragging.value, 'floating-interviewer--active': sending || voice.voiceBusy.value, 'floating-interviewer--listening': voice.isRecording.value }"
+      :style="{ left: `${live2d.avatarPosition.value.x}px`, top: `${live2d.avatarPosition.value.y}px` }"
+      @pointerdown="live2d.startAvatarDrag"
+      @pointermove="live2d.moveAvatar"
+      @pointerup="live2d.endAvatarDrag"
+      @pointercancel="live2d.endAvatarDrag"
     >
       <canvas
-        ref="live2dCanvas"
-        v-show="live2dReady"
+        :ref="(el) => { live2d.live2dCanvas.value = el }"
+        v-show="live2d.live2dReady.value"
         class="live2d-avatar__canvas"
         aria-label="Live2D AI 面试官"
       ></canvas>

@@ -6,8 +6,15 @@ from openai import AsyncOpenAI
 
 from backend.config import chat_sessions, UPLOAD_DIR
 from backend.repositories import jd_repo, resume_repo
-from backend.repositories.interview_repo import restore_session
+from backend.repositories.interview_repo import restore_session, save_record
 from backend.services.llm_service import OPENAI_API_KEY, OPENAI_BASE_URL
+
+
+def _persist(session_id: str) -> None:
+    try:
+        save_record(session_id)
+    except Exception:
+        pass
 from backend.services.file_service import read_jd
 
 
@@ -53,6 +60,7 @@ def start_training_session(jd_id: int, resume_id: int, training_mode: str, candi
             "structured_data": resume.get("structured_data", "{}"),
         },
     }
+    _persist(session_id)
     return {
         "session_id": session_id,
         "state": "INTERVIEWING",
@@ -98,6 +106,7 @@ async def process_training_message(session_id: str, interviewer_question: str) -
         "content": answer,
         "timestamp": datetime.now().isoformat(),
     })
+    _persist(session_id)
     return answer, session.get("state", "INTERVIEWING")
 
 
@@ -112,6 +121,7 @@ def finish_training_session(session_id: str) -> dict | None:
             "content": "本次面试官训练已结束，系统正在生成训练报告。",
             "timestamp": datetime.now().isoformat(),
         })
+    _persist(session_id)
     return session
 
 

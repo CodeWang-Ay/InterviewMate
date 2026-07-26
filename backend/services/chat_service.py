@@ -9,13 +9,21 @@ import json_repair
 from openai import AsyncOpenAI
 
 from backend.config import chat_sessions
-from backend.repositories.interview_repo import restore_session
+from backend.repositories.interview_repo import restore_session, save_record
 from backend.services.file_service import read_jd, extract_questions_from_jd
 from backend.repositories import plan_repo
 from backend.repositories import resume_repo
 from backend.services.llm_service import OPENAI_API_KEY, OPENAI_BASE_URL
 
 MAX_QUESTION_ATTEMPTS = 3
+
+
+def _persist(session_id: str) -> None:
+    """每次会话状态变更后自动持久化到 JSON 文件"""
+    try:
+        save_record(session_id)
+    except Exception:
+        pass  # 持久化失败不阻塞面试流程
 
 
 def _now_iso() -> str:
@@ -79,6 +87,8 @@ async def start_session(jd_filename: str = "", resume_filename: str = "", plan_i
     print(f"[会话 {session_id}] 面试开始，共 {len(questions)} 个问题")
     print(f"面试官: {opening}")
 
+    _persist(session_id)
+
     if plan:
         plan_repo.update(plan["id"], {"active_session_id": session_id})
         if should_generate_async:
@@ -113,6 +123,7 @@ async def _generate_questions_for_session(session_id: str, plan: dict) -> None:
     if int(session.get("question_index") or 0) == 0 and not session.get("question_attempts"):
         session["questions"] = generated
     session["questions_ready"] = True
+    _persist(session_id)
 
 
 async def _questions_for_plan(plan: dict) -> list[dict]:
@@ -271,6 +282,7 @@ async def process_message(session_id: str, user_msg: str) -> tuple[str, str]:
     session["history"].append(_history_message("interviewer", reply))
     print(f"[会话 {session_id}] 面试官: {reply}")
 
+    _persist(session_id)
     return reply, session["state"]
 
 
