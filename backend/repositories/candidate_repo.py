@@ -26,12 +26,15 @@ def init_db():
                 username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 candidate_name TEXT DEFAULT '',
+                phone TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
         cols = [c[1] for c in conn.execute("PRAGMA table_info(candidates)").fetchall()]
         if "candidate_name" not in cols:
             conn.execute("ALTER TABLE candidates ADD COLUMN candidate_name TEXT DEFAULT ''")
+        if "phone" not in cols:
+            conn.execute("ALTER TABLE candidates ADD COLUMN phone TEXT DEFAULT ''")
 
         _migrate_legacy_candidates(conn)
 
@@ -62,16 +65,16 @@ def _migrate_legacy_candidates(conn) -> None:
         )
 
 
-def register(username: str, password: str, candidate_name: str = "") -> dict | None:
+def register(username: str, password: str, candidate_name: str = "", phone: str = "") -> dict | None:
     if len(password) < 6:
         return None
     try:
         with _conn() as conn:
             cur = conn.execute(
-                "INSERT INTO candidates (username, password_hash, candidate_name) VALUES (?,?,?)",
-                (username, _hash(password), candidate_name or username),
+                "INSERT INTO candidates (username, password_hash, candidate_name, phone) VALUES (?,?,?,?)",
+                (username, _hash(password), candidate_name or username, phone),
             )
-            return {"id": cur.lastrowid, "username": username, "candidate_name": candidate_name or username}
+            return {"id": cur.lastrowid, "username": username, "candidate_name": candidate_name or username, "phone": phone}
     except sqlite3.IntegrityError:
         return None
 
@@ -90,6 +93,7 @@ def login(username: str, password: str) -> dict | None:
         "token": token,
         "username": username,
         "nickname": row["candidate_name"] or username,
+        "phone": row["phone"] or "",
         "role": "candidate",
     }
 

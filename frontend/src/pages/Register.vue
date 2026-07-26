@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 const username = ref('')
 const nickname = ref('')
+const phone = ref('')
 const password = ref('')
 const password2 = ref('')
 const loading = ref(false)
@@ -14,6 +15,7 @@ const success = ref(false)
 async function doRegister() {
   error.value = ''
   if (!username.value.trim() || !password.value) return
+  if (phone.value.trim() && !/^1\d{10}$/.test(phone.value.trim())) { error.value = '请输入正确的11位手机号'; return }
   if (password.value !== password2.value) { error.value = '两次密码输入不一致'; return }
   if (password.value.length < 6) { error.value = '密码至少6位'; return }
 
@@ -26,6 +28,7 @@ async function doRegister() {
         username: username.value.trim(),
         password: password.value,
         nickname: nickname.value.trim() || username.value.trim(),
+        phone: phone.value.trim(),
       }),
     })
     if (!res.ok) {
@@ -33,7 +36,7 @@ async function doRegister() {
       throw new Error(err.detail || '注册失败')
     }
     success.value = true
-    setTimeout(() => router.push('/admin/login'), 2000)
+    setTimeout(() => router.push('/user/login'), 2000)
   } catch (e) {
     error.value = e.message
   }
@@ -75,6 +78,10 @@ async function doRegister() {
               <input v-model="nickname" type="text" placeholder="选填，默认同用户名" class="w-full border rounded-lg px-4 py-3 focus:outline-none focus:border-[#1677ff] text-sm">
             </div>
             <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">手机号</label>
+              <input v-model="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入手机号" class="w-full border rounded-lg px-4 py-3 focus:outline-none focus:border-[#1677ff] text-sm">
+            </div>
+            <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">密码 <span class="text-red-500">*</span></label>
               <input v-model="password" type="password" placeholder="至少6位" class="w-full border rounded-lg px-4 py-3 focus:outline-none focus:border-[#1677ff] text-sm">
             </div>
@@ -94,7 +101,7 @@ async function doRegister() {
 
           <p class="text-center text-sm text-gray-500 mt-5">
             已有账号？
-            <router-link to="/admin/login" class="text-[#1677ff] hover:underline font-medium">立即登录</router-link>
+            <router-link to="/user/login" class="text-[#1677ff] hover:underline font-medium">立即登录</router-link>
           </p>
         </template>
       </div>

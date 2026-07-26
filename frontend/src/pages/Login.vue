@@ -208,7 +208,7 @@ async function doLogin() {
             </button>
 
             <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div v-if="isCandidateLogin" class="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <span class="text-base text-slate-500">还没有账号？</span>
                 <router-link
                   to="/register"

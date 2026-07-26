@@ -116,10 +116,6 @@ function goCenter() {
   router.push(centerPath.value)
 }
 
-function goAdmin() {
-  router.push('/admin/login')
-}
-
 function jobSummary(job) {
   const text = `${job.responsibilities || ''}`.replace(/\s+/g, ' ').trim()
   return text || '参与核心业务建设，与团队一起探索 AI 招聘与面试体验的更多可能。'
@@ -139,14 +135,13 @@ function jobSummary(job) {
           <button :class="!isHomePage && recruitmentType === '社招' ? 'text-[#72f2d1]' : ''" @click="selectType('社招')">社会招聘</button>
           <button :class="!isHomePage && recruitmentType === '校招' ? 'text-[#72f2d1]' : ''" @click="selectType('校招')">校园招聘</button>
           <button @click="router.push('/about')">了解我们</button>
-          <button @click="goCenter">个人中心</button>
+          <button v-if="isLoggedIn" @click="goCenter">个人中心</button>
         </nav>
         <div class="flex items-center gap-3 text-sm font-semibold">
           <button v-if="isLoggedIn" class="rounded-full px-3 py-2 text-white/90 hover:bg-white/10" @click="goCenter">
             你好，{{ displayedName || '用户' }} <i class="fa fa-angle-down ml-1"></i>
           </button>
           <button v-else class="rounded-full px-3 py-2 text-white/90 hover:bg-white/10" @click="goLogin">登录/注册</button>
-          <button class="hidden rounded-full border border-white/18 px-4 py-2 text-white/80 hover:bg-white/10 lg:inline-flex" @click="goAdmin">招聘方后台</button>
         </div>
       </div>
     </header>

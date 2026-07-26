@@ -77,6 +77,7 @@ class RegisterBody(BaseModel):
     username: str
     password: str
     nickname: str = ""
+    phone: str = ""
 
 
 class ProfileUpdate(BaseModel):
@@ -96,7 +97,10 @@ class PasswordChange(BaseModel):
 async def register(body: RegisterBody):
     if not body.username.strip() or len(body.username) < 2:
         raise HTTPException(status_code=400, detail="用户名至少2个字符")
-    result = admin_repo.register(body.username.strip(), body.password, body.nickname.strip())
+    phone = body.phone.strip()
+    if phone and (not phone.isdigit() or len(phone) != 11):
+        raise HTTPException(status_code=400, detail="请输入正确的11位手机号")
+    result = candidate_repo.register(body.username.strip(), body.password, body.nickname.strip(), phone)
     if result is None:
         raise HTTPException(status_code=400, detail="用户名已存在或密码过短（至少6位）")
     return {"status": "ok", "user": result}

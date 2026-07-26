@@ -92,16 +92,16 @@ def _migrate_legacy_admins(conn) -> None:
         )
 
 
-def register(username: str, password: str, nickname: str = "") -> dict | None:
+def register(username: str, password: str, nickname: str = "", phone: str = "") -> dict | None:
     if len(password) < 6:
         return None
     try:
         with _conn() as conn:
             cur = conn.execute(
-                "INSERT INTO admins (username, password_hash, nickname) VALUES (?,?,?)",
-                (username, _hash(password), nickname or username),
+                "INSERT INTO admins (username, password_hash, nickname, phone) VALUES (?,?,?,?)",
+                (username, _hash(password), nickname or username, phone),
             )
-            return {"id": cur.lastrowid, "username": username, "nickname": nickname or username}
+            return {"id": cur.lastrowid, "username": username, "nickname": nickname or username, "phone": phone}
     except sqlite3.IntegrityError:
         return None
 

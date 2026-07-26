@@ -88,7 +88,7 @@ function goCenter() {
           <button @click="router.push('/jobs/social')">社会招聘</button>
           <button @click="router.push('/jobs/campus')">校园招聘</button>
           <button class="text-[#72f2d1]">了解我们</button>
-          <button @click="goCenter">个人中心</button>
+          <button v-if="isLoggedIn" @click="goCenter">个人中心</button>
         </nav>
         <div class="flex items-center gap-3 text-sm font-semibold">
           <button v-if="isLoggedIn" class="rounded-full px-3 py-2 text-white/90 hover:bg-white/10" @click="goCenter">
