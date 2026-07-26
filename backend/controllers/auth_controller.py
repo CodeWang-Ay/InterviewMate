@@ -175,3 +175,20 @@ async def upload_avatar(file: UploadFile = File(...), username: str = Depends(ge
     avatar_url = f"/uploads/avatars/{filename}"
     admin_repo.update_avatar(username, avatar_url)
     return {"avatar_url": avatar_url}
+
+
+@router.post("/candidate-avatar")
+async def upload_candidate_avatar(file: UploadFile = File(...), username: str = Depends(get_current_candidate)):
+    ext = os.path.splitext(file.filename or ".png")[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        raise HTTPException(status_code=400, detail="仅支持 PNG/JPG/GIF/WEBP 格式")
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="头像不能超过 5MB")
+    filename = f"avatar_{uuid.uuid4().hex[:8]}{ext}"
+    filepath = os.path.join(AVATAR_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(content)
+    avatar_url = f"/uploads/avatars/{filename}"
+    candidate_repo.update_profile(username, {"avatar": avatar_url})
+    return {"avatar_url": avatar_url}

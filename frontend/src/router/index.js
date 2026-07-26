@@ -118,6 +118,7 @@ async function ensureSessionValid(token) {
         if (data.nickname) localStorage.setItem('nickname', data.nickname)
         if (data.phone) localStorage.setItem('phone', data.phone)
         if (data.email) localStorage.setItem('email', data.email)
+        if (data.avatar) localStorage.setItem('avatar', data.avatar)
       } catch (_) {
         // ignore
       }

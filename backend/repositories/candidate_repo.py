@@ -50,6 +50,8 @@ def init_db():
             conn.execute("ALTER TABLE candidates ADD COLUMN phone TEXT DEFAULT ''")
         if "email" not in cols:
             conn.execute("ALTER TABLE candidates ADD COLUMN email TEXT DEFAULT ''")
+        if "avatar" not in cols:
+            conn.execute("ALTER TABLE candidates ADD COLUMN avatar TEXT DEFAULT ''")
 
         _migrate_legacy_candidates(conn)
 
@@ -142,7 +144,7 @@ def reset_password(username: str, new_password: str) -> bool:
 
 
 def update_profile(username: str, data: dict) -> bool:
-    allowed = ["phone", "email", "candidate_name"]
+    allowed = ["phone", "email", "candidate_name", "avatar"]
     sets = [f"{k}=?" for k in allowed if k in data]
     vals = [data[k] for k in allowed if k in data]
     if not sets:

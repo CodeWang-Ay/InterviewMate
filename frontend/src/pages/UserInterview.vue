@@ -94,18 +94,37 @@ onMounted(async () => {
 
 watch(activeTab, loadRecommendedJobs)
 
+const avatar = ref('')
+
 function readUser() {
   try {
     username.value = localStorage.getItem('username') || ''
     nickname.value = localStorage.getItem('nickname') || ''
     phone.value = localStorage.getItem('phone') || ''
     email.value = localStorage.getItem('email') || ''
+    avatar.value = localStorage.getItem('avatar') || ''
   } catch (_) {
     username.value = ''
     nickname.value = ''
     phone.value = ''
     email.value = ''
+    avatar.value = ''
   }
+}
+
+async function uploadAvatar(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  const fd = new FormData(); fd.append('file', file)
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/auth/candidate-avatar', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '上传失败')
+    const data = await res.json()
+    avatar.value = data.avatar_url
+    localStorage.setItem('avatar', data.avatar_url)
+  } catch (e) { alert(e.message) }
+  e.target.value = ''
 }
 
 async function loadPlans() {
@@ -371,9 +390,12 @@ function jobSummary(job) {
             </div>
 
             <div class="relative mt-9 flex flex-wrap items-center gap-7">
-              <div class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#4b6cff] to-[#11b89f] text-3xl font-black text-white shadow-lg shadow-blue-100">
-                {{ displayName.slice(0, 1) }}
-              </div>
+              <label class="relative flex h-24 w-24 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#4b6cff] to-[#11b89f] text-3xl font-black text-white shadow-lg shadow-blue-100 transition hover:opacity-80 group">
+                <img v-if="avatar" :src="avatar" class="h-full w-full object-cover" alt="">
+                <span v-else>{{ displayName.slice(0, 1) }}</span>
+                <span class="absolute inset-0 flex items-center justify-center rounded-full bg-black/30 text-xs font-bold text-white opacity-0 transition group-hover:opacity-100"><i class="fa fa-camera mr-1"></i>更换</span>
+                <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp" class="hidden" @change="uploadAvatar">
+              </label>
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-3">
                   <h2 class="truncate text-3xl font-black lg:text-4xl">{{ displayName }}</h2>
