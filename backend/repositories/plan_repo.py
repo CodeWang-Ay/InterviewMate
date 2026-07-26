@@ -1,6 +1,7 @@
 import sqlite3
 import json
 from backend.config import DB_PATH
+from backend.repositories import jd_repo
 
 PLAN_STATUSES = {"pending", "wait", "running", "finish", "cancel"}
 
@@ -48,6 +49,7 @@ def init_db():
         text_cols = [
             "interview_round", "candidate_username", "candidate_password", "workflow_id", "workflow_name", "active_session_id",
             "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_note",
+            "recruitment_type",
         ]
         for col in text_cols:
             if col not in cols:
@@ -210,7 +212,7 @@ def list_by_candidate_username(username: str) -> list[dict]:
             "SELECT * FROM plans WHERE candidate_username=? ORDER BY workflow_id DESC, stage_order ASC, id ASC",
             (username,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return _hydrate_recruitment_types([dict(r) for r in rows])
 
 
 def get_by_id(pid: int) -> dict | None:
@@ -264,6 +266,8 @@ def find_latest_by_resume_filename(resume_filename: str) -> dict | None:
 
 
 def create(data: dict) -> dict:
+    data = {**data}
+    data["recruitment_type"] = _resolve_recruitment_type(data)
     with _conn() as conn:
         cur = conn.execute(
             """
@@ -271,8 +275,8 @@ def create(data: dict) -> dict:
                 candidate_name, jd_name, workflow_id, workflow_name, stage_order, stage_count,
                 interview_round, match_score, question_count, status, jd_filename, resume_filename,
                 questions, candidate_username, candidate_password, scheduled_at, interviewer,
-                meeting_url, interview_result, result_score, result_note
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                meeting_url, interview_result, result_score, result_note, recruitment_type
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (data.get("candidate_name", ""), data.get("jd_name", ""),
              data.get("workflow_id", ""), data.get("workflow_name", ""),
@@ -285,7 +289,7 @@ def create(data: dict) -> dict:
              data.get("candidate_password", ""), data.get("scheduled_at", ""),
              data.get("interviewer", ""), data.get("meeting_url", ""),
              data.get("interview_result", ""), data.get("result_score", 0),
-             data.get("result_note", "")),
+             data.get("result_note", ""), data.get("recruitment_type", "社招")),
         )
         row = conn.execute("SELECT * FROM plans WHERE id=?", (cur.lastrowid,)).fetchone()
         return dict(row) if row else {}
@@ -297,10 +301,13 @@ def update(pid: int, data: dict) -> dict | None:
         return None
     if "status" in data:
         data["status"] = normalize_status(data.get("status"))
+    if "jd_name" in data and "recruitment_type" not in data:
+        data["recruitment_type"] = _resolve_recruitment_type(data)
     allowed = ["candidate_name", "jd_name", "interview_round", "match_score", "question_count", "status",
                "jd_filename", "resume_filename", "questions", "candidate_username", "candidate_password",
                "workflow_id", "workflow_name", "stage_order", "stage_count", "active_session_id",
-               "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_score", "result_note"]
+               "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_score", "result_note",
+               "recruitment_type"]
     sets = [f"{f}=?" for f in allowed if f in data]
     vals = [data[f] for f in allowed if f in data]
     if not sets:
@@ -425,3 +432,31 @@ def _reconcile_workflow_status(workflow_id: str) -> None:
 def delete(pid: int) -> bool:
     with _conn() as conn:
         return conn.execute("DELETE FROM plans WHERE id=?", (pid,)).rowcount > 0
+
+
+def _resolve_recruitment_type(data: dict) -> str:
+    current = str(data.get("recruitment_type") or "").strip()
+    if current:
+        return current
+    jd = jd_repo.get_by_name(data.get("jd_name", ""))
+    return str((jd or {}).get("recruitment_type") or "社招").strip() or "社招"
+
+
+def _hydrate_recruitment_types(rows: list[dict]) -> list[dict]:
+    cache: dict[str, str] = {}
+    updates: list[tuple[str, int]] = []
+    for row in rows:
+        current = str(row.get("recruitment_type") or "").strip()
+        if not current:
+            name = str(row.get("jd_name") or "").strip()
+            if name not in cache:
+                jd = jd_repo.get_by_name(name)
+                cache[name] = str((jd or {}).get("recruitment_type") or "社招").strip() or "社招"
+            current = cache[name]
+            row["recruitment_type"] = current
+            if row.get("id"):
+                updates.append((current, row["id"]))
+    if updates:
+        with _conn() as conn:
+            conn.executemany("UPDATE plans SET recruitment_type=? WHERE id=?", updates)
+    return rows

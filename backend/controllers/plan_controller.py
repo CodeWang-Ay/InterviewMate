@@ -34,6 +34,7 @@ class PlanUpdate(BaseModel):
     interview_result: str | None = None
     result_score: int | None = None
     result_note: str | None = None
+    recruitment_type: str | None = None
 
 
 class WorkflowStage(BaseModel):
@@ -52,6 +53,7 @@ class WorkflowCreate(BaseModel):
     jd_name: str = "待定岗位"
     workflow_name: str
     resume_filename: str = ""
+    recruitment_type: str = ""
     stages: list[WorkflowStage]
 
 
@@ -136,6 +138,7 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
             "resume_filename": body.resume_filename,
             "candidate_username": username,
             "candidate_password": password,
+            "recruitment_type": body.recruitment_type,
         }
         plans.append(plan_repo.create(data))
     return {

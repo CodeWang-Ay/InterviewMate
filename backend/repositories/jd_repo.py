@@ -118,6 +118,18 @@ def get_by_id(jd_id):
         return dict(row) if row else None
 
 
+def get_by_name(name):
+    text = str(name or "").strip()
+    if not text:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM jds WHERE name=? ORDER BY id DESC LIMIT 1",
+            (text,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def create(data):
     with _conn() as conn:
         cur = conn.execute(

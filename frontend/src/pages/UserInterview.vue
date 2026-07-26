@@ -31,7 +31,7 @@ const workflowGroups = computed(() => {
         workflow_name: plan.workflow_name || '我的面试流程',
         candidate_name: plan.candidate_name || nickname.value || username.value || '候选人',
         jd_name: plan.jd_name || '目标岗位',
-        recruitment_type: plan.recruitment_type || '社会招聘',
+        recruitment_type: normalizeRecruitmentType(plan.recruitment_type),
         location: plan.location || '',
         resume_filename: plan.resume_filename || '',
         plans: [],
@@ -60,14 +60,16 @@ const workflowGroups = computed(() => {
 
 const filteredWorkflowGroups = computed(() => {
   const tabText = activeTab.value === 'campus' ? '校招' : '社招'
-  const matched = workflowGroups.value.filter(group => String(group.recruitment_type || '').includes(tabText))
-  return matched.length ? matched : workflowGroups.value
+  return workflowGroups.value.filter(group => group.recruitment_type === tabText)
 })
 const activeGroup = computed(() => workflowGroups.value.find(group => group.current_plan) || workflowGroups.value[0] || null)
 const currentPlan = computed(() => activeGroup.value?.current_plan || null)
-const allPlanCount = computed(() => plans.value.length)
-const allFinishedCount = computed(() => plans.value.filter(plan => plan.status === 'finish').length)
 const applicationCount = computed(() => workflowGroups.value.length)
+const closedWorkflowCount = computed(() => workflowGroups.value.filter(group => {
+  if (!group.plans.length) return false
+  return group.plans.every(plan => ['finish', 'cancel'].includes(plan.status))
+}).length)
+const activeInterviewCount = computed(() => plans.value.filter(plan => ['wait', 'running'].includes(plan.status)).length)
 const displayName = computed(() => nickname.value || activeGroup.value?.candidate_name || username.value || '候选人')
 const resumeFileName = computed(() => activeGroup.value?.resume_filename || activeGroup.value?.plans.find(plan => plan.resume_filename)?.resume_filename || '暂未上传简历')
 const resumeMatchPercent = computed(() => {
@@ -143,6 +145,12 @@ async function loadRecommendedJobs() {
 
 function workflowKey(plan) {
   return plan.workflow_id || `single:${plan.candidate_username || ''}:${plan.jd_name || ''}:${plan.id || ''}`
+}
+
+function normalizeRecruitmentType(value) {
+  const text = String(value || '').trim()
+  if (text.includes('校')) return '校招'
+  return '社招'
 }
 
 function ensureDefaultExpanded() {
@@ -236,10 +244,10 @@ function jobSummary(job) {
       </div>
     </header>
 
-    <main class="mx-auto grid max-w-[1440px] gap-8 px-6 py-10 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <main class="mx-auto grid max-w-[1680px] gap-10 px-6 py-10 lg:px-10 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:px-12">
       <section class="min-w-0 space-y-6">
         <div class="overflow-hidden rounded-2xl bg-white shadow-[0_16px_42px_rgba(15,35,80,0.08)]">
-          <div class="relative min-h-[190px] bg-[linear-gradient(135deg,#e9f3ff_0%,#f8fbff_48%,#eef8f5_100%)] p-7">
+          <div class="relative min-h-[220px] bg-[linear-gradient(135deg,#e9f3ff_0%,#f8fbff_48%,#eef8f5_100%)] p-8 lg:p-10">
             <div class="absolute right-8 top-8 hidden h-44 w-80 rounded-full bg-[radial-gradient(circle,rgba(76,111,255,0.13),transparent_65%)] md:block"></div>
             <div class="relative flex flex-wrap items-start justify-between gap-5">
               <div>
@@ -252,13 +260,13 @@ function jobSummary(job) {
               </div>
             </div>
 
-            <div class="relative mt-8 flex flex-wrap items-center gap-6">
-              <div class="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#4b6cff] to-[#11b89f] text-2xl font-black text-white shadow-lg shadow-blue-100">
+            <div class="relative mt-9 flex flex-wrap items-center gap-7">
+              <div class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#4b6cff] to-[#11b89f] text-3xl font-black text-white shadow-lg shadow-blue-100">
                 {{ displayName.slice(0, 1) }}
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-3">
-                  <h2 class="truncate text-3xl font-black">{{ displayName }}</h2>
+                  <h2 class="truncate text-3xl font-black lg:text-4xl">{{ displayName }}</h2>
                   <span class="rounded-full bg-[#ecfdf6] px-3 py-1 text-sm font-bold text-[#0f9f8f]">候选人</span>
                 </div>
                 <div class="mt-4 grid gap-4 text-sm text-[#3f4b5f] md:grid-cols-3">
@@ -271,7 +279,7 @@ function jobSummary(job) {
           </div>
         </div>
 
-        <div class="rounded-2xl bg-white p-7 shadow-[0_16px_42px_rgba(15,35,80,0.08)]">
+        <div class="rounded-2xl bg-white p-8 shadow-[0_16px_42px_rgba(15,35,80,0.08)] lg:p-9">
           <div class="mb-7 flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 class="text-2xl font-black">我的简历</h2>
@@ -282,35 +290,35 @@ function jobSummary(job) {
               <button class="font-semibold text-[#344054] hover:text-[#11b89f]"><i class="fa fa-pencil mr-1"></i> 编辑</button>
             </div>
           </div>
-          <div class="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-            <div class="flex gap-5 rounded-xl bg-[#f2f6fb] p-5">
-              <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2f80ff] to-[#11b89f] font-black text-white">PDF</div>
+          <div class="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)]">
+            <div class="flex min-h-[190px] gap-6 rounded-2xl bg-[#f2f6fb] p-6 lg:p-7">
+              <div class="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2f80ff] to-[#11b89f] text-lg font-black text-white shadow-sm">PDF</div>
               <div class="min-w-0 flex-1">
-                <div class="truncate text-xl font-black">{{ resumeFileName }}</div>
-                <div class="mt-2 text-sm text-[#667085]">绑定岗位：{{ activeGroup?.jd_name || '暂未绑定岗位' }}</div>
-                <div class="mt-5">
+                <div class="truncate text-xl font-black lg:text-2xl">{{ resumeFileName }}</div>
+                <div class="mt-3 text-sm text-[#667085]">绑定岗位：{{ activeGroup?.jd_name || '暂未绑定岗位' }}</div>
+                <div class="mt-8">
                   <div class="mb-2 flex items-center justify-between text-sm">
                     <span class="font-semibold text-[#475467]">岗位匹配</span>
                     <span class="font-black text-[#11b89f]">{{ resumeMatchPercent }}%</span>
                   </div>
-                  <div class="h-2.5 overflow-hidden rounded-full bg-[#dbe3ef]">
+                  <div class="h-3 overflow-hidden rounded-full bg-[#dbe3ef]">
                     <div class="h-full rounded-full bg-[#11b89f]" :style="{ width: `${resumeMatchPercent}%` }"></div>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="grid grid-cols-3 gap-3">
-              <div class="rounded-xl bg-[#f7f9fc] p-4 text-center">
-                <div class="text-2xl font-black text-[#4776ff]">{{ applicationCount }}</div>
+            <div class="grid grid-cols-3 gap-3 lg:gap-4">
+              <div class="flex min-h-[190px] flex-col items-center justify-center rounded-2xl bg-[#f7f9fc] p-4 text-center">
+                <div class="text-3xl font-black text-[#4776ff]">{{ applicationCount }}</div>
                 <div class="mt-1 text-sm text-[#667085]">投递岗位</div>
               </div>
-              <div class="rounded-xl bg-[#f7f9fc] p-4 text-center">
-                <div class="text-2xl font-black text-[#11b89f]">{{ allFinishedCount }}</div>
-                <div class="mt-1 text-sm text-[#667085]">完成环节</div>
+              <div class="flex min-h-[190px] flex-col items-center justify-center rounded-2xl bg-[#f7f9fc] p-4 text-center">
+                <div class="text-3xl font-black text-[#11b89f]">{{ closedWorkflowCount }}</div>
+                <div class="mt-1 text-sm text-[#667085]">结束流程</div>
               </div>
-              <div class="rounded-xl bg-[#f7f9fc] p-4 text-center">
-                <div class="text-2xl font-black text-[#f59e0b]">{{ allPlanCount }}</div>
-                <div class="mt-1 text-sm text-[#667085]">面试环节</div>
+              <div class="flex min-h-[190px] flex-col items-center justify-center rounded-2xl bg-[#f7f9fc] p-4 text-center">
+                <div class="text-3xl font-black text-[#f59e0b]">{{ activeInterviewCount }}</div>
+                <div class="mt-1 text-sm text-[#667085]">进行中</div>
               </div>
             </div>
           </div>
