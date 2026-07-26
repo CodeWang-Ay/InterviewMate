@@ -45,7 +45,7 @@ function isActive(item) {
     <!-- Logo -->
     <router-link to="/admin" class="flex items-center gap-2 mb-8 no-underline">
       <div class="w-9 h-9 bg-[#1677ff] rounded-lg flex items-center justify-center text-white font-bold text-lg">AI</div>
-      <span class="text-lg font-semibold text-gray-800">AI 面试助手</span>
+      <span class="text-lg font-semibold text-gray-800">OPC Mate</span>
     </router-link>
 
     <!-- 导航菜单 -->

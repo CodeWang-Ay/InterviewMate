@@ -288,7 +288,7 @@ function doLogout() {
       <!-- 关于 -->
       <div class="bg-white rounded-2xl shadow-sm p-6">
         <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">关于</h3>
-        <p class="text-gray-600 text-sm">AI 面试助手 V1.0.0</p>
+        <p class="text-gray-600 text-sm">OPC Mate V1.0.0</p>
         <div class="flex gap-4 mt-3">
           <span class="text-[#1677ff] hover:underline cursor-pointer text-sm">帮助文档</span>
           <span class="text-[#1677ff] hover:underline cursor-pointer text-sm">联系客服</span>

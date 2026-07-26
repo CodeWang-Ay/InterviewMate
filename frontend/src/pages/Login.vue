@@ -75,7 +75,7 @@ async function doLogin() {
             <div class="inline-flex items-center gap-4 rounded-[22px] bg-white/14 px-5 py-4 backdrop-blur">
               <div class="w-14 h-14 rounded-[20px] bg-white/18 flex items-center justify-center text-white font-bold text-xl shadow-sm">AI</div>
               <div>
-                <div class="text-white font-semibold text-xl">InterviewMate</div>
+                <div class="text-white font-semibold text-xl">OPC Mate</div>
                 <div class="text-white/75 text-sm">{{ roleLabel }}</div>
               </div>
             </div>

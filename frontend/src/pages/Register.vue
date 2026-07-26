@@ -49,7 +49,7 @@ async function doRegister() {
           <span class="text-white font-bold text-2xl">AI</span>
         </div>
         <h1 class="text-2xl font-bold text-gray-900">创建账号</h1>
-        <p class="text-gray-500 mt-1">注册 AI 面试助手</p>
+        <p class="text-gray-500 mt-1">注册 OPC Mate</p>
       </div>
 
       <div class="bg-white rounded-2xl shadow-lg p-8">

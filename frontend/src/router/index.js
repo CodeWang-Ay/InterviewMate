@@ -20,13 +20,16 @@ import UserCenter from '../pages/UserCenter.vue'
 import UserInterview from '../pages/UserInterview.vue'
 import TaskCenter from '../pages/TaskCenter.vue'
 import RecruitmentHome from '../pages/RecruitmentHome.vue'
+import AboutUs from '../pages/AboutUs.vue'
 
 const redirectWithQuery = (path) => (to) => ({ path, query: to.query })
 
 const routes = [
   { path: '/', component: RecruitmentHome },
-  { path: '/jobs', component: RecruitmentHome },
+  { path: '/jobs', redirect: redirectWithQuery('/jobs/social') },
   { path: '/jobs/social', component: RecruitmentHome },
+  { path: '/jobs/campus', component: RecruitmentHome },
+  { path: '/about', component: AboutUs },
   { path: '/admin', component: Home },
   { path: '/admin/interviewer', component: Interviewer },
   { path: '/admin/interviewer/chat', component: InterviewerTrainChat },
@@ -123,7 +126,7 @@ async function ensureSessionValid(token) {
 
 // 路由守卫：未登录跳转登录页
 router.beforeEach(async (to, from) => {
-  const publicPages = ['/', '/jobs', '/jobs/social', '/login', '/admin/login', '/user/login', '/register']
+  const publicPages = ['/', '/jobs', '/jobs/social', '/jobs/campus', '/about', '/login', '/admin/login', '/user/login', '/register']
   let token = ''
   let role = ''
   try { token = localStorage.getItem('token') || '' } catch (_) {}

@@ -1,12 +1,14 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
 const error = ref('')
 const keyword = ref('')
 const recruitmentType = ref('社招')
+const showRecruitmentPicker = ref(false)
 const selectedCategory = ref('')
 const selectedLocation = ref('')
 const jobs = ref([])
@@ -23,11 +25,17 @@ const displayedName = computed(() => nickname.value || username.value || '')
 const isLoggedIn = computed(() => Boolean(username.value || localStorage.getItem('token')))
 const centerPath = computed(() => role.value === 'candidate' ? '/user' : '/admin/user-center')
 const recommendedJobs = computed(() => jobs.value.slice(0, 3))
-const collectedEmpty = computed(() => true)
+const isHomePage = computed(() => route.path === '/')
 
 onMounted(() => {
   readUser()
-  loadJobs()
+  syncRecruitmentTypeFromRoute()
+  if (!isHomePage.value) loadJobs()
+})
+
+watch(() => route.path, () => {
+  syncRecruitmentTypeFromRoute()
+  if (!isHomePage.value) loadJobs()
 })
 
 function readUser() {
@@ -43,6 +51,7 @@ function readUser() {
 }
 
 async function loadJobs() {
+  if (isHomePage.value) return
   loading.value = true
   error.value = ''
   try {
@@ -70,7 +79,22 @@ async function loadJobs() {
 
 function selectType(type) {
   recruitmentType.value = type
-  loadJobs()
+  showRecruitmentPicker.value = false
+  router.push(type === '校招' ? '/jobs/campus' : '/jobs/social')
+}
+
+function chooseSearchType(type) {
+  recruitmentType.value = type
+  showRecruitmentPicker.value = false
+}
+
+function syncRecruitmentTypeFromRoute() {
+  recruitmentType.value = route.path === '/jobs/campus' ? '校招' : '社招'
+}
+
+function searchJobs() {
+  router.push(recruitmentType.value === '校招' ? '/jobs/campus' : '/jobs/social')
+  if (!isHomePage.value) loadJobs()
 }
 
 function toggleCategory(item) {
@@ -103,17 +127,17 @@ function jobSummary(job) {
 
 <template>
   <div class="min-h-screen bg-[#f6f7fb] text-[#182033]">
-    <header class="fixed left-0 right-0 top-0 z-30 border-b border-white/10 bg-[#091225]/90 text-white backdrop-blur-xl">
+    <header class="fixed left-0 right-0 top-0 z-30 border-b border-white/10 bg-[#071c22]/88 text-white backdrop-blur-xl">
       <div class="mx-auto flex h-16 max-w-[1680px] items-center justify-between px-5 lg:px-8">
         <button class="flex items-center gap-3" @click="router.push('/')">
-          <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-sm font-black text-[#1677ff]">AI</span>
-          <span class="text-lg font-bold">InterviewMate 招聘</span>
+          <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-sm font-black text-[#0f9f8f]">AI</span>
+          <span class="text-lg font-bold">OPC Mate 招聘</span>
         </button>
         <nav class="hidden items-center gap-8 text-sm font-semibold text-white/82 md:flex">
-          <button class="text-white" @click="router.push('/')">首页</button>
-          <button :class="recruitmentType === '社招' ? 'text-[#74a8ff]' : ''" @click="selectType('社招')">社会招聘</button>
-          <button :class="recruitmentType === '校招' ? 'text-[#74a8ff]' : ''" @click="selectType('校招')">校园招聘</button>
-          <button>了解我们</button>
+          <button :class="isHomePage ? 'text-white' : ''" @click="router.push('/')">首页</button>
+          <button :class="!isHomePage && recruitmentType === '社招' ? 'text-[#72f2d1]' : ''" @click="selectType('社招')">社会招聘</button>
+          <button :class="!isHomePage && recruitmentType === '校招' ? 'text-[#72f2d1]' : ''" @click="selectType('校招')">校园招聘</button>
+          <button @click="router.push('/about')">了解我们</button>
           <button @click="goCenter">个人中心</button>
         </nav>
         <div class="flex items-center gap-3 text-sm font-semibold">
@@ -126,42 +150,78 @@ function jobSummary(job) {
       </div>
     </header>
 
-    <section class="relative min-h-[690px] overflow-hidden bg-[#071126] pt-16 text-white">
-      <div class="absolute inset-0 bg-[radial-gradient(circle_at_48%_48%,rgba(84,111,225,0.56)_0%,rgba(26,45,100,0.40)_24%,rgba(7,17,38,0.94)_62%)]"></div>
-      <div class="absolute left-1/2 top-[52%] h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/14"></div>
-      <div class="absolute left-1/2 top-[52%] h-[860px] w-[860px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-white/18"></div>
-      <div class="absolute left-1/2 top-[52%] h-[1180px] w-[1180px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dotted border-white/16"></div>
-      <div class="absolute inset-0 opacity-70">
-        <span v-for="i in 80" :key="i" class="absolute h-1.5 w-1.5 rounded-full bg-white/70" :style="{ left: `${(i * 37) % 100}%`, top: `${18 + ((i * 53) % 68)}%`, opacity: `${0.25 + ((i * 7) % 60) / 100}` }"></span>
+    <section :class="['recruitment-hero relative overflow-hidden bg-[#061819] pt-16 text-white', isHomePage ? 'min-h-screen' : 'min-h-[620px]']">
+      <div class="hero-aurora absolute inset-0"></div>
+      <div class="hero-earth absolute left-1/2 top-[53%] h-[440px] w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-full"></div>
+      <div class="orbit-ring orbit-ring-1 absolute left-1/2 top-[52%] h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/14">
+        <span class="orbit-node node-green"></span>
+      </div>
+      <div class="orbit-ring orbit-ring-2 absolute left-1/2 top-[52%] h-[860px] w-[860px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-white/18">
+        <span class="orbit-node node-blue"></span>
+        <span class="orbit-label label-1">AI Infra</span>
+        <span class="orbit-label label-2">智能面试</span>
+      </div>
+      <div class="orbit-ring orbit-ring-3 absolute left-1/2 top-[52%] h-[1180px] w-[1180px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dotted border-white/16">
+        <span class="orbit-node node-gold"></span>
+        <span class="orbit-label label-3">RAG 应用</span>
+        <span class="orbit-label label-4">人才档案</span>
+      </div>
+      <div class="star-field absolute inset-0 opacity-80">
+        <span
+          v-for="i in 96"
+          :key="i"
+          class="star-point absolute rounded-full bg-white/70"
+          :style="{
+            left: `${(i * 37) % 100}%`,
+            top: `${14 + ((i * 53) % 72)}%`,
+            width: `${2 + ((i * 11) % 4)}px`,
+            height: `${2 + ((i * 11) % 4)}px`,
+            opacity: `${0.22 + ((i * 7) % 62) / 100}`,
+            animationDelay: `${(i % 12) * -0.45}s`,
+            animationDuration: `${5 + (i % 8)}s`
+          }"
+        ></span>
       </div>
 
-      <div class="relative mx-auto flex min-h-[620px] max-w-[1380px] flex-col items-center justify-center px-6 text-center">
-        <div class="mb-8 rounded-full border border-white/16 bg-white/8 px-5 py-2 text-sm font-semibold tracking-[0.22em] text-white/82">
+      <div :class="['relative mx-auto flex max-w-[1380px] flex-col items-center justify-center px-6 text-center', isHomePage ? 'min-h-[calc(100vh-64px)]' : 'min-h-[560px]']">
+        <div class="hero-kicker mb-8 rounded-full border border-white/16 bg-white/8 px-5 py-2 text-sm font-semibold tracking-[0.22em] text-white/82">
           AI RECRUITMENT CENTER
         </div>
-        <h1 class="text-[52px] font-black leading-tight tracking-tight md:text-[84px]">众里寻你，一起发光</h1>
+        <h1 class="hero-title text-[52px] font-black leading-tight tracking-tight md:text-[84px]">众里寻你，一起发光</h1>
         <p class="mt-5 max-w-3xl text-xl leading-9 text-white/78">从岗位投递到 AI 面试，查看你的招聘进度，找到更适合的机会。</p>
 
-        <div class="mt-12 flex w-full max-w-3xl overflow-hidden rounded-none border border-white/60 bg-white/12 shadow-2xl shadow-blue-950/40">
-          <button class="flex min-w-[128px] items-center justify-center border-r border-white/40 px-4 text-left text-white/90">
-            {{ recruitmentType }} <i class="fa fa-angle-down ml-2"></i>
-          </button>
+        <div class="hero-search mt-12 flex w-full max-w-3xl overflow-visible rounded-none border border-white/60 bg-white/12 shadow-2xl shadow-blue-950/40">
+          <div class="relative z-10 min-w-[128px] border-r border-white/40">
+            <button
+              class="flex h-full w-full items-center justify-center px-4 text-left text-white/90 transition hover:bg-white/10"
+              @click.stop="showRecruitmentPicker = !showRecruitmentPicker"
+            >
+              {{ recruitmentType }} <i class="fa fa-angle-down ml-2 transition" :class="showRecruitmentPicker ? 'rotate-180' : ''"></i>
+            </button>
+            <div
+              v-if="showRecruitmentPicker"
+              class="absolute left-0 top-[calc(100%+10px)] w-full overflow-hidden rounded-xl border border-white/18 bg-[#082529]/95 py-1 text-sm text-white shadow-2xl backdrop-blur"
+            >
+              <button class="block w-full px-4 py-3 text-left hover:bg-white/10" :class="recruitmentType === '社招' ? 'text-[#72f2d1]' : ''" @click="chooseSearchType('社招')">社会招聘</button>
+              <button class="block w-full px-4 py-3 text-left hover:bg-white/10" :class="recruitmentType === '校招' ? 'text-[#72f2d1]' : ''" @click="chooseSearchType('校招')">校园招聘</button>
+            </div>
+          </div>
           <input
             v-model="keyword"
             class="min-w-0 flex-1 bg-white/10 px-5 py-4 text-base text-white placeholder:text-white/55 outline-none"
             placeholder="搜索岗位、技术方向或城市"
-            @keyup.enter="loadJobs"
+            @keyup.enter="searchJobs"
           >
-          <button class="bg-white px-8 py-4 font-bold text-[#3559bd] hover:bg-blue-50" @click="loadJobs">搜索职位</button>
+          <button class="bg-white px-8 py-4 font-bold text-[#087f78] hover:bg-emerald-50" @click="searchJobs">搜索职位</button>
         </div>
 
         <div class="mt-6 flex flex-wrap justify-center gap-3 text-sm text-white/70">
-          <button v-for="tag in heroTags" :key="tag" class="rounded-full bg-white/8 px-4 py-2 hover:bg-white/14" @click="keyword = tag; loadJobs()">{{ tag }}</button>
+          <button v-for="tag in heroTags" :key="tag" class="hero-tag rounded-full bg-white/8 px-4 py-2 hover:bg-white/14" @click="keyword = tag; searchJobs()">{{ tag }}</button>
         </div>
       </div>
     </section>
 
-    <section class="mx-auto grid max-w-[1240px] gap-8 px-6 py-16 lg:grid-cols-[260px_1fr]">
+    <section v-if="!isHomePage" class="mx-auto grid max-w-[1440px] gap-8 px-6 py-16 xl:grid-cols-[240px_minmax(0,1fr)_320px]">
       <aside class="h-fit rounded-xl bg-white p-6 shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
         <h3 class="text-lg font-bold">筛选</h3>
         <div class="mt-7">
@@ -193,8 +253,8 @@ function jobSummary(job) {
         <div class="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div class="text-lg font-bold">{{ total }} 条职位信息</div>
           <div class="flex overflow-hidden rounded-full bg-[#e9ecf5] p-1">
-            <button class="rounded-full px-6 py-2" :class="recruitmentType === '社招' ? 'bg-[#5572f4] text-white' : 'text-[#667085]'" @click="selectType('社招')">社会招聘</button>
-            <button class="rounded-full px-6 py-2" :class="recruitmentType === '校招' ? 'bg-[#5572f4] text-white' : 'text-[#667085]'" @click="selectType('校招')">校园招聘</button>
+            <button class="rounded-full px-6 py-2" :class="recruitmentType === '社招' ? 'bg-[#11b89f] text-white' : 'text-[#667085]'" @click="selectType('社招')">社会招聘</button>
+            <button class="rounded-full px-6 py-2" :class="recruitmentType === '校招' ? 'bg-[#11b89f] text-white' : 'text-[#667085]'" @click="selectType('校招')">校园招聘</button>
           </div>
         </div>
 
@@ -224,7 +284,7 @@ function jobSummary(job) {
               <div class="flex flex-wrap gap-2">
                 <span v-for="tag in [job.category || '业务方向', job.location || '灵活地点', job.experience_required || '不限经验']" :key="tag" class="rounded-md bg-[#f3f7ff] px-3 py-1.5 text-sm text-[#4d63af]">{{ tag }}</span>
               </div>
-              <button class="rounded-lg bg-[#5572f4] px-5 py-2.5 font-semibold text-white hover:bg-[#3f5ce0]" @click="goLogin">立即投递</button>
+              <button class="rounded-lg bg-[#11b89f] px-5 py-2.5 font-semibold text-white hover:bg-[#0d9488]" @click="goLogin">立即投递</button>
             </div>
           </article>
 
@@ -233,34 +293,19 @@ function jobSummary(job) {
           </div>
         </div>
       </main>
-    </section>
 
-    <section v-if="isLoggedIn" class="mx-auto grid max-w-[1240px] gap-8 px-6 pb-20 lg:grid-cols-[1fr_360px]">
-      <div class="rounded-2xl bg-white p-7 shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
-        <div class="flex items-center justify-between">
-          <h2 class="text-2xl font-bold">我的简历</h2>
-          <button class="text-sm text-[#4b6cff]" @click="goCenter">查看进度</button>
-        </div>
-        <div class="mt-6 flex flex-wrap items-center gap-6 rounded-xl bg-[#f2f5fb] p-6">
-          <div class="flex h-16 w-16 items-center justify-center rounded-full bg-[#4b6cff] text-xl font-bold text-white">{{ displayedName.slice(0, 1) || '我' }}</div>
-          <div>
-            <div class="text-2xl font-bold">{{ displayedName || '我的账号' }}</div>
-            <div class="mt-2 text-[#667085]">登录后可查看面试流程、投递记录和 AI 面试安排。</div>
-          </div>
-        </div>
-      </div>
-
-      <aside class="space-y-6">
-        <div class="rounded-2xl bg-white p-7 shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
+      <aside class="space-y-6 xl:sticky xl:top-24 xl:h-fit">
+        <div class="rounded-2xl bg-white p-6 shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
           <div class="flex items-center justify-between">
-            <h2 class="text-2xl font-bold">智能职位推荐</h2>
-            <button class="text-sm text-[#4b6cff]">全部职位 &gt;</button>
+            <h2 class="text-xl font-bold">智能职位推荐</h2>
+            <button class="text-sm font-semibold text-[#0f9f8f]">全部职位 &gt;</button>
           </div>
+          <p class="mt-2 text-sm leading-6 text-[#667085]">根据当前筛选条件，为你优先展示更匹配的机会。</p>
           <div class="mt-5 space-y-5">
-            <div v-for="job in recommendedJobs" :key="job.id" class="border-b border-[#edf0f6] pb-5 last:border-0 last:pb-0">
+            <div v-for="job in recommendedJobs" :key="job.id" class="rounded-xl border border-[#e7eef7] bg-[#fbfdff] p-4">
               <div class="font-bold">{{ job.name }}</div>
-              <div class="mt-2 flex gap-2">
-                <span class="rounded border border-[#5572f4] px-2 py-0.5 text-sm text-[#5572f4]">{{ job.category || '技术' }}</span>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <span class="rounded border border-[#11b89f] px-2 py-0.5 text-sm text-[#0f9f8f]">{{ job.category || '技术' }}</span>
                 <span class="rounded border border-[#d8dce8] px-2 py-0.5 text-sm text-[#667085]">{{ job.location || '深圳' }}</span>
               </div>
               <div class="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded bg-[#edf3f8] text-center text-sm text-[#4f5a6d]">
@@ -269,15 +314,235 @@ function jobSummary(job) {
                 <span class="bg-[#f8fbff] py-2">可投递</span>
               </div>
             </div>
+            <div v-if="!recommendedJobs.length" class="rounded-xl bg-[#f8fbff] p-6 text-center text-sm text-[#667085]">
+              暂无推荐职位
+            </div>
           </div>
-        </div>
-
-        <div class="rounded-2xl bg-white p-7 text-center shadow-[0_12px_34px_rgba(15,35,80,0.10)]">
-          <h2 class="text-2xl font-bold">我的收藏</h2>
-          <p class="mt-8 text-[#4f5a6d]">{{ collectedEmpty ? '还是空的，快去看看岗位吧' : '' }}</p>
-          <button class="mt-5 font-semibold text-[#4b6cff]">查看岗位 &gt;</button>
         </div>
       </aside>
     </section>
   </div>
 </template>
+
+<style scoped>
+.recruitment-hero {
+  isolation: isolate;
+}
+
+.hero-aurora {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(255, 247, 205, 0.18) 0 4%, rgba(20, 184, 166, 0.34) 5% 18%, transparent 39%),
+    radial-gradient(circle at 43% 56%, rgba(16, 185, 129, 0.26), transparent 34%),
+    radial-gradient(circle at 62% 34%, rgba(245, 158, 11, 0.16), transparent 28%),
+    radial-gradient(circle at 18% 18%, rgba(45, 212, 191, 0.12), transparent 34%),
+    linear-gradient(115deg, rgba(2, 18, 20, 0.98), rgba(8, 52, 57, 0.92) 46%, rgba(14, 26, 23, 0.98));
+  animation: aurora-breathe 9s ease-in-out infinite;
+}
+
+.hero-earth {
+  background:
+    radial-gradient(circle at 44% 42%, rgba(255, 244, 201, 0.26), transparent 16%),
+    radial-gradient(circle at 50% 56%, rgba(20, 184, 166, 0.44), rgba(15, 118, 110, 0.2) 46%, transparent 68%);
+  filter: blur(0.2px);
+  opacity: 0.82;
+  box-shadow: 0 0 90px rgba(45, 212, 191, 0.26), inset 0 0 90px rgba(255, 244, 201, 0.08);
+  animation: earth-pulse 7s ease-in-out infinite;
+}
+
+.orbit-ring {
+  transform-origin: center;
+  will-change: transform;
+}
+
+.orbit-ring-1 {
+  animation: orbit-spin 38s linear infinite;
+}
+
+.orbit-ring-2 {
+  animation: orbit-spin-reverse 58s linear infinite;
+}
+
+.orbit-ring-3 {
+  animation: orbit-spin 82s linear infinite;
+}
+
+.orbit-node {
+  position: absolute;
+  left: 50%;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 22px currentColor;
+}
+
+.node-green {
+  color: #4ade80;
+  background: #4ade80;
+}
+
+.node-blue {
+  color: #2dd4bf;
+  background: #2dd4bf;
+}
+
+.node-gold {
+  color: #facc15;
+  background: #facc15;
+}
+
+.orbit-label {
+  position: absolute;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12px;
+  font-weight: 700;
+  text-shadow: 0 0 18px rgba(255, 255, 255, 0.26);
+  animation: label-float 4.8s ease-in-out infinite;
+}
+
+.label-1 {
+  left: 62%;
+  top: 12%;
+}
+
+.label-2 {
+  left: 18%;
+  top: 64%;
+  animation-delay: -1.2s;
+}
+
+.label-3 {
+  right: 14%;
+  top: 35%;
+  animation-delay: -2.4s;
+}
+
+.label-4 {
+  left: 30%;
+  bottom: 10%;
+  animation-delay: -3.1s;
+}
+
+.star-point {
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.38));
+  animation-name: star-drift;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.hero-kicker,
+.hero-title,
+.hero-search,
+.hero-tag {
+  animation: hero-rise 0.75s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.hero-title {
+  text-shadow: 0 8px 42px rgba(45, 212, 191, 0.2), 0 0 18px rgba(255, 244, 201, 0.1);
+  animation-delay: 0.08s;
+}
+
+.hero-search {
+  backdrop-filter: blur(18px);
+  animation-delay: 0.18s;
+}
+
+.hero-tag {
+  transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  animation-delay: 0.26s;
+}
+
+.hero-tag:hover {
+  transform: translateY(-2px);
+  color: white;
+}
+
+@keyframes orbit-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes orbit-spin-reverse {
+  from {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+}
+
+@keyframes aurora-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: saturate(1);
+  }
+  50% {
+    transform: scale(1.035);
+    filter: saturate(1.16);
+  }
+}
+
+@keyframes earth-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.78;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.06);
+    opacity: 0.96;
+  }
+}
+
+@keyframes star-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(10px, -12px, 0) scale(1.35);
+  }
+}
+
+@keyframes label-float {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.58;
+  }
+  50% {
+    transform: translateY(-8px);
+    opacity: 0.9;
+  }
+}
+
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-aurora,
+  .hero-earth,
+  .orbit-ring,
+  .orbit-label,
+  .star-point,
+  .hero-kicker,
+  .hero-title,
+  .hero-search,
+  .hero-tag {
+    animation: none;
+  }
+}
+</style>
