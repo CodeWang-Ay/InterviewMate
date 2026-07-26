@@ -22,7 +22,7 @@ export function useLive2D() {
   // ── avatar position ────────────────────────────────────────
 
   function restoreAvatarPosition() {
-    const fallback = { x: Math.max(60, window.innerWidth - 900), y: Math.max(60, window.innerHeight - 1040) }
+    const fallback = { x: Math.max(60, window.innerWidth - 590), y: Math.max(60, window.innerHeight - 790) }
     try {
       const saved = JSON.parse(window.localStorage?.getItem('interview_avatar_position') || 'null')
       avatarPosition.value = saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) ? clampAvatarPosition(saved) : fallback
@@ -89,9 +89,9 @@ export function useLive2D() {
       })
       const model = await PIXI.live2d.Live2DModel.from(LIVE2D_MODEL_URL)
       app.stage.addChild(model)
-      const scale = Math.min((width / model.width) * 1.05, (height / model.height) * 1.2)
+      const scale = Math.min((width / model.width) * 1.05, (height / model.height) * 0.92)
       model.scale.set(scale)
-      if (model.anchor?.set) { model.anchor.set(0.5, 0.5); model.x = width / 2; model.y = height / 2 + 56 }
+      if (model.anchor?.set) { model.anchor.set(0.5, 0.5); model.x = width / 2; model.y = height / 2 }
       else { model.x = (width - model.width) / 2; model.y = height - model.height + 8 }
       model.interactive = false
       live2dApp.value = app; live2dModel.value = model; live2dReady.value = true; live2dError.value = ''
