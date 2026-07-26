@@ -142,6 +142,14 @@ def get_by_id(rid: int) -> dict | None:
         return _enrich_jd_fields(dict(row)) if row else None
 
 
+def get_by_file_path(file_path: str) -> dict | None:
+    if not file_path:
+        return None
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM resumes WHERE file_path=? ORDER BY id DESC LIMIT 1", (file_path,)).fetchone()
+        return _enrich_jd_fields(dict(row)) if row else None
+
+
 def create(data: dict) -> dict:
     with _conn() as conn:
         cur = conn.execute(

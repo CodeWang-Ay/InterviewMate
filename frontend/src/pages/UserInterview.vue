@@ -14,6 +14,9 @@ const username = ref('')
 const nickname = ref('')
 const phone = ref('')
 const email = ref('')
+const viewingResume = ref(null)
+const resumePreviewLoading = ref(false)
+const resumePreviewSrc = ref('')
 
 const tabs = [
   { key: 'social', label: '社会招聘' },
@@ -174,6 +177,87 @@ function enterInterview(plan = currentPlan.value) {
   router.push({ path: '/chat', query: { plan_id: plan.id } })
 }
 
+async function viewResume() {
+  if (!resumeFileName.value || resumeFileName.value === '暂未上传简历') return
+  resumePreviewLoading.value = true
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch(`/api/plans/my-resume?filename=${encodeURIComponent(resumeFileName.value)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) throw new Error('暂未找到绑定的简历')
+    viewingResume.value = await res.json()
+    const fileRes = await fetch(`/api/plans/my-resume/file?filename=${encodeURIComponent(viewingResume.value.file_path || resumeFileName.value)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (fileRes.ok) {
+      if (resumePreviewSrc.value) URL.revokeObjectURL(resumePreviewSrc.value)
+      resumePreviewSrc.value = URL.createObjectURL(await fileRes.blob())
+    }
+  } catch (e) {
+    alert(e.message || '简历暂时无法查看')
+  } finally {
+    resumePreviewLoading.value = false
+  }
+}
+
+function closeResumePreview() {
+  viewingResume.value = null
+  if (resumePreviewSrc.value) {
+    URL.revokeObjectURL(resumePreviewSrc.value)
+    resumePreviewSrc.value = ''
+  }
+}
+
+function parsedResumeData() {
+  try {
+    return viewingResume.value?.structured_data ? JSON.parse(viewingResume.value.structured_data) : {}
+  } catch (_) {
+    return {}
+  }
+}
+
+function resumeValue(data, keys) {
+  for (const key of keys) {
+    if (data && data[key] !== undefined && data[key] !== null && String(data[key]).trim()) return data[key]
+  }
+  return '-'
+}
+
+function resumeList(value) {
+  if (Array.isArray(value)) return value
+  if (value && typeof value === 'object') return [value]
+  return []
+}
+
+function resumeText(value) {
+  if (value === undefined || value === null || value === '') return '-'
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+}
+
+function resumeField(item, keys) {
+  return resumeValue(item || {}, keys)
+}
+
+function resumeSectionRows(section, item) {
+  if (section === '教育经历') {
+    return [
+      [['学位', resumeField(item, ['学位', '学位名称'])], ['学历', resumeField(item, ['学历', '学业水平'])]],
+      [['学校', resumeField(item, ['学校', '院校'])], ['专业', resumeField(item, ['专业', '所学专业'])]],
+      [['开始时间', resumeField(item, ['开始时间', '入学时间'])], ['结束时间', resumeField(item, ['结束时间', '毕业时间'])]],
+    ]
+  }
+  const nameLabel = section === '工作经历' ? '公司' : '项目名称'
+  const nameKeys = section === '工作经历' ? ['公司', '公司名称'] : ['项目名称', '项目名', '名称']
+  const roleLabel = section === '工作经历' ? '职位' : '角色'
+  const roleKeys = section === '工作经历' ? ['职位', '岗位'] : ['角色', '职责']
+  return [
+    [[nameLabel, resumeField(item, nameKeys)], [roleLabel, resumeField(item, roleKeys)]],
+    [['开始时间', resumeField(item, ['开始时间', '起始时间'])], ['结束时间', resumeField(item, ['结束时间', '终止时间'])]],
+    [['描述', resumeField(item, ['描述', '工作内容', '工作描述', '主要职责', '岗位职责', '项目描述', '项目内容', '项目成果', '个人贡献'])]],
+  ]
+}
+
 function logout() {
   try {
     ;['token', 'username', 'nickname', 'avatar', 'role', 'email', 'phone', 'company', 'bio'].forEach(key => localStorage.removeItem(key))
@@ -286,7 +370,9 @@ function jobSummary(job) {
               <p class="mt-1 text-sm text-[#667085]">当前简历会用于岗位匹配和面试题生成</p>
             </div>
             <div class="flex gap-3 text-sm">
-              <button class="font-semibold text-[#344054] hover:text-[#11b89f]"><i class="fa fa-eye mr-1"></i> 查看简历</button>
+              <button class="font-semibold text-[#344054] hover:text-[#11b89f] disabled:cursor-wait disabled:opacity-50" :disabled="resumePreviewLoading" @click="viewResume">
+                <i :class="['fa mr-1', resumePreviewLoading ? 'fa-spinner fa-spin' : 'fa-eye']"></i>{{ resumePreviewLoading ? '加载中...' : '查看简历' }}
+              </button>
               <button class="font-semibold text-[#344054] hover:text-[#11b89f]"><i class="fa fa-pencil mr-1"></i> 编辑</button>
             </div>
           </div>
@@ -482,5 +568,81 @@ function jobSummary(job) {
         </div>
       </aside>
     </main>
+
+    <div v-if="viewingResume" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 lg:p-6" @click.self="closeResumePreview">
+      <div class="flex h-[92vh] w-[96vw] max-w-[1680px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="flex h-14 shrink-0 items-center justify-between border-b border-[#e8edf5] px-5 lg:px-7">
+          <div class="min-w-0 truncate text-sm font-bold text-[#202838]">{{ viewingResume.original_name || viewingResume.file_path || '简历预览' }}</div>
+          <button class="ml-4 shrink-0 text-xl text-[#98a2b3] hover:text-[#344054]" title="关闭" @click="closeResumePreview"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="flex min-h-0 flex-1 flex-col lg:flex-row">
+          <div class="min-h-[46%] flex-1 overflow-hidden bg-[#303030] lg:min-h-0 lg:basis-1/2">
+            <embed v-if="resumePreviewSrc" :src="`${resumePreviewSrc}#view=FitH`" type="application/pdf" class="h-full w-full" />
+            <div v-else class="flex h-full items-center justify-center text-sm text-white/60">暂无简历文件</div>
+          </div>
+          <div class="min-h-0 flex-1 overflow-auto border-t border-[#e8edf5] bg-white p-5 lg:basis-1/2 lg:border-l lg:border-t-0 lg:p-7">
+            <div class="mb-5 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#4776ff]">Resume Profile</div>
+                <h3 class="mt-1 text-xl font-black text-[#202838]">简历解析</h3>
+              </div>
+              <span class="rounded-full bg-[#e7f8ef] px-3 py-1 text-xs font-bold text-[#15a05f]">{{ viewingResume.parse_status === 'success' ? '解析成功' : '待解析' }}</span>
+            </div>
+            <div v-if="viewingResume.structured_data" class="overflow-hidden rounded-xl border border-[#dfe6f0]">
+              <table class="w-full table-fixed border-collapse text-sm leading-7 text-[#344054]">
+                <tbody>
+                  <tr>
+                    <th class="w-24 border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">姓名</th>
+                    <td colspan="2" class="border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData()['基础信息'], ['姓名']) }}</td>
+                    <th class="w-24 border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">性别</th>
+                    <td class="border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData()['基础信息'], ['性别']) }}</td>
+                  </tr>
+                  <tr>
+                    <th class="border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">岗位名称</th>
+                    <td colspan="2" class="border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData()['基础信息'], ['岗位名称', '意向岗位']) }}</td>
+                    <th class="border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">邮箱</th>
+                    <td class="border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData()['基础信息'], ['邮箱', '电子邮箱']) }}</td>
+                  </tr>
+                  <tr>
+                    <th class="border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">电话</th>
+                    <td colspan="2" class="border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData()['基础信息'], ['电话', '手机']) }}</td>
+                    <th class="border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">年龄</th>
+                    <td class="border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData()['基础信息'], ['年龄']) }}</td>
+                  </tr>
+                  <tr>
+                    <th class="border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">籍贯</th>
+                    <td colspan="2" class="border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData()['基础信息'], ['籍贯', '户籍', '户籍所在地', '出生地']) }}</td>
+                    <th class="border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">地址</th>
+                    <td class="border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData()['基础信息'], ['地址', '现居住地', '居住地址']) }}</td>
+                  </tr>
+                  <tr>
+                    <th class="border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">自我评价</th>
+                    <td colspan="3" class="whitespace-pre-line border border-[#dfe6f0] px-3 py-2">{{ resumeValue(parsedResumeData(), ['自我评价']) }}</td>
+                  </tr>
+                  <template v-for="section in ['教育经历', '工作经历', '项目经历']" :key="section">
+                    <template v-for="(item, itemIndex) in resumeList(parsedResumeData()[section])" :key="`${section}-${itemIndex}`">
+                      <tr v-for="(row, rowIndex) in resumeSectionRows(section, item)" :key="`${section}-${itemIndex}-${rowIndex}`">
+                        <th v-if="itemIndex === 0 && rowIndex === 0" :rowspan="resumeList(parsedResumeData()[section]).length * resumeSectionRows(section, item).length" class="w-24 border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">{{ section }}</th>
+                        <template v-if="row.length === 2">
+                          <th class="w-28 border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">{{ row[0][0] }}</th>
+                          <td class="border border-[#dfe6f0] px-3 py-2">{{ resumeText(row[0][1]) }}</td>
+                          <th class="w-28 border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">{{ row[1][0] }}</th>
+                          <td class="border border-[#dfe6f0] px-3 py-2">{{ resumeText(row[1][1]) }}</td>
+                        </template>
+                        <template v-else>
+                          <th class="border border-[#dfe6f0] bg-[#f5f7fa] px-3 py-2 text-center font-bold text-[#667085]">{{ row[0][0] }}</th>
+                          <td colspan="3" class="whitespace-pre-line border border-[#dfe6f0] px-3 py-3 align-top">{{ resumeText(row[0][1]) }}</td>
+                        </template>
+                      </tr>
+                    </template>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div v-else class="rounded-xl bg-[#f8fbff] p-6 text-center text-sm text-[#667085]">暂无解析结果</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

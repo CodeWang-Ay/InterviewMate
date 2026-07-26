@@ -2,12 +2,16 @@ import re
 import secrets
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.controllers.auth_controller import get_current_candidate, require_admin
 from backend.repositories import candidate_repo
-from backend.repositories import plan_repo
+from backend.repositories import plan_repo, resume_repo
+from backend.config import UPLOAD_DIR
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
 
@@ -97,6 +101,31 @@ async def update_workflow_template(template_id: int, body: WorkflowTemplateSave,
 @router.get("/my")
 async def my_plans(username: str = Depends(get_current_candidate)):
     return plan_repo.list_by_candidate_username(username)
+
+
+@router.get("/my-resume")
+async def my_resume(filename: str = Query(""), username: str = Depends(get_current_candidate)):
+    plans = plan_repo.list_by_candidate_username(username)
+    allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
+    selected = filename if filename in allowed_files else next((item for item in allowed_files if item), "")
+    resume = resume_repo.get_by_file_path(selected)
+    if not resume:
+        raise HTTPException(status_code=404, detail="暂未找到绑定的简历")
+    return resume
+
+
+@router.get("/my-resume/file")
+async def my_resume_file(filename: str = Query(""), username: str = Depends(get_current_candidate)):
+    plans = plan_repo.list_by_candidate_username(username)
+    allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
+    selected = filename if filename in allowed_files else next((item for item in allowed_files if item), "")
+    resume = resume_repo.get_by_file_path(selected)
+    if not resume or not resume.get("file_path"):
+        raise HTTPException(status_code=404, detail="暂未找到绑定的简历文件")
+    file_path = os.path.join(UPLOAD_DIR, "resume", resume["file_path"])
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="简历文件不存在")
+    return FileResponse(file_path, filename=resume.get("original_name") or resume["file_path"], media_type="application/pdf")
 
 
 @router.get("/{pid}")
