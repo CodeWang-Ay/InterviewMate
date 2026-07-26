@@ -1,6 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import aboutAgentImage from '../../images/about_agent.png'
+import aboutLlmImage from '../../images/about_llm.png'
+import aboutMultiAgentImage from '../../images/about_multi_agent.png'
+import aboutTopImage from '../../images/about_top.png'
 
 const router = useRouter()
 const username = ref('')
@@ -72,12 +76,12 @@ function goCenter() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#f6f8f7] text-[#172323]">
+  <div class="min-h-screen bg-[#f6f7fb] text-[#182033]">
     <header class="fixed left-0 right-0 top-0 z-30 border-b border-white/10 bg-[#071c22]/88 text-white backdrop-blur-xl">
       <div class="mx-auto flex h-16 max-w-[1680px] items-center justify-between px-5 lg:px-8">
         <button class="flex items-center gap-3" @click="router.push('/')">
-          <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-sm font-black text-[#0f9f8f]">OP</span>
-          <span class="text-lg font-bold">OPC Mate</span>
+          <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-sm font-black text-[#0f9f8f]">AI</span>
+          <span class="text-lg font-bold">OPC Mate 招聘</span>
         </button>
         <nav class="hidden items-center gap-8 text-sm font-semibold text-white/82 md:flex">
           <button @click="router.push('/')">首页</button>
@@ -97,7 +101,7 @@ function goCenter() {
 
     <section class="about-hero relative min-h-[760px] overflow-hidden pt-16 text-white">
       <img :src="aboutTopImage" alt="" class="absolute inset-0 h-full w-full object-cover" />
-      <div class="absolute inset-0 bg-[linear-gradient(120deg,rgba(7,24,25,0.75)_0%,rgba(8,50,56,0.7)_46%,rgba(21,31,43,0.8)_100%)]"></div>
+      <div class="absolute inset-0 bg-[linear-gradient(120deg,rgba(6,24,25,0.66)_0%,rgba(8,47,50,0.62)_46%,rgba(8,25,31,0.78)_100%)]"></div>
       <div class="hero-glow absolute inset-0"></div>
       <div class="about-orbit orbit-a"></div>
       <div class="about-orbit orbit-b"></div>
@@ -215,7 +219,7 @@ function goCenter() {
       <div class="mx-auto grid max-w-[1180px] gap-10 px-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
         <div>
           <div class="text-sm font-bold tracking-[0.22em] text-[#0f9f8f]">ONE PERSON COMPANY</div>
-          <h2 class="mt-3 text-4xl font-black leading-tight text-[#172323]">不是自由职业，也不是缩小版公司</h2>
+          <h2 class="mt-3 text-4xl font-black leading-tight text-[#182033]">不是自由职业，也不是缩小版公司</h2>
           <p class="mt-6 leading-8 text-[#607272]">
             OPC Mate 的核心不是“一个人做所有事”，而是由一个人负责方向、判断和审美，用模型、工具链和 Agent 网络承接重复执行、跨领域协作与持续交付。
           </p>
@@ -247,7 +251,7 @@ function goCenter() {
     <section class="mx-auto max-w-[1180px] px-6 py-20">
       <div class="mb-9 text-center">
         <div class="text-sm font-bold tracking-[0.22em] text-[#0f9f8f]">AI-NATIVE COMPANY</div>
-        <h2 class="mt-3 text-3xl font-black text-[#172323]">一人公司背后的智能协作系统</h2>
+        <h2 class="mt-3 text-3xl font-black text-[#182033]">一人公司背后的智能协作系统</h2>
       </div>
       <div class="grid gap-5 md:grid-cols-3">
         <article v-for="item in capabilities" :key="item.label" class="group overflow-hidden rounded-3xl bg-white shadow-[0_18px_50px_rgba(15,45,45,0.08)]">
@@ -263,12 +267,12 @@ function goCenter() {
       </div>
     </section>
 
-    <section class="bg-[#edf5f3] py-20">
+    <section class="bg-[#f6f7fb] py-20">
       <div class="mx-auto max-w-[1180px] px-6">
         <div class="mb-10 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <div class="text-sm font-bold tracking-[0.22em] text-[#0f9f8f]">OPERATING SYSTEM</div>
-            <h2 class="mt-3 text-3xl font-black text-[#172323]">不只 LLM，而是一套 AI 公司操作系统</h2>
+            <h2 class="mt-3 text-3xl font-black text-[#182033]">不只 LLM，而是一套 AI 公司操作系统</h2>
           </div>
           <p class="max-w-xl leading-7 text-[#607272]">
             大模型是发动机，Agent 是执行单元，但真正决定效率的是上下文、工具、流程和评估闭环。
@@ -281,7 +285,7 @@ function goCenter() {
                 <div class="text-sm font-black tracking-[0.18em] text-[#0f9f8f]">{{ item.title }}</div>
                 <p class="mt-4 leading-7 text-[#516565]">{{ item.desc }}</p>
               </div>
-              <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#102a2d] text-white">
+              <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#071c22] text-white">
                 <i class="fa fa-sitemap"></i>
               </div>
             </div>
@@ -307,7 +311,7 @@ function goCenter() {
             <div class="w-24 shrink-0 text-sm font-bold text-[#0f9f8f]">{{ item.date }}</div>
             <div class="min-w-0">
               <div class="text-xs font-bold tracking-[0.14em] text-[#9aa8a8]">{{ item.tag }}</div>
-              <div class="mt-1 text-lg font-bold text-[#172323]">{{ item.title }}</div>
+              <div class="mt-1 text-lg font-bold text-[#182033]">{{ item.title }}</div>
             </div>
           </div>
         </div>
@@ -316,7 +320,7 @@ function goCenter() {
 
     <section class="mx-auto max-w-[1180px] px-6 py-20">
       <div class="grid gap-6 lg:grid-cols-2">
-        <div class="rounded-3xl bg-[#102a2d] p-8 text-white shadow-[0_22px_60px_rgba(16,42,45,0.16)]">
+        <div class="rounded-3xl bg-[#071c22] p-8 text-white shadow-[0_22px_60px_rgba(7,28,34,0.16)]">
           <div class="flex items-center gap-3 text-xl font-black">
             <i class="fa fa-check-circle text-[#72f2d1]"></i>
             我们专注
@@ -329,7 +333,7 @@ function goCenter() {
           </ul>
         </div>
         <div class="rounded-3xl border border-[#dfeaea] bg-white p-8 shadow-[0_18px_50px_rgba(15,45,45,0.06)]">
-          <div class="flex items-center gap-3 text-xl font-black text-[#172323]">
+          <div class="flex items-center gap-3 text-xl font-black text-[#182033]">
             <i class="fa fa-times-circle text-[#ff7a8a]"></i>
             我们不做
           </div>
@@ -354,7 +358,7 @@ function goCenter() {
 
     <footer class="border-t border-[#e1eaea] bg-white">
       <div class="mx-auto flex max-w-[1180px] flex-col gap-4 px-6 py-10 text-sm text-[#667777] md:flex-row md:items-center md:justify-between">
-        <div class="font-bold text-[#172323]">OPC Mate</div>
+        <div class="font-bold text-[#182033]">OPC Mate</div>
         <div class="flex flex-wrap gap-6">
           <span>关于我们</span>
           <span>一人公司</span>

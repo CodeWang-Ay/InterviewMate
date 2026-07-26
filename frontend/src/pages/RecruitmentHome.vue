@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import homePageImage from '../../images/home_page.png'
 
 const router = useRouter()
 const route = useRoute()
@@ -151,8 +152,9 @@ function jobSummary(job) {
     </header>
 
     <section :class="['recruitment-hero relative overflow-hidden bg-[#061819] pt-16 text-white', isHomePage ? 'min-h-screen' : 'min-h-[620px]']">
+      <img :src="homePageImage" alt="" class="absolute inset-0 h-full w-full object-cover" />
+      <div class="absolute inset-0 bg-[linear-gradient(180deg,rgba(5,15,22,0.54)_0%,rgba(6,24,25,0.34)_45%,rgba(6,24,25,0.64)_100%)]"></div>
       <div class="hero-aurora absolute inset-0"></div>
-      <div class="hero-earth absolute left-1/2 top-[53%] h-[440px] w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-full"></div>
       <div class="orbit-ring orbit-ring-1 absolute left-1/2 top-[52%] h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/14">
         <span class="orbit-node node-green"></span>
       </div>
@@ -331,22 +333,11 @@ function jobSummary(job) {
 
 .hero-aurora {
   background:
-    radial-gradient(circle at 50% 48%, rgba(255, 247, 205, 0.18) 0 4%, rgba(20, 184, 166, 0.34) 5% 18%, transparent 39%),
-    radial-gradient(circle at 43% 56%, rgba(16, 185, 129, 0.26), transparent 34%),
-    radial-gradient(circle at 62% 34%, rgba(245, 158, 11, 0.16), transparent 28%),
-    radial-gradient(circle at 18% 18%, rgba(45, 212, 191, 0.12), transparent 34%),
-    linear-gradient(115deg, rgba(2, 18, 20, 0.98), rgba(8, 52, 57, 0.92) 46%, rgba(14, 26, 23, 0.98));
+    radial-gradient(circle at 50% 48%, rgba(255, 247, 205, 0.08) 0 4%, rgba(20, 184, 166, 0.1) 5% 18%, transparent 39%),
+    radial-gradient(circle at 43% 56%, rgba(16, 185, 129, 0.08), transparent 34%),
+    radial-gradient(circle at 62% 34%, rgba(245, 158, 11, 0.05), transparent 28%),
+    radial-gradient(circle at 18% 18%, rgba(45, 212, 191, 0.06), transparent 34%);
   animation: aurora-breathe 9s ease-in-out infinite;
-}
-
-.hero-earth {
-  background:
-    radial-gradient(circle at 44% 42%, rgba(255, 244, 201, 0.26), transparent 16%),
-    radial-gradient(circle at 50% 56%, rgba(20, 184, 166, 0.44), rgba(15, 118, 110, 0.2) 46%, transparent 68%);
-  filter: blur(0.2px);
-  opacity: 0.82;
-  box-shadow: 0 0 90px rgba(45, 212, 191, 0.26), inset 0 0 90px rgba(255, 244, 201, 0.08);
-  animation: earth-pulse 7s ease-in-out infinite;
 }
 
 .orbit-ring {
@@ -487,18 +478,6 @@ function jobSummary(job) {
   }
 }
 
-@keyframes earth-pulse {
-  0%,
-  100% {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 0.78;
-  }
-  50% {
-    transform: translate(-50%, -50%) scale(1.06);
-    opacity: 0.96;
-  }
-}
-
 @keyframes star-drift {
   0%,
   100% {
@@ -534,7 +513,6 @@ function jobSummary(job) {
 
 @media (prefers-reduced-motion: reduce) {
   .hero-aurora,
-  .hero-earth,
   .orbit-ring,
   .orbit-label,
   .star-point,

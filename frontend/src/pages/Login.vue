@@ -10,23 +10,23 @@ const showPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
 const isCandidateLogin = computed(() => route.path === '/user/login')
-const title = computed(() => isCandidateLogin.value ? '面试者登录界面' : '后台管理员登录界面')
+const title = computed(() => isCandidateLogin.value ? '用户登录界面' : '后台管理员登录界面')
 const subtitle = computed(() => isCandidateLogin.value
-  ? '使用招聘方提供的候选人账号，查看当前面试进度并进入对应轮次。'
+  ? '使用你的用户账号登录，查看当前面试进度并进入对应轮次。'
   : '登录招聘管理后台，统一处理岗位、简历、面试流程与候选人档案。')
 const roleLabel = computed(() => isCandidateLogin.value ? 'Candidate Access' : 'Admin Console')
 const primaryColorClass = computed(() => isCandidateLogin.value ? 'from-emerald-500 to-teal-500' : 'from-sky-600 to-indigo-600')
 const buttonClass = computed(() => isCandidateLogin.value ? 'bg-emerald-500 hover:bg-emerald-400 focus:ring-emerald-200' : 'bg-sky-600 hover:bg-sky-500 focus:ring-sky-200')
 const inputFocusClass = computed(() => isCandidateLogin.value ? 'focus:border-emerald-400 focus:ring-emerald-100' : 'focus:border-sky-400 focus:ring-sky-100')
-const submitLabel = computed(() => loading.value ? '登录中...' : (isCandidateLogin.value ? '进入面试者界面' : '进入后台管理界面'))
-const accountLabel = computed(() => isCandidateLogin.value ? '面试者账号' : '管理员账号')
-const passwordLabel = computed(() => isCandidateLogin.value ? '面试者密码' : '管理员密码')
-const accountPlaceholder = computed(() => isCandidateLogin.value ? '请输入面试者账号' : '请输入管理员账号')
-const passwordPlaceholder = computed(() => isCandidateLogin.value ? '请输入面试者密码' : '请输入管理员密码')
+const submitLabel = computed(() => loading.value ? '登录中...' : (isCandidateLogin.value ? '进入用户中心' : '进入后台管理界面'))
+const accountLabel = computed(() => isCandidateLogin.value ? '用户账号' : '管理员账号')
+const passwordLabel = computed(() => isCandidateLogin.value ? '用户密码' : '管理员密码')
+const accountPlaceholder = computed(() => isCandidateLogin.value ? '请输入用户账号' : '请输入管理员账号')
+const passwordPlaceholder = computed(() => isCandidateLogin.value ? '请输入用户密码' : '请输入管理员密码')
 const hintItems = computed(() => isCandidateLogin.value
   ? ['确认当前轮次状态', '从断点继续面试', '完成后生成面试记录']
   : ['岗位与简历统一管理', '面试流程分轮推进', '候选人档案集中查看'])
-const authPanelTitle = computed(() => isCandidateLogin.value ? '候选人身份验证' : '管理员身份验证')
+const authPanelTitle = computed(() => isCandidateLogin.value ? '用户身份验证' : '管理员身份验证')
 const authPanelNote = computed(() => isCandidateLogin.value ? '验证通过后将直接进入你的面试空间。' : '验证通过后将恢复你的后台工作台状态。')
 
 onMounted(() => {
@@ -208,10 +208,20 @@ async function doLogin() {
             </button>
 
             <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p v-if="!isCandidateLogin" class="text-base text-slate-500">
-                还没有账号？
-                <router-link to="/register" class="font-medium text-[#1677ff] hover:text-blue-600 no-underline">立即注册</router-link>
-              </p>
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <span class="text-base text-slate-500">还没有账号？</span>
+                <router-link
+                  to="/register"
+                  :class="[
+                    'inline-flex items-center justify-center rounded-2xl border px-4 py-2.5 text-sm font-semibold no-underline transition',
+                    isCandidateLogin
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100'
+                      : 'border-sky-200 bg-sky-50 text-sky-700 hover:border-sky-300 hover:bg-sky-100'
+                  ]"
+                >
+                  注册用户账号
+                </router-link>
+              </div>
               <router-link to="/" class="text-base text-slate-400 hover:text-slate-600 no-underline">
                 返回首页
               </router-link>
