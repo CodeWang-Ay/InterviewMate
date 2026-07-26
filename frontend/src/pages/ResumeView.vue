@@ -70,7 +70,6 @@ function rows(section, item) {
         <div class="flex items-center gap-3">
           <span class="hidden max-w-[420px] truncate text-sm font-bold sm:block">{{ resume?.original_name || '我的简历' }}</span>
           <button class="rounded-lg border border-[#dce5f2] px-3 py-2 text-sm font-bold text-[#475467]" @click="showOriginal = !showOriginal"><i class="fa fa-file-pdf-o mr-1"></i>{{ showOriginal ? '查看解析' : '查看原文件' }}</button>
-          <button class="rounded-lg bg-[#4776ff] px-4 py-2 text-sm font-bold text-white"><i class="fa fa-pencil mr-1"></i>编辑简历</button>
         </div>
       </div>
     </header>
@@ -91,7 +90,7 @@ function rows(section, item) {
               <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white text-2xl font-black text-[#4776ff] shadow-sm">{{ (value(data['基础信息'], ['姓名']) || '候').slice(0, 1) }}</div>
               <div class="min-w-0"><h1 class="truncate text-3xl font-black sm:text-4xl">{{ value(data['基础信息'], ['姓名']) || resume?.name || '候选人' }}</h1><p class="mt-1 text-base text-[#667085]">{{ value(data['基础信息'], ['岗位名称', '意向岗位']) || resume?.target_position || '求职者' }}</p></div>
             </div>
-            <button class="hidden rounded-full border border-[#4776ff] px-7 py-3 text-sm font-bold text-[#4776ff] transition hover:bg-[#4776ff] hover:text-white sm:inline-flex" @click="editing = !editing"><i class="fa fa-pencil mr-2"></i>{{ editing ? '完成编辑' : '编辑简历' }}</button>
+            <router-link :to="{ path: '/resume-edit', query: { filename: route.query.filename || '' } }" class="shrink-0 rounded-full border border-[#4776ff] px-6 py-2.5 text-sm font-bold text-[#4776ff] transition hover:bg-[#4776ff] hover:text-white"><i class="fa fa-pencil mr-2"></i>编辑简历</router-link>
           </div>
           <div class="mt-7 grid gap-3 border-t border-white/80 pt-5 text-sm text-[#475467] sm:grid-cols-3">
             <span><strong class="mr-2 text-[#202838]">电话</strong>{{ value(data['基础信息'], ['电话', '手机']) }}</span><span><strong class="mr-2 text-[#202838]">邮箱</strong>{{ value(data['基础信息'], ['邮箱', '电子邮箱']) }}</span><span><strong class="mr-2 text-[#202838]">地址</strong>{{ value(data['基础信息'], ['地址', '现居住地']) }}</span>

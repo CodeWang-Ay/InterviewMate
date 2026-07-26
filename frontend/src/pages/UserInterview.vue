@@ -379,7 +379,7 @@ function jobSummary(job) {
               <button class="font-semibold text-[#344054] hover:text-[#11b89f] disabled:cursor-wait disabled:opacity-50" :disabled="resumePreviewLoading" @click="viewResume">
                 <i :class="['fa mr-1', resumePreviewLoading ? 'fa-spinner fa-spin' : 'fa-eye']"></i>{{ resumePreviewLoading ? '加载中...' : '查看简历' }}
               </button>
-              <button class="font-semibold text-[#344054] hover:text-[#11b89f]"><i class="fa fa-pencil mr-1"></i> 编辑</button>
+              <button class="font-semibold text-[#344054] hover:text-[#11b89f]" @click="router.push({ path: '/resume-edit', query: { filename: resumeFileName } })"><i class="fa fa-pencil mr-1"></i> 编辑</button>
             </div>
           </div>
           <div class="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)]">

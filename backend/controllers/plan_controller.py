@@ -1,3 +1,4 @@
+import json
 import re
 import secrets
 import uuid
@@ -144,12 +145,86 @@ async def my_resume_file(filename: str = Query(""), username: str = Depends(get_
     return FileResponse(file_path, filename=resume.get("original_name") or resume["file_path"], media_type="application/pdf")
 
 
+class ResumeEditBody(BaseModel):
+    name: str | None = None
+    target_position: str | None = None
+    structured_data: str | None = None
+
+
+@router.put("/my-resume")
+async def update_my_resume(body: ResumeEditBody, username: str = Depends(get_current_candidate)):
+    """候选人编辑自己的简历结构化数据"""
+    plans = plan_repo.list_by_candidate_username(username)
+    allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
+    if not allowed_files:
+        raise HTTPException(status_code=404, detail="暂未绑定简历")
+    selected = next((item for item in allowed_files if item), "")
+    resume = resume_repo.get_by_file_path(selected)
+    if not resume:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    data = {k: v for k, v in body.model_dump().items() if v is not None}
+    updated = resume_repo.update(resume["id"], data)
+    if not updated:
+        raise HTTPException(status_code=500, detail="更新失败")
+    return updated
+
+
+@router.post("/my-resume/upload")
+async def upload_my_resume(file: UploadFile = File(...), username: str = Depends(get_current_candidate)):
+    """候选人上传新简历文件并触发解析"""
+    ext = upload_repo.validate(file)
+    content = await file.read()
+    file_md5 = hashlib.md5(content).hexdigest()
+    filename = upload_repo.save_content(content, file.filename or "unknown", "resume", ext)
+    resume = resume_repo.create({
+        "name": os.path.splitext(file.filename or "unknown")[0],
+        "file_path": filename,
+        "file_type": ext.lstrip("."),
+        "parse_status": "wait",
+        "candidate_status": "待筛选",
+        "original_name": file.filename or "",
+        "file_md5": file_md5,
+    })
+    # 关联到当前候选人的所有 plan
+    plans = plan_repo.list_by_candidate_username(username)
+    for plan in plans:
+        plan_repo.update(plan["id"], {"resume_filename": filename})
+    # 触发解析
+    result = await parse_resume(filename)
+    resume_repo.update(resume["id"], {
+        "parse_status": "success",
+        "structured_data": json.dumps(result["structured"], ensure_ascii=False),
+        "name": (result["structured"].get("基础信息", {}) or {}).get("姓名") or resume["name"],
+        "target_position": (result["structured"].get("基础信息", {}) or {}).get("意向岗位") or "",
+    })
+    return resume_repo.get_by_id(resume["id"])
+
+
 @router.get("/{pid}")
 async def get_plan(pid: int, _: dict = Depends(require_admin)):
     p = plan_repo.get_by_id(pid)
     if not p:
         raise HTTPException(status_code=404, detail="计划不存在")
     return _mask_password(p)
+
+
+@router.post("/{pid}/reset-password")
+async def reset_candidate_password(pid: int, _: dict = Depends(require_admin)):
+    """重置候选人密码，返回新明文密码（仅此一次）"""
+    plan = plan_repo.get_by_id(pid)
+    if not plan:
+        raise HTTPException(status_code=404, detail="计划不存在")
+    username = (plan.get("candidate_username") or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="该计划未绑定候选人账号")
+    candidate = candidate_repo.get_candidate_info(username)
+    new_password = f"IM{secrets.token_hex(4)}"
+    if candidate:
+        candidate_repo.reset_password(username, new_password)
+    else:
+        candidate_repo.register(username, new_password, plan.get("candidate_name") or username)
+    plan_repo.update(pid, {"candidate_password": new_password})
+    return {"candidate_username": username, "candidate_password": new_password}
 
 
 @router.post("")

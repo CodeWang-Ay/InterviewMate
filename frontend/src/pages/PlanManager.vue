@@ -495,6 +495,16 @@ async function copyCredential(data, key) {
   }
 }
 
+async function resetCandidatePassword(plan) {
+  try {
+    const res = await fetch(`/api/plans/${plan.id}/reset-password`, { method: 'POST' })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '重置失败')
+    const data = await res.json()
+    plan.candidate_password = data.candidate_password
+    launchPlan.value = { ...launchPlan.value, candidate_password: data.candidate_password }
+  } catch (e) { alert(e.message) }
+}
+
 function launchLoginUrl(plan) {
   const origin = window.location.origin
   const query = new URLSearchParams({
@@ -698,7 +708,7 @@ const previewQuestions = computed(() => {
                   @click="copyCredential(group, `group:${group.key}`)"
                 >
                   <div class="text-gray-800">{{ group.candidate_username }}</div>
-                  <div class="text-gray-400">{{ group.candidate_password }}</div>
+                  <div class="text-gray-400">{{ group.candidate_password || '***' }}</div>
                   <div class="text-[11px] text-[#1677ff] mt-1">
                     {{ copiedCredentialKey === `group:${group.key}` ? '已复制' : '点击复制账号密码' }}
                   </div>
@@ -800,7 +810,7 @@ const previewQuestions = computed(() => {
             @click="copyCredential(workflowGroup, `workflow:${workflowGroup.key}`)"
           >
             <div class="text-gray-400">密码</div>
-            <div class="font-mono text-gray-800 select-all">{{ workflowGroup.candidate_password || '-' }}</div>
+            <div class="font-mono text-gray-800 select-all">{{ workflowGroup.candidate_password || '*** 点击启动查看' }}</div>
           </button>
           <div v-if="copiedCredentialKey === `workflow:${workflowGroup.key}`" class="text-[#1677ff]">账号密码已复制</div>
         </div>
@@ -968,7 +978,8 @@ const previewQuestions = computed(() => {
               </div>
               <div class="rounded-lg border border-gray-200 p-4">
                 <div class="text-gray-400 mb-1">密码</div>
-                <div class="font-mono text-gray-900 select-all">{{ launchPlan.candidate_password || '-' }}</div>
+                <div v-if="launchPlan.candidate_password" class="font-mono text-gray-900 select-all">{{ launchPlan.candidate_password }}</div>
+                <button v-else class="text-sm font-bold text-[#1677ff] hover:text-blue-700" @click="resetCandidatePassword(launchPlan)"><i class="fa fa-refresh mr-1"></i>重置密码</button>
               </div>
             </div>
           </div>

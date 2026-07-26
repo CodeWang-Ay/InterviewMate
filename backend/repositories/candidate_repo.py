@@ -129,5 +129,15 @@ def get_candidate_info(username: str) -> dict | None:
     return dict(row) if row else None
 
 
+def reset_password(username: str, new_password: str) -> bool:
+    """重置候选人密码，用于管理员重新生成凭证"""
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE candidates SET password_hash=? WHERE username=?",
+            (_hash(new_password), username),
+        )
+        return cur.rowcount > 0
+
+
 def logout(token: str):
     tokens.pop(token, None)
