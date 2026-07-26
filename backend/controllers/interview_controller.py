@@ -1,6 +1,7 @@
 import json
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from loguru import logger
 
 from backend.controllers.auth_controller import require_admin
 from backend.models.schemas import JDContent, ResumeParse, PlanGenerate
@@ -33,12 +34,10 @@ async def upload_resume(file: UploadFile = File(...), _: dict = Depends(require_
 @router.post("/parse/resume")
 async def api_parse_resume(body: ResumeParse, _: dict = Depends(require_admin)):
     result = await parse_resume(body.resume_filename)
-    print("=" * 60)
-    print("【简历解析结果】")
-    print(result["raw"][:500])
-    print("【结构化信息】")
-    print(json.dumps(result["structured"], ensure_ascii=False, indent=2))
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("【简历解析结果】\n{}", result["raw"][:500])
+    logger.info("【结构化信息】\n{}", json.dumps(result["structured"], ensure_ascii=False, indent=2))
+    logger.info("=" * 60)
     return {"resume": result["raw"], "structured": result["structured"]}
 
 
@@ -62,9 +61,8 @@ async def generate_plan(body: PlanGenerate, _: dict = Depends(require_admin)):
         + "=" * 60 + "\n"
     )
 
-    print("=" * 60)
-    print("【面试计划】")
-    print(plan)
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("【面试计划】\n{}", plan)
+    logger.info("=" * 60)
 
     return {"plan": plan}

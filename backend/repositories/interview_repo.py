@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 
 from fastapi import HTTPException
+from loguru import logger
 
 from backend.config import INTERVIEW_DIR, chat_sessions
 
@@ -76,7 +77,7 @@ def save_record(session_id: str):
     filepath = os.path.join(INTERVIEW_DIR, f"{session_id}.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, indent=2)
-    print(f"[会话 {session_id}] 记录已保存到 {filepath}")
+    logger.info(f"[会话 {session_id}] 记录已保存到 {filepath}")
 
 
 def load_record(session_id: str) -> dict:
@@ -139,7 +140,7 @@ def save_report(session_id: str, report: dict):
     filepath = os.path.join(INTERVIEW_DIR, f"{session_id}_report.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
-    print(f"[会话 {session_id}] 面试报告已生成")
+    logger.info(f"[会话 {session_id}] 面试报告已生成")
 
 
 def load_report(session_id: str) -> dict | None:

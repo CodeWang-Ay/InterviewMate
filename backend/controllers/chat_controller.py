@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -53,11 +54,19 @@ async def chat_message_stream(body: ChatMessage, identity: dict = Depends(get_cu
         generate_report(body.session_id)
 
     async def reply_stream():
-        text = reply or ""
-        chunk_size = 4
-        for index in range(0, len(text), chunk_size):
-            yield text[index:index + chunk_size]
-            await asyncio.sleep(0.018)
+        # 按句子切分，模拟真实流式打字效果
+        sentences = re.split(r"(?<=[。！？?])\s*", reply or "")
+        for sentence in sentences:
+            if not sentence:
+                continue
+            # 长句再切成短语，模拟逐词输出
+            if len(sentence) > 8:
+                for i in range(0, len(sentence), 6):
+                    yield sentence[i:i + 6]
+                    await asyncio.sleep(0.03)
+            else:
+                yield sentence
+                await asyncio.sleep(0.05)
 
     return StreamingResponse(
         reply_stream(),

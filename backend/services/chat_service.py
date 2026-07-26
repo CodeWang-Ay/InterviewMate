@@ -13,6 +13,7 @@ from backend.repositories.interview_repo import restore_session, save_record
 from backend.services.file_service import read_jd, extract_questions_from_jd
 from backend.repositories import plan_repo
 from backend.repositories import resume_repo
+from loguru import logger
 from backend.services.llm_service import OPENAI_API_KEY, OPENAI_BASE_URL
 
 MAX_QUESTION_ATTEMPTS = 3
@@ -84,8 +85,8 @@ async def start_session(jd_filename: str = "", resume_filename: str = "", plan_i
         opening = "你好！感谢你来参加今天的面试。我是今天的面试官，将根据岗位要求向你提几个问题。请问你准备好了吗？"
     chat_sessions[session_id]["history"].append(_history_message("interviewer", opening))
 
-    print(f"[会话 {session_id}] 面试开始，共 {len(questions)} 个问题")
-    print(f"面试官: {opening}")
+    logger.info(f"[会话 {session_id}] 面试开始，共 {len(questions)} 个问题")
+    logger.info(f"面试官: {opening}")
 
     _persist(session_id)
 
@@ -217,7 +218,7 @@ async def _generate_smart_questions(plan: dict) -> list[dict]:
         data = _parse_json_array(content)
         return [_normalize_question(item, index) for index, item in enumerate(data[:count], start=1)]
     except Exception as exc:
-        print(f"智能面试问题生成失败: {exc}")
+        logger.error(f"智能面试问题生成失败: {exc}")
         return []
 
 
@@ -261,7 +262,7 @@ async def process_message(session_id: str, user_msg: str) -> tuple[str, str]:
         raise HTTPException(status_code=404, detail="会话不存在或已过期")
 
     session["history"].append(_history_message("candidate", user_msg))
-    print(f"[会话 {session_id}] 候选人: {user_msg}")
+    logger.info(f"[会话 {session_id}] 候选人: {user_msg}")
 
     reply = ""
 
@@ -280,7 +281,7 @@ async def process_message(session_id: str, user_msg: str) -> tuple[str, str]:
         reply = "面试已经结束了，感谢你的参与！如有任何问题，可以联系我们的 HR 团队。"
 
     session["history"].append(_history_message("interviewer", reply))
-    print(f"[会话 {session_id}] 面试官: {reply}")
+    logger.info(f"[会话 {session_id}] 面试官: {reply}")
 
     _persist(session_id)
     return reply, session["state"]
@@ -338,7 +339,7 @@ async def _evaluate_answer(session: dict, question: dict, answer: str, attempt: 
         try:
             return await _llm_evaluate_answer(session, question, answer, attempt)
         except Exception as exc:
-            print(f"回答质量评估失败，使用兜底策略: {exc}")
+            logger.warning(f"回答质量评估失败，使用兜底策略: {exc}")
     return _fallback_evaluate_answer(question, answer)
 
 

@@ -95,7 +95,7 @@ async def extract_resume_info(text: str) -> dict:
         return normalize_structured_resume(llm_result)
 
     except Exception as e:
-        print(f"LLM 简历解析失败: {e}")
+        logger.error(f"LLM 简历解析失败: {e}")
         return normalize_structured_resume(_fallback_extraction(text))
 
 
