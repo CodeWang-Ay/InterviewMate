@@ -18,6 +18,7 @@ const viewingResume = ref(null)
 const resumePreviewLoading = ref(false)
 const resumePreviewSrc = ref('')
 const showOriginalResume = ref(false)
+const favoriteJobs = ref([])
 
 const tabs = [
   { key: 'social', label: '社会招聘' },
@@ -90,7 +91,23 @@ onMounted(async () => {
   readUser()
   await loadPlans()
   loadRecommendedJobs()
+  loadFavoriteJobs()
 })
+
+async function loadFavoriteJobs() {
+  try {
+    const ids = JSON.parse(localStorage.getItem('favorite_jobs') || '[]')
+    if (!ids.length) { favoriteJobs.value = []; return }
+    const jobs = []
+    for (const id of ids) {
+      try {
+        const res = await fetch(`/api/jds/public/${id}`)
+        if (res.ok) jobs.push(await res.json())
+      } catch (_) {}
+    }
+    favoriteJobs.value = jobs
+  } catch (_) { favoriteJobs.value = [] }
+}
 
 watch(activeTab, loadRecommendedJobs)
 
@@ -609,10 +626,22 @@ function jobSummary(job) {
           </div>
         </div>
 
-        <div class="rounded-2xl bg-white p-6 text-center shadow-[0_16px_42px_rgba(15,35,80,0.08)]">
-          <h2 class="text-xl font-black">我的收藏</h2>
-          <p class="mt-5 text-[#667085]">还是空的，快去看看岗位吧</p>
-          <button class="mt-4 font-bold text-[#4b6cff]" @click="router.push('/jobs/social')">查看岗位 &gt;</button>
+        <div class="rounded-2xl bg-white p-6 shadow-[0_16px_42px_rgba(15,35,80,0.08)]">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-black">我的收藏</h2>
+            <button class="text-sm font-bold text-[#4b6cff]" @click="loadFavoriteJobs"><i class="fa fa-refresh mr-1"></i>刷新</button>
+          </div>
+          <div v-if="favoriteJobs.length" class="space-y-3">
+            <div v-for="job in favoriteJobs" :key="job.id" class="flex items-center justify-between rounded-xl border border-[#edf1f7] p-3 hover:bg-[#f8fbff] cursor-pointer" @click="router.push(`/jobs/${job.id}`)">
+              <div class="min-w-0 text-left">
+                <div class="text-sm font-bold truncate">{{ job.name }}</div>
+                <div class="text-xs text-[#98a2b3] mt-0.5">{{ job.location || '' }} ｜ {{ job.category || '' }}</div>
+              </div>
+              <i class="fa fa-chevron-right text-[#98a2b3] text-sm shrink-0 ml-2"></i>
+            </div>
+          </div>
+          <p v-else class="mt-2 text-[#667085] text-sm">还是空的，快去看看岗位吧</p>
+          <button class="mt-4 font-bold text-[#4b6cff] text-sm" @click="router.push('/jobs/social')">查看岗位 &gt;</button>
         </div>
       </aside>
     </main>

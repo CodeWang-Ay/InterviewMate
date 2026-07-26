@@ -112,6 +112,47 @@ function goLogin() {
   router.push('/user/login?redirect=/user')
 }
 
+// ── 收藏（localStorage） ──────────────────────────────────────
+
+const favorites = ref(new Set(loadFavorites()))
+
+function loadFavorites() {
+  try { return JSON.parse(localStorage.getItem('favorite_jobs') || '[]') } catch (_) { return [] }
+}
+function saveFavorites() {
+  try { localStorage.setItem('favorite_jobs', JSON.stringify([...favorites.value])) } catch (_) {}
+  // 同步更新页面中的 job 卡片状态
+  jobs.value = [...jobs.value]
+}
+function toggleFavorite(job) {
+  if (favorites.value.has(job.id)) {
+    favorites.value.delete(job.id)
+  } else {
+    favorites.value.add(job.id)
+  }
+  saveFavorites()
+}
+function isFavorite(jobId) {
+  return favorites.value.has(jobId)
+}
+
+// ── 分享 ──────────────────────────────────────────────────────
+
+async function shareJob(job) {
+  const url = `${window.location.origin}/jobs/${job.id}`
+  const text = `【${job.name}】${job.location || ''} ｜ ${job.category || ''}\n${url}`
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: job.name, text, url })
+    } else {
+      await navigator.clipboard.writeText(text)
+      alert('职位信息已复制到剪贴板')
+    }
+  } catch (_) {
+    try { await navigator.clipboard.writeText(text); alert('链接已复制') } catch (__) {}
+  }
+}
+
 function goCenter() {
   router.push(centerPath.value)
 }
@@ -276,8 +317,10 @@ function jobSummary(job) {
                 <p class="mt-4 line-clamp-2 leading-7 text-[#3f4b5f]">{{ jobSummary(job) }}</p>
               </div>
               <div class="flex shrink-0 gap-3 text-[#9aa3b5]" @click.stop>
-                <button class="h-9 w-9 rounded-full hover:bg-[#f3f5fb]"><i class="fa fa-star-o"></i></button>
-                <button class="h-9 w-9 rounded-full hover:bg-[#f3f5fb]"><i class="fa fa-share-alt"></i></button>
+                <button :class="['h-9 w-9 rounded-full transition', isFavorite(job.id) ? 'text-amber-500 bg-amber-50' : 'hover:bg-[#f3f5fb]']" :title="isFavorite(job.id) ? '取消收藏' : '收藏'" @click="toggleFavorite(job)">
+                  <i :class="['fa', isFavorite(job.id) ? 'fa-star' : 'fa-star-o']"></i>
+                </button>
+                <button class="h-9 w-9 rounded-full hover:bg-[#f3f5fb]" title="分享" @click="shareJob(job)"><i class="fa fa-share-alt"></i></button>
               </div>
             </div>
             <div class="mt-5 flex flex-wrap items-center justify-between gap-4">
