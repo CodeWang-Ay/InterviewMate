@@ -154,8 +154,8 @@ function normalizeRecruitmentType(value) {
 }
 
 function ensureDefaultExpanded() {
-  const group = workflowGroups.value.find(item => item.current_plan) || workflowGroups.value[0]
-  expandedWorkflows.value = group ? new Set([group.key]) : new Set()
+  // Keep application cards compact on entry; the full interview timeline is opt-in.
+  expandedWorkflows.value = new Set()
 }
 
 function isExpanded(group) {
@@ -372,25 +372,25 @@ function jobSummary(job) {
                 <i class="fa text-xl text-[#667085]" :class="isExpanded(group) ? 'fa-angle-up' : 'fa-angle-down'"></i>
               </button>
 
-              <div v-show="isExpanded(group)" class="border-t border-[#e8edf5] bg-white px-5 py-5">
-                <div class="overflow-x-auto pb-2">
-                  <div class="flex min-w-[760px] items-start">
-                    <template v-for="(plan, index) in group.plans" :key="plan.id">
-                      <div class="flex w-[128px] flex-col items-center text-center">
-                        <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="nodeClass(plan)">
-                          <i v-if="plan.status === 'finish'" class="fa fa-check"></i>
-                          <span v-else>{{ plan.stage_order || index + 1 }}</span>
-                        </div>
-                        <div class="mt-2 font-bold" :class="['wait', 'running'].includes(plan.status) ? 'text-[#246bdb]' : plan.status === 'finish' ? 'text-[#15a05f]' : 'text-[#667085]'">
-                          {{ plan.interview_round }}
-                        </div>
-                        <div class="mt-1 text-xs text-[#8a94a6]">{{ statusLabel(plan.status) }}</div>
+              <div class="overflow-x-auto border-t border-[#e8edf5] bg-[#f8fbff] px-5 py-4 pb-5">
+                <div class="flex min-w-[680px] items-start">
+                  <template v-for="(plan, index) in group.plans" :key="`summary-${plan.id}`">
+                    <div class="flex w-[128px] shrink-0 flex-col items-center text-center">
+                      <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="nodeClass(plan)">
+                        <i v-if="plan.status === 'finish'" class="fa fa-check"></i>
+                        <span v-else>{{ plan.stage_order || index + 1 }}</span>
                       </div>
-                      <div v-if="index < group.plans.length - 1" class="mx-2 mt-4 h-0.5 flex-1 rounded-full" :class="lineClass(plan)"></div>
-                    </template>
-                  </div>
+                      <div class="mt-2 font-bold" :class="['wait', 'running'].includes(plan.status) ? 'text-[#246bdb]' : plan.status === 'finish' ? 'text-[#15a05f]' : 'text-[#667085]'">
+                        {{ plan.interview_round }}
+                      </div>
+                      <div class="mt-1 text-xs text-[#8a94a6]">{{ statusLabel(plan.status) }}</div>
+                    </div>
+                    <div v-if="index < group.plans.length - 1" class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="lineClass(plan)"></div>
+                  </template>
                 </div>
+              </div>
 
+              <div v-show="isExpanded(group)" class="border-t border-[#e8edf5] bg-white px-5 py-5">
                 <div class="mt-5 overflow-hidden rounded-xl border border-[#edf1f7]">
                   <table class="w-full text-left text-sm">
                     <thead class="bg-[#f8fbff] text-[#667085]">
