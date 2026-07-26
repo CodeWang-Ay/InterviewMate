@@ -23,6 +23,7 @@ import RecruitmentHome from '../pages/RecruitmentHome.vue'
 import AboutUs from '../pages/AboutUs.vue'
 import ResumeView from '../pages/ResumeView.vue'
 import ResumeEdit from '../pages/ResumeEdit.vue'
+import JobDetail from '../pages/JobDetail.vue'
 
 const redirectWithQuery = (path) => (to) => ({ path, query: to.query })
 
@@ -31,6 +32,7 @@ const routes = [
   { path: '/jobs', redirect: redirectWithQuery('/jobs/social') },
   { path: '/jobs/social', component: RecruitmentHome },
   { path: '/jobs/campus', component: RecruitmentHome },
+  { path: '/jobs/:id', component: JobDetail },
   { path: '/about', component: AboutUs },
   { path: '/admin', component: Home },
   { path: '/admin/interviewer', component: Interviewer },
@@ -134,15 +136,16 @@ async function ensureSessionValid(token) {
 // 路由守卫：未登录跳转登录页
 router.beforeEach(async (to, from) => {
   const publicPages = ['/', '/jobs', '/jobs/social', '/jobs/campus', '/about', '/login', '/admin/login', '/user/login', '/register']
+  const isPublic = publicPages.includes(to.path) || to.path.startsWith('/jobs/')
   let token = ''
   let role = ''
   try { token = localStorage.getItem('token') || '' } catch (_) {}
   try { role = localStorage.getItem('role') || '' } catch (_) {}
-  if (!token && !publicPages.includes(to.path)) {
+  if (!token && !isPublic) {
     const loginPath = to.path.startsWith('/user') ? '/user/login' : '/admin/login'
     return { path: loginPath, query: { redirect: to.fullPath } }
   }
-  if (token && !publicPages.includes(to.path)) {
+  if (token && !isPublic) {
     const session = await ensureSessionValid(token)
     if (!session.ok) {
       clearLocalAuth()

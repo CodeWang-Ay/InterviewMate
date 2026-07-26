@@ -50,6 +50,14 @@ async def public_jds(category: str = "", location: str = "", search: str = "", r
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
+@router.get("/public/{jd_id}")
+async def public_jd_detail(jd_id: int):
+    jd = jd_repo.get_by_id(jd_id)
+    if not jd or jd.get("status") != "enable":
+        raise HTTPException(status_code=404, detail="职位不存在或已下线")
+    return jd
+
+
 @router.get("")
 async def list_jds(category: str = "", status: str = "", location: str = "", search: str = "", recruitment_type: str = "", page: int = 1, page_size: int = 10, _: dict = Depends(require_admin)):
     items, total = jd_repo.list_all_paged(category, status, location, search, recruitment_type, page, page_size)

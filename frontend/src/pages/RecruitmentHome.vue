@@ -262,7 +262,7 @@ function jobSummary(job) {
         <div v-if="loading" class="rounded-xl bg-white p-12 text-center text-[#667085] shadow-sm">正在加载职位...</div>
 
         <div v-else class="space-y-4">
-          <article v-for="job in jobs" :key="job.id" class="rounded-xl bg-white p-6 shadow-[0_12px_28px_rgba(15,35,80,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(15,35,80,0.12)]">
+          <article v-for="job in jobs" :key="job.id" class="cursor-pointer rounded-xl bg-white p-6 shadow-[0_12px_28px_rgba(15,35,80,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(15,35,80,0.12)]" @click="router.push(`/jobs/${job.id}`)">
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-3">
@@ -275,7 +275,7 @@ function jobSummary(job) {
                 </div>
                 <p class="mt-4 line-clamp-2 leading-7 text-[#3f4b5f]">{{ jobSummary(job) }}</p>
               </div>
-              <div class="flex shrink-0 gap-3 text-[#9aa3b5]">
+              <div class="flex shrink-0 gap-3 text-[#9aa3b5]" @click.stop>
                 <button class="h-9 w-9 rounded-full hover:bg-[#f3f5fb]"><i class="fa fa-star-o"></i></button>
                 <button class="h-9 w-9 rounded-full hover:bg-[#f3f5fb]"><i class="fa fa-share-alt"></i></button>
               </div>
@@ -284,7 +284,10 @@ function jobSummary(job) {
               <div class="flex flex-wrap gap-2">
                 <span v-for="tag in [job.category || '业务方向', job.location || '灵活地点', job.experience_required || '不限经验']" :key="tag" class="rounded-md bg-[#f3f7ff] px-3 py-1.5 text-sm text-[#4d63af]">{{ tag }}</span>
               </div>
-              <button class="rounded-lg bg-[#11b89f] px-5 py-2.5 font-semibold text-white hover:bg-[#0d9488]" @click="goLogin">立即投递</button>
+              <div class="flex gap-3" @click.stop>
+                <button class="rounded-lg border border-[#dce5f2] px-5 py-2.5 font-semibold text-[#475467] hover:bg-[#f5f7fa]" @click="router.push(`/jobs/${job.id}`)">查看详情</button>
+                <button class="rounded-lg bg-[#11b89f] px-5 py-2.5 font-semibold text-white hover:bg-[#0d9488]" @click="goLogin">立即投递</button>
+              </div>
             </div>
           </article>
 
