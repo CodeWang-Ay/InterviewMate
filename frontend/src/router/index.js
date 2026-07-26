@@ -21,6 +21,7 @@ import UserInterview from '../pages/UserInterview.vue'
 import TaskCenter from '../pages/TaskCenter.vue'
 import RecruitmentHome from '../pages/RecruitmentHome.vue'
 import AboutUs from '../pages/AboutUs.vue'
+import ResumeView from '../pages/ResumeView.vue'
 
 const redirectWithQuery = (path) => (to) => ({ path, query: to.query })
 
@@ -67,6 +68,7 @@ const routes = [
   { path: '/register', component: Register },
   { path: '/admin/user-center', component: UserCenter },
   { path: '/user', component: UserInterview },
+  { path: '/resume-view', component: ResumeView },
 ]
 
 const router = createRouter({

@@ -17,6 +17,7 @@ const email = ref('')
 const viewingResume = ref(null)
 const resumePreviewLoading = ref(false)
 const resumePreviewSrc = ref('')
+const showOriginalResume = ref(false)
 
 const tabs = [
   { key: 'social', label: '社会招聘' },
@@ -179,6 +180,9 @@ function enterInterview(plan = currentPlan.value) {
 
 async function viewResume() {
   if (!resumeFileName.value || resumeFileName.value === '暂未上传简历') return
+  router.push({ path: '/resume-view', query: { filename: resumeFileName.value } })
+  return
+  /* legacy inline preview kept below for compatibility */
   resumePreviewLoading.value = true
   try {
     const token = localStorage.getItem('token') || ''
@@ -187,6 +191,7 @@ async function viewResume() {
     })
     if (!res.ok) throw new Error('暂未找到绑定的简历')
     viewingResume.value = await res.json()
+    showOriginalResume.value = false
     const fileRes = await fetch(`/api/plans/my-resume/file?filename=${encodeURIComponent(viewingResume.value.file_path || resumeFileName.value)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
@@ -203,6 +208,7 @@ async function viewResume() {
 
 function closeResumePreview() {
   viewingResume.value = null
+  showOriginalResume.value = false
   if (resumePreviewSrc.value) {
     URL.revokeObjectURL(resumePreviewSrc.value)
     resumePreviewSrc.value = ''
@@ -570,17 +576,22 @@ function jobSummary(job) {
     </main>
 
     <div v-if="viewingResume" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 lg:p-6" @click.self="closeResumePreview">
-      <div class="flex h-[92vh] w-[96vw] max-w-[1680px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div class="flex h-[92vh] w-[96vw] max-w-[1180px] flex-col overflow-hidden rounded-2xl bg-[#f5f7fb] shadow-2xl">
         <div class="flex h-14 shrink-0 items-center justify-between border-b border-[#e8edf5] px-5 lg:px-7">
           <div class="min-w-0 truncate text-sm font-bold text-[#202838]">{{ viewingResume.original_name || viewingResume.file_path || '简历预览' }}</div>
-          <button class="ml-4 shrink-0 text-xl text-[#98a2b3] hover:text-[#344054]" title="关闭" @click="closeResumePreview"><i class="fa fa-times"></i></button>
+          <div class="ml-4 flex shrink-0 items-center gap-2">
+            <button class="hidden rounded-lg border border-[#dce5f2] px-3 py-2 text-xs font-bold text-[#475467] hover:bg-[#f8fbff] sm:inline-flex" @click="showOriginalResume = !showOriginalResume">
+              <i :class="['fa mr-1', showOriginalResume ? 'fa-table' : 'fa-file-pdf-o']"></i>{{ showOriginalResume ? '查看解析' : '查看原文件' }}
+            </button>
+            <button class="ml-1 text-xl text-[#98a2b3] hover:text-[#344054]" title="关闭" @click="closeResumePreview"><i class="fa fa-times"></i></button>
+          </div>
         </div>
         <div class="flex min-h-0 flex-1 flex-col lg:flex-row">
-          <div class="min-h-[46%] flex-1 overflow-hidden bg-[#303030] lg:min-h-0 lg:basis-1/2">
+          <div v-if="showOriginalResume" class="min-h-[46%] flex-1 overflow-hidden bg-[#303030] lg:min-h-0 lg:basis-1/2">
             <embed v-if="resumePreviewSrc" :src="`${resumePreviewSrc}#view=FitH`" type="application/pdf" class="h-full w-full" />
             <div v-else class="flex h-full items-center justify-center text-sm text-white/60">暂无简历文件</div>
           </div>
-          <div class="min-h-0 flex-1 overflow-auto border-t border-[#e8edf5] bg-white p-5 lg:basis-1/2 lg:border-l lg:border-t-0 lg:p-7">
+          <div class="min-h-0 flex-1 overflow-auto border-t border-[#e8edf5] bg-white p-5 lg:basis-full lg:border-l-0 lg:border-t-0 lg:p-8">
             <div class="mb-5 flex items-center justify-between">
               <div>
                 <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#4776ff]">Resume Profile</div>
