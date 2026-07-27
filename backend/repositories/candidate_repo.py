@@ -25,6 +25,8 @@ def _needs_rehash(stored_hash: str) -> bool:
 def _conn():
     c = sqlite3.connect(DB_PATH)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=5000")
     return c
 
 
@@ -102,16 +104,16 @@ def login(username: str, password: str) -> dict | None:
             "SELECT * FROM candidates WHERE username=?",
             (username,),
         ).fetchone()
-    if not row:
-        return None
-    stored_hash = row["password_hash"]
-    if not _verify_password(password, stored_hash):
-        return None
-    if _needs_rehash(stored_hash):
-        conn.execute(
-            "UPDATE candidates SET password_hash=? WHERE username=?",
-            (_hash(password), username),
-        )
+        if not row:
+            return None
+        stored_hash = row["password_hash"]
+        if not _verify_password(password, stored_hash):
+            return None
+        if _needs_rehash(stored_hash):
+            conn.execute(
+                "UPDATE candidates SET password_hash=? WHERE username=?",
+                (_hash(password), username),
+            )
     token = uuid.uuid4().hex
     tokens[token] = username
     return {

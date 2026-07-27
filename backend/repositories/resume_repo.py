@@ -10,6 +10,8 @@ RESUME_STATUS_OPTIONS = ["待筛选", "初筛通过", "不合适"]
 def _conn():
     c = sqlite3.connect(DB_PATH)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=5000")
     return c
 
 
