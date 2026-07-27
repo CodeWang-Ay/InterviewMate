@@ -247,7 +247,7 @@ function resetFilters() {
           >
             <i class="fa fa-check-square-o"></i>{{ batchMode ? '退出批量' : '批量管理' }}
           </button>
-          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm" @click="router.push('/admin/interviewee')">
+          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm" @click="router.push('/admin/plan-manager')">
             <i class="fa fa-plus"></i> 新建面试
           </button>
         </div>

@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../pages/Home.vue'
 import Interviewer from '../pages/Interviewer.vue'
 import InterviewerTrainChat from '../pages/InterviewerTrainChat.vue'
-import Interviewee from '../pages/Interviewee.vue'
 import Chat from '../pages/Chat.vue'
 import Report from '../pages/Report.vue'
 import InterviewRecord from '../pages/InterviewRecord.vue'
@@ -38,7 +37,6 @@ const routes = [
   { path: '/admin', component: Home },
   { path: '/admin/interviewer', component: Interviewer },
   { path: '/admin/interviewer/chat', component: InterviewerTrainChat },
-  { path: '/admin/interviewee', component: Interviewee },
   { path: '/chat', component: Chat },
   { path: '/admin/report', component: Report },
   { path: '/admin/interview-record', component: InterviewRecord },
@@ -53,7 +51,6 @@ const routes = [
   { path: '/admin/tasks', component: TaskCenter },
   { path: '/interviewer', redirect: redirectWithQuery('/admin/interviewer') },
   { path: '/interviewer/chat', redirect: redirectWithQuery('/admin/interviewer/chat') },
-  { path: '/interviewee', redirect: redirectWithQuery('/admin/interviewee') },
   { path: '/report', redirect: redirectWithQuery('/admin/report') },
   { path: '/interview-record', redirect: redirectWithQuery('/admin/interview-record') },
   { path: '/jd-manager', redirect: redirectWithQuery('/admin/jd-manager') },
@@ -161,7 +158,7 @@ router.beforeEach(async (to, from) => {
   if (candidatePages.includes(to.path) && role && role !== 'candidate') {
     return { path: '/admin' }
   }
-  const adminPages = ['/admin', '/admin/interviewer', '/admin/interviewer/chat', '/admin/interviewee', '/admin/jd-manager', '/admin/resume-manager', '/admin/ai-tools', '/admin/plan-manager', '/admin/report', '/admin/interview-record', '/admin/record-list', '/admin/report-list', '/admin/interview-archive', '/admin/settings', '/admin/tasks', '/admin/user-center']
+  const adminPages = ['/admin', '/admin/interviewer', '/admin/interviewer/chat', '/admin/jd-manager', '/admin/resume-manager', '/admin/ai-tools', '/admin/plan-manager', '/admin/report', '/admin/interview-record', '/admin/record-list', '/admin/report-list', '/admin/interview-archive', '/admin/settings', '/admin/tasks', '/admin/user-center']
   if (adminPages.includes(to.path)) {
     if (role !== 'admin') {
       try { window.alert('仅管理员可查看面试记录和面试报告') } catch (_) {}

@@ -31,7 +31,7 @@ const live2d = useLive2D()
 // ── computed ─────────────────────────────────────────────────
 
 const isAdmin = computed(() => role.value === 'admin')
-const backPath = computed(() => isAdmin.value ? '/admin/interviewee' : '/user')
+const backPath = computed(() => isAdmin.value ? '/admin' : '/user')
 const candidateName = computed(() => planInfo.value?.candidate_name || safeGetLocalStorage('nickname', '我'))
 const jobName = computed(() => planInfo.value?.jd_name || '目标岗位')
 const interviewerName = computed(() => planInfo.value?.interviewer || 'AI 面试官')

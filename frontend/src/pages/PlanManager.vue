@@ -571,10 +571,10 @@ const previewQuestions = computed(() => {
           >
             <i class="fa fa-check-square-o"></i>{{ batchMode ? '退出批量' : '批量管理' }}
           </button>
-          <button class="border border-[#1677ff] text-[#1677ff] px-4 py-2 rounded-lg hover:bg-blue-50 text-sm" @click="router.push('/admin/interviewee')">
+          <button class="border border-[#1677ff] text-[#1677ff] px-4 py-2 rounded-lg hover:bg-blue-50 text-sm" @click="router.push('/admin/plan-manager')">
             <i class="fa fa-file-text-o mr-1"></i>手动新建计划
           </button>
-          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm" @click="router.push('/admin/interviewee')">
+          <button class="bg-[#1677ff] text-white px-5 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm" @click="router.push('/admin/plan-manager')">
             <i class="fa fa-magic"></i>AI生成面试计划
           </button>
         </div>

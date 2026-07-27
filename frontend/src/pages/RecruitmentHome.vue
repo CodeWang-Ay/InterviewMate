@@ -10,7 +10,6 @@ const error = ref('')
 const keyword = ref('')
 const recruitmentType = ref('社招')
 const showRecruitmentPicker = ref(false)
-const showCampusDropdown = ref(false)
 const selectedCategory = ref('')
 const selectedLocation = ref('')
 const jobs = ref([])
@@ -83,16 +82,9 @@ async function loadJobs() {
 function selectType(type) {
   recruitmentType.value = type
   showRecruitmentPicker.value = false
-  showCampusDropdown.value = false
   if (type === '校招') router.push('/jobs/campus')
   else if (type === '实习') router.push('/jobs/intern')
   else router.push('/jobs/social')
-}
-
-function goCampusSub(type) {
-  recruitmentType.value = type
-  showCampusDropdown.value = false
-  router.push(type === '实习' ? '/jobs/intern' : '/jobs/campus')
 }
 
 const isCampusModule = computed(() => recruitmentType.value === '校招' || recruitmentType.value === '实习')
@@ -191,18 +183,7 @@ function jobSummary(job) {
         <nav class="hidden items-center gap-8 text-sm font-semibold text-white/82 md:flex">
           <button :class="isHomePage ? 'text-white' : ''" @click="router.push('/')">首页</button>
           <button :class="!isHomePage && recruitmentType === '社招' ? 'text-[#72f2d1]' : ''" @click="selectType('社招')">社会招聘</button>
-          <div class="relative" @mouseenter="showCampusDropdown = true" @mouseleave="showCampusDropdown = false">
-            <button :class="!isHomePage && isCampusModule ? 'text-[#72f2d1]' : ''" @click="selectType('校招')">
-              校园招聘 <i class="fa fa-angle-down ml-1 text-[10px]"></i>
-            </button>
-            <div
-              v-show="showCampusDropdown"
-              class="absolute left-1/2 top-full mt-2 -translate-x-1/2 overflow-hidden rounded-xl border border-white/18 bg-[#082529]/95 py-1 text-sm text-white shadow-2xl backdrop-blur"
-            >
-              <button class="block whitespace-nowrap px-5 py-3 text-left hover:bg-white/10" :class="recruitmentType === '校招' ? 'text-[#72f2d1]' : ''" @click="goCampusSub('校招')">校园招聘</button>
-              <button class="block whitespace-nowrap px-5 py-3 text-left hover:bg-white/10" :class="recruitmentType === '实习' ? 'text-[#72f2d1]' : ''" @click="goCampusSub('实习')">实习生招聘</button>
-            </div>
-          </div>
+          <button :class="!isHomePage && isCampusModule ? 'text-[#72f2d1]' : ''" @click="selectType('校招')">校园招聘</button>
           <button @click="router.push('/about')">了解我们</button>
           <button v-if="isLoggedIn" @click="goCenter">个人中心</button>
         </nav>
@@ -380,7 +361,7 @@ function jobSummary(job) {
           </div>
           <p class="mt-2 text-sm leading-6 text-[#667085]">根据当前筛选条件，为你优先展示更匹配的机会。</p>
           <div class="mt-5 space-y-5">
-            <div v-for="job in recommendedJobs" :key="job.id" class="rounded-xl border border-[#e7eef7] bg-[#fbfdff] p-4">
+            <div v-for="job in recommendedJobs" :key="job.id" class="cursor-pointer rounded-xl border border-[#e7eef7] bg-[#fbfdff] p-4 transition hover:-translate-y-0.5 hover:shadow-md" @click="router.push(`/jobs/${job.id}`)">
               <div class="font-bold">{{ job.name }}</div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <span class="rounded border border-[#11b89f] px-2 py-0.5 text-sm text-[#0f9f8f]">{{ job.category || '技术' }}</span>

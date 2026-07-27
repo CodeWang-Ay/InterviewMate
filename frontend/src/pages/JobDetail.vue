@@ -33,6 +33,13 @@ function goList() {
 
 <template>
   <div class="min-h-screen bg-[#f3f5f8] text-[#202838]">
+    <!-- 背景装饰 -->
+    <div class="fixed inset-0 z-0 overflow-hidden pointer-events-none">
+      <div class="absolute -top-40 -right-40 h-[600px] w-[600px] rounded-full bg-gradient-to-br from-teal-100/50 to-cyan-100/30 blur-3xl"></div>
+      <div class="absolute -bottom-32 -left-32 h-[500px] w-[500px] rounded-full bg-gradient-to-tr from-blue-100/40 to-indigo-100/30 blur-3xl"></div>
+      <div class="absolute top-1/3 left-1/2 h-[400px] w-[400px] -translate-x-1/2 rounded-full bg-gradient-to-r from-emerald-100/30 to-teal-100/20 blur-3xl"></div>
+    </div>
+
     <!-- header -->
     <header class="sticky top-0 z-30 border-b border-white/10 bg-[#071c22] text-white shadow-[0_8px_24px_rgba(7,28,34,0.18)]">
       <div class="mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6">
@@ -52,7 +59,7 @@ function goList() {
       </div>
     </header>
 
-    <main class="mx-auto max-w-[960px] px-4 py-10 sm:px-8">
+    <main class="relative z-10 mx-auto max-w-[960px] px-4 py-10 sm:px-8">
       <div v-if="loading" class="rounded-2xl bg-white p-16 text-center text-[#667085]">正在加载...</div>
       <div v-else-if="error" class="rounded-2xl bg-white p-16 text-center">
         <i class="fa fa-exclamation-circle text-4xl text-red-300 mb-3 block"></i>
