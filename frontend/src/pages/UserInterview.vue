@@ -64,8 +64,11 @@ const workflowGroups = computed(() => {
 })
 
 const filteredWorkflowGroups = computed(() => {
-  const tabText = activeTab.value === 'campus' ? '校招' : '社招'
-  return workflowGroups.value.filter(group => group.recruitment_type === tabText)
+  if (activeTab.value === 'campus') {
+    // 校园招聘模块包含校招和实习生
+    return workflowGroups.value.filter(group => group.recruitment_type === '校招' || group.recruitment_type === '实习生')
+  }
+  return workflowGroups.value.filter(group => group.recruitment_type === '社招')
 })
 const activeGroup = computed(() => workflowGroups.value.find(group => group.current_plan) || workflowGroups.value[0] || null)
 const currentPlan = computed(() => activeGroup.value?.current_plan || null)
@@ -210,6 +213,7 @@ function workflowKey(plan) {
 function normalizeRecruitmentType(value) {
   const text = String(value || '').trim()
   if (text.includes('校')) return '校招'
+  if (text.includes('实习')) return '实习生'
   return '社招'
 }
 

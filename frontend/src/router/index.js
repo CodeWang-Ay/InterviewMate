@@ -32,6 +32,7 @@ const routes = [
   { path: '/jobs', redirect: redirectWithQuery('/jobs/social') },
   { path: '/jobs/social', component: RecruitmentHome },
   { path: '/jobs/campus', component: RecruitmentHome },
+  { path: '/jobs/intern', component: RecruitmentHome },
   { path: '/jobs/:id', component: JobDetail },
   { path: '/about', component: AboutUs },
   { path: '/admin', component: Home },
@@ -135,7 +136,7 @@ async function ensureSessionValid(token) {
 
 // 路由守卫：未登录跳转登录页
 router.beforeEach(async (to, from) => {
-  const publicPages = ['/', '/jobs', '/jobs/social', '/jobs/campus', '/about', '/login', '/admin/login', '/user/login', '/register']
+  const publicPages = ['/', '/jobs', '/jobs/social', '/jobs/campus', '/jobs/intern', '/about', '/login', '/admin/login', '/user/login', '/register']
   const isPublic = publicPages.includes(to.path) || to.path.startsWith('/jobs/')
   let token = ''
   let role = ''

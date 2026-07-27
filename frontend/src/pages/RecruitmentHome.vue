@@ -10,6 +10,7 @@ const error = ref('')
 const keyword = ref('')
 const recruitmentType = ref('社招')
 const showRecruitmentPicker = ref(false)
+const showCampusDropdown = ref(false)
 const selectedCategory = ref('')
 const selectedLocation = ref('')
 const jobs = ref([])
@@ -56,10 +57,11 @@ async function loadJobs() {
   loading.value = true
   error.value = ''
   try {
+    const dbType = recruitmentType.value === '实习' ? '实习生' : recruitmentType.value
     const params = new URLSearchParams({
       page: '1',
       page_size: '20',
-      recruitment_type: recruitmentType.value,
+      recruitment_type: dbType,
     })
     if (keyword.value.trim()) params.set('search', keyword.value.trim())
     if (selectedCategory.value) params.set('category', selectedCategory.value)
@@ -81,8 +83,19 @@ async function loadJobs() {
 function selectType(type) {
   recruitmentType.value = type
   showRecruitmentPicker.value = false
-  router.push(type === '校招' ? '/jobs/campus' : '/jobs/social')
+  showCampusDropdown.value = false
+  if (type === '校招') router.push('/jobs/campus')
+  else if (type === '实习') router.push('/jobs/intern')
+  else router.push('/jobs/social')
 }
+
+function goCampusSub(type) {
+  recruitmentType.value = type
+  showCampusDropdown.value = false
+  router.push(type === '实习' ? '/jobs/intern' : '/jobs/campus')
+}
+
+const isCampusModule = computed(() => recruitmentType.value === '校招' || recruitmentType.value === '实习')
 
 function chooseSearchType(type) {
   recruitmentType.value = type
@@ -90,11 +103,15 @@ function chooseSearchType(type) {
 }
 
 function syncRecruitmentTypeFromRoute() {
-  recruitmentType.value = route.path === '/jobs/campus' ? '校招' : '社招'
+  if (route.path === '/jobs/campus') recruitmentType.value = '校招'
+  else if (route.path === '/jobs/intern') recruitmentType.value = '实习'
+  else recruitmentType.value = '社招'
 }
 
 function searchJobs() {
-  router.push(recruitmentType.value === '校招' ? '/jobs/campus' : '/jobs/social')
+  if (recruitmentType.value === '校招') router.push('/jobs/campus')
+  else if (recruitmentType.value === '实习') router.push('/jobs/intern')
+  else router.push('/jobs/social')
   if (!isHomePage.value) loadJobs()
 }
 
@@ -174,7 +191,18 @@ function jobSummary(job) {
         <nav class="hidden items-center gap-8 text-sm font-semibold text-white/82 md:flex">
           <button :class="isHomePage ? 'text-white' : ''" @click="router.push('/')">首页</button>
           <button :class="!isHomePage && recruitmentType === '社招' ? 'text-[#72f2d1]' : ''" @click="selectType('社招')">社会招聘</button>
-          <button :class="!isHomePage && recruitmentType === '校招' ? 'text-[#72f2d1]' : ''" @click="selectType('校招')">校园招聘</button>
+          <div class="relative" @mouseenter="showCampusDropdown = true" @mouseleave="showCampusDropdown = false">
+            <button :class="!isHomePage && isCampusModule ? 'text-[#72f2d1]' : ''" @click="selectType('校招')">
+              校园招聘 <i class="fa fa-angle-down ml-1 text-[10px]"></i>
+            </button>
+            <div
+              v-show="showCampusDropdown"
+              class="absolute left-1/2 top-full mt-2 -translate-x-1/2 overflow-hidden rounded-xl border border-white/18 bg-[#082529]/95 py-1 text-sm text-white shadow-2xl backdrop-blur"
+            >
+              <button class="block whitespace-nowrap px-5 py-3 text-left hover:bg-white/10" :class="recruitmentType === '校招' ? 'text-[#72f2d1]' : ''" @click="goCampusSub('校招')">校园招聘</button>
+              <button class="block whitespace-nowrap px-5 py-3 text-left hover:bg-white/10" :class="recruitmentType === '实习' ? 'text-[#72f2d1]' : ''" @click="goCampusSub('实习')">实习生招聘</button>
+            </div>
+          </div>
           <button @click="router.push('/about')">了解我们</button>
           <button v-if="isLoggedIn" @click="goCenter">个人中心</button>
         </nav>
@@ -243,8 +271,11 @@ function jobSummary(job) {
               v-if="showRecruitmentPicker"
               class="absolute left-0 top-[calc(100%+10px)] w-full overflow-hidden rounded-xl border border-white/18 bg-[#082529]/95 py-1 text-sm text-white shadow-2xl backdrop-blur"
             >
-              <button class="block w-full px-4 py-3 text-left hover:bg-white/10" :class="recruitmentType === '社招' ? 'text-[#72f2d1]' : ''" @click="chooseSearchType('社招')">社会招聘</button>
-              <button class="block w-full px-4 py-3 text-left hover:bg-white/10" :class="recruitmentType === '校招' ? 'text-[#72f2d1]' : ''" @click="chooseSearchType('校招')">校园招聘</button>
+              <template v-if="isCampusModule">
+                <button class="block w-full px-4 py-3 text-left hover:bg-white/10" :class="recruitmentType === '校招' ? 'text-[#72f2d1]' : ''" @click="chooseSearchType('校招')">校园招聘</button>
+                <button class="block w-full px-4 py-3 text-left hover:bg-white/10" :class="recruitmentType === '实习' ? 'text-[#72f2d1]' : ''" @click="chooseSearchType('实习')">实习生招聘</button>
+              </template>
+              <button v-else class="block w-full px-4 py-3 text-left text-[#72f2d1]" @click="chooseSearchType('社招')">社会招聘</button>
             </div>
           </div>
           <input
@@ -293,10 +324,11 @@ function jobSummary(job) {
       <main class="min-w-0">
         <div class="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div class="text-lg font-bold">{{ total }} 条职位信息</div>
-          <div class="flex overflow-hidden rounded-full bg-[#e9ecf5] p-1">
-            <button class="rounded-full px-6 py-2" :class="recruitmentType === '社招' ? 'bg-[#11b89f] text-white' : 'text-[#667085]'" @click="selectType('社招')">社会招聘</button>
+          <div v-if="isCampusModule" class="flex overflow-hidden rounded-full bg-[#e9ecf5] p-1">
             <button class="rounded-full px-6 py-2" :class="recruitmentType === '校招' ? 'bg-[#11b89f] text-white' : 'text-[#667085]'" @click="selectType('校招')">校园招聘</button>
+            <button class="rounded-full px-6 py-2" :class="recruitmentType === '实习' ? 'bg-[#11b89f] text-white' : 'text-[#667085]'" @click="selectType('实习')">实习生招聘</button>
           </div>
+          <div v-else class="rounded-full bg-[#e9ecf5] px-6 py-2 text-sm font-medium text-[#11b89f]">社会招聘</div>
         </div>
 
         <div v-if="error" class="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-600">{{ error }}</div>
