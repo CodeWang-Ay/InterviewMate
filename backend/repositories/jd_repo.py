@@ -140,7 +140,8 @@ def create(data):
              data.get("responsibilities", ""), data.get("requirements", ""), data.get("status", "enable"),
              data.get("recruitment_type", "社招"), normalize_experience(data.get("experience_required", ""))),
         )
-        return get_by_id(cur.lastrowid)
+        row = conn.execute("SELECT * FROM jds WHERE id=?", (cur.lastrowid,)).fetchone()
+        return dict(row) if row else None
 
 
 def duplicate(jd_id):

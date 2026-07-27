@@ -162,7 +162,8 @@ def create(data: dict) -> dict:
              normalize_candidate_status(data.get("candidate_status", "待筛选")),
              data.get("jd_id"), data.get("jd_name", ""), data.get("original_name", ""), data.get("file_md5", "")),
         )
-        return get_by_id(cur.lastrowid)
+        row = conn.execute("SELECT * FROM resumes WHERE id=?", (cur.lastrowid,)).fetchone()
+        return dict(row) if row else None
 
 
 def update(rid: int, data: dict) -> dict | None:

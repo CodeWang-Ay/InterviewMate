@@ -120,10 +120,59 @@ async def my_plans(username: str = Depends(get_current_candidate)):
     return _mask_plans(plan_repo.list_by_candidate_username(username))
 
 
+@router.post("/apply/{job_id}")
+async def apply_job(job_id: int, resume_filename: str = "", username: str = Depends(get_current_candidate)):
+    """候选人投递岗位，创建投递记录"""
+    from backend.repositories import jd_repo
+    jd = jd_repo.get_by_id(job_id)
+    if not jd:
+        raise HTTPException(status_code=404, detail="岗位不存在")
+    if jd.get("status") != "enable":
+        raise HTTPException(status_code=404, detail="岗位已下线")
+
+    # 检查是否已经投递过
+    existing = plan_repo.list_by_candidate_username(username)
+    already_applied = [p for p in existing if str(p.get("jd_name", "")) == str(jd.get("name", ""))]
+    if already_applied:
+        return {"applied": True, "plan": _mask_password(already_applied[0]), "message": "已投递过该岗位"}
+
+    candidate = candidate_repo.get_candidate_info(username) or {}
+    # 自动关联候选人已有简历：优先用传入的，其次从已有 plan 中找
+    existing_resume = resume_filename.strip() or str(candidate.get("resume_filename") or "").strip()
+    if not existing_resume:
+        for p in existing:
+            if p.get("resume_filename"):
+                existing_resume = p.get("resume_filename")
+                break
+
+    plan = plan_repo.create({
+        "candidate_name": candidate.get("candidate_name") or username,
+        "candidate_username": username,
+        "jd_name": jd.get("name", ""),
+        "recruitment_type": jd.get("recruitment_type", "社招"),
+        "status": "pending",
+        "stage_order": 1,
+        "stage_count": 1,
+        "workflow_id": f"apply_{job_id}_{username}",
+        "workflow_name": f"投递：{jd.get('name', '')}",
+        "resume_filename": existing_resume,
+    })
+    return {
+        "applied": True,
+        "plan": plan,
+        "message": "投递成功",
+        "has_resume": bool(existing_resume),
+    }
+
+
 @router.get("/my-resume")
 async def my_resume(filename: str = Query(""), username: str = Depends(get_current_candidate)):
     plans = plan_repo.list_by_candidate_username(username)
     allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
+    candidate = candidate_repo.get_candidate_info(username) or {}
+    candidate_resume = str(candidate.get("resume_filename") or "")
+    if candidate_resume:
+        allowed_files.add(candidate_resume)
     selected = filename if filename in allowed_files else next((item for item in allowed_files if item), "")
     resume = resume_repo.get_by_file_path(selected)
     if not resume:
@@ -135,6 +184,10 @@ async def my_resume(filename: str = Query(""), username: str = Depends(get_curre
 async def my_resume_file(filename: str = Query(""), username: str = Depends(get_current_candidate)):
     plans = plan_repo.list_by_candidate_username(username)
     allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
+    candidate = candidate_repo.get_candidate_info(username) or {}
+    candidate_resume = str(candidate.get("resume_filename") or "")
+    if candidate_resume:
+        allowed_files.add(candidate_resume)
     selected = filename if filename in allowed_files else next((item for item in allowed_files if item), "")
     resume = resume_repo.get_by_file_path(selected)
     if not resume or not resume.get("file_path"):
@@ -156,6 +209,10 @@ async def update_my_resume(body: ResumeEditBody, username: str = Depends(get_cur
     """候选人编辑自己的简历结构化数据"""
     plans = plan_repo.list_by_candidate_username(username)
     allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
+    candidate = candidate_repo.get_candidate_info(username) or {}
+    candidate_resume = str(candidate.get("resume_filename") or "")
+    if candidate_resume:
+        allowed_files.add(candidate_resume)
     if not allowed_files:
         raise HTTPException(status_code=404, detail="暂未绑定简历")
     selected = next((item for item in allowed_files if item), "")
@@ -186,7 +243,10 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
         "original_name": file.filename or "",
         "file_md5": file_md5,
     })
+    if not resume:
+        raise HTTPException(status_code=500, detail="简历记录创建失败，请重试")
     # 关联到当前候选人的所有 plan
+    candidate_repo.update_profile(username, {"resume_filename": filename})
     plans = plan_repo.list_by_candidate_username(username)
     for plan in plans:
         plan_repo.update(plan["id"], {"resume_filename": filename})

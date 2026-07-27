@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(true)
 const jobLoading = ref(false)
 const plans = ref([])
@@ -19,6 +20,13 @@ const resumePreviewLoading = ref(false)
 const resumePreviewSrc = ref('')
 const showOriginalResume = ref(false)
 const favoriteJobs = ref([])
+const resumeUploading = ref(false)
+const pendingApplyJob = ref(null)
+const uploadedResumeFile = ref('')
+
+const hasResume = computed(() => {
+  return Boolean(resumeFileName.value && resumeFileName.value !== '暂未上传简历')
+})
 
 const tabs = [
   { key: 'social', label: '社会招聘' },
@@ -79,7 +87,12 @@ const closedWorkflowCount = computed(() => workflowGroups.value.filter(group => 
 }).length)
 const activeInterviewCount = computed(() => plans.value.filter(plan => ['wait', 'running'].includes(plan.status)).length)
 const displayName = computed(() => nickname.value || activeGroup.value?.candidate_name || username.value || '候选人')
-const resumeFileName = computed(() => activeGroup.value?.resume_filename || activeGroup.value?.plans.find(plan => plan.resume_filename)?.resume_filename || '暂未上传简历')
+const resumeFileName = computed(() => (
+  uploadedResumeFile.value ||
+  activeGroup.value?.resume_filename ||
+  activeGroup.value?.plans.find(plan => plan.resume_filename)?.resume_filename ||
+  '暂未上传简历'
+))
 const resumeMatchPercent = computed(() => {
   const score = activeGroup.value?.current_plan?.match_score || activeGroup.value?.plans.find(plan => plan.match_score)?.match_score || 0
   return score ? Math.min(Math.max(Number(score), 0), 100) : 85
@@ -93,6 +106,18 @@ const nextStepText = computed(() => currentPlan.value?.interview_round || '等�
 onMounted(async () => {
   readUser()
   await loadPlans()
+  const applyJobId = route.query.apply_job
+  if (applyJobId) {
+    if (hasResume.value) {
+      // 有简历，直接投递（携带简历文件名）
+      const resumeFile = plans.value.find(p => p.resume_filename)?.resume_filename || ''
+      await applyForJob(Number(applyJobId), resumeFile)
+    } else {
+      // 无简历，先提示上传
+      pendingApplyJob.value = Number(applyJobId)
+    }
+    router.replace({ path: '/user', query: {} })
+  }
   loadRecommendedJobs()
   loadFavoriteJobs()
 })
@@ -160,6 +185,7 @@ async function loadPlans() {
       throw new Error(err.detail || '获取面试计划失败')
     }
     plans.value = await res.json()
+    await loadMyResume()
     ensureDefaultExpanded()
     // 从简历数据中补全电话/邮箱（如果 localStorage 没有）
     syncProfileFromResume()
@@ -170,9 +196,87 @@ async function loadPlans() {
   }
 }
 
+async function loadMyResume() {
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/plans/my-resume', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: 'no-store',
+    })
+    if (res.ok) {
+      const resume = await res.json()
+      uploadedResumeFile.value = resume.file_path || ''
+    } else if (res.status === 404) {
+      uploadedResumeFile.value = ''
+    }
+  } catch (_) {
+    // 保留当前页面中刚上传成功的文件，避免短暂网络错误导致卡片消失
+  }
+}
+
+async function applyForJob(jobId, resumeFile = '') {
+  try {
+    const token = localStorage.getItem('token') || ''
+    const params = new URLSearchParams()
+    if (resumeFile) params.set('resume_filename', resumeFile)
+    const qs = params.toString()
+    const res = await fetch(`/api/plans/apply/${jobId}${qs ? '?' + qs : ''}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      console.error('投递失败:', err.detail || res.status)
+      return false
+    }
+    const data = await res.json()
+    console.log('投递结果:', data.message)
+    return true
+  } catch (e) {
+    console.error('投递异常:', e)
+    return false
+  }
+}
+
+async function uploadResume(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  resumeUploading.value = true
+  try {
+    const token = localStorage.getItem('token') || ''
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch('/api/plans/my-resume/upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '上传失败')
+    const resume = await res.json()
+    uploadedResumeFile.value = resume.file_path || ''
+    // 刷新计划和候选人自己的简历
+    await loadPlans()
+    // 如果有待投递的岗位，现在投递（携带简历文件名）
+    if (pendingApplyJob.value) {
+      const ok = await applyForJob(pendingApplyJob.value, uploadedResumeFile.value)
+      if (ok) {
+        pendingApplyJob.value = null
+        await loadPlans()
+      } else {
+        alert('投递失败，请稍后重试')
+      }
+    }
+  } catch (err) {
+    alert(err.message || '简历上传失败，请重试')
+  } finally {
+    resumeUploading.value = false
+    e.target.value = ''
+  }
+}
+
 async function syncProfileFromResume() {
   if (phone.value && email.value) return  // 已经有了，跳过
-  const resumeFile = plans.value.find(p => p.resume_filename)?.resume_filename
+  const resumeFile = resumeFileName.value === '暂未上传简历' ? '' : resumeFileName.value
   if (!resumeFile) return
   try {
     const token = localStorage.getItem('token') || ''
@@ -438,15 +542,40 @@ function jobSummary(job) {
               <h2 class="text-2xl font-black">我的简历</h2>
               <p class="mt-1 text-sm text-[#667085]">当前简历会用于岗位匹配和面试题生成</p>
             </div>
-            <div class="flex gap-3 text-sm">
+            <div v-if="hasResume" class="flex gap-3 text-sm">
               <button class="font-semibold text-[#344054] hover:text-[#11b89f] disabled:cursor-wait disabled:opacity-50" :disabled="resumePreviewLoading" @click="viewResume">
                 <i :class="['fa mr-1', resumePreviewLoading ? 'fa-spinner fa-spin' : 'fa-eye']"></i>{{ resumePreviewLoading ? '加载中...' : '查看简历' }}
               </button>
               <button class="font-semibold text-[#344054] hover:text-[#11b89f]" @click="router.push({ path: '/resume-edit', query: { filename: resumeFileName } })"><i class="fa fa-pencil mr-1"></i> 编辑</button>
             </div>
           </div>
+
+          <!-- 无简历时的上传提示 -->
+          <div v-if="pendingApplyJob && !hasResume" class="mb-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-6 text-center">
+            <i class="fa fa-exclamation-triangle text-3xl text-amber-400 mb-3 block"></i>
+            <p class="text-base font-bold text-amber-700">请先上传简历再投递岗位</p>
+            <p class="mt-1 text-sm text-amber-600">上传简历后会自动完成投递，并在后台简历管理中可见</p>
+            <label class="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#11b89f] px-6 py-3 font-bold text-white hover:bg-[#0d9488] transition">
+              <i :class="['fa', resumeUploading ? 'fa-spinner fa-spin' : 'fa-upload']"></i>
+              {{ resumeUploading ? '上传解析中...' : '上传简历' }}
+              <input type="file" accept=".pdf,.docx,.txt,.md" class="hidden" @change="uploadResume">
+            </label>
+          </div>
           <div class="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)]">
-            <div class="flex min-h-[190px] gap-6 rounded-2xl bg-[#f2f6fb] p-6 lg:p-7">
+            <!-- 无简历状态 -->
+            <div v-if="!hasResume && !pendingApplyJob" class="flex min-h-[190px] items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-gray-200 bg-[#f8fafc] p-6 lg:p-7">
+              <label class="flex cursor-pointer flex-col items-center gap-3 text-center">
+                <i class="fa fa-cloud-upload text-4xl text-gray-300"></i>
+                <span class="text-sm font-bold text-gray-500">尚未上传简历，点击上传</span>
+                <span class="text-xs text-gray-400">支持 PDF / DOCX / TXT / MD</span>
+                <span class="rounded-lg bg-[#11b89f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0d9488] transition">
+                  <i :class="['fa mr-1', resumeUploading ? 'fa-spinner fa-spin' : 'fa-upload']"></i>{{ resumeUploading ? '上传中...' : '上传简历' }}
+                </span>
+                <input type="file" accept=".pdf,.docx,.txt,.md" class="hidden" @change="uploadResume">
+              </label>
+            </div>
+            <!-- 有简历状态 -->
+            <div v-else class="flex min-h-[190px] gap-6 rounded-2xl bg-[#f2f6fb] p-6 lg:p-7">
               <div class="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2f80ff] to-[#11b89f] text-lg font-black text-white shadow-sm">PDF</div>
               <div class="min-w-0 flex-1">
                 <div class="truncate text-xl font-black lg:text-2xl">{{ resumeFileName }}</div>
@@ -613,7 +742,7 @@ function jobSummary(job) {
           </div>
           <div v-if="jobLoading" class="mt-5 rounded-xl bg-[#f8fbff] p-5 text-center text-sm text-[#667085]">正在推荐...</div>
           <div v-else class="mt-5 space-y-5">
-            <div v-for="job in recommendedJobs" :key="job.id" class="border-b border-[#edf1f7] pb-5 last:border-b-0 last:pb-0">
+            <div v-for="job in recommendedJobs" :key="job.id" class="cursor-pointer border-b border-[#edf1f7] pb-5 last:border-b-0 last:pb-0 transition hover:bg-gray-50 rounded-lg -mx-2 px-2" @click="router.push(`/jobs/${job.id}`)">
               <div class="line-clamp-1 text-lg font-black">{{ job.name }}</div>
               <div class="mt-2 flex flex-wrap gap-2">
                 <span class="rounded border border-[#11b89f] px-2 py-0.5 text-sm text-[#0f9f8f]">{{ job.category || '技术' }}</span>

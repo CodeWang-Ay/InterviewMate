@@ -117,8 +117,12 @@ function toggleLocation(item) {
   loadJobs()
 }
 
-function goLogin() {
-  router.push('/user/login?redirect=/user')
+function goLogin(jobId) {
+  if (isLoggedIn.value) {
+    router.push(jobId ? `/user?apply_job=${jobId}` : '/user')
+  } else {
+    router.push('/user/login?redirect=/user')
+  }
 }
 
 // ── 收藏（localStorage） ──────────────────────────────────────
@@ -342,7 +346,7 @@ function jobSummary(job) {
               </div>
               <div class="flex gap-3" @click.stop>
                 <button class="rounded-lg border border-[#dce5f2] px-5 py-2.5 font-semibold text-[#475467] hover:bg-[#f5f7fa]" @click="router.push(`/jobs/${job.id}`)">查看详情</button>
-                <button class="rounded-lg bg-[#11b89f] px-5 py-2.5 font-semibold text-white hover:bg-[#0d9488]" @click="goLogin">立即投递</button>
+                <button class="rounded-lg bg-[#11b89f] px-5 py-2.5 font-semibold text-white hover:bg-[#0d9488]" @click="goLogin(job.id)">立即投递</button>
               </div>
             </div>
           </article>

@@ -21,8 +21,13 @@ onMounted(async () => {
   }
 })
 
-function goLogin() {
-  router.push('/user/login?redirect=/user')
+function goLogin(jobId) {
+  const token = localStorage.getItem('token')
+  if (token) {
+    router.push(jobId ? `/user?apply_job=${jobId}` : '/user')
+  } else {
+    router.push('/user/login?redirect=/user')
+  }
 }
 
 function goList() {
@@ -83,7 +88,7 @@ function goList() {
                 <span><i class="fa fa-calendar mr-1.5"></i>发布于 {{ String(job.updated_at || job.created_at || '').slice(0, 10) || '近期' }}</span>
               </div>
             </div>
-            <button class="shrink-0 rounded-xl bg-[#11b89f] px-8 py-3.5 text-base font-black text-white hover:bg-[#0d9488] shadow-lg shadow-teal-500/20" @click="goLogin">立即投递</button>
+            <button class="shrink-0 rounded-xl bg-[#11b89f] px-8 py-3.5 text-base font-black text-white hover:bg-[#0d9488] shadow-lg shadow-teal-500/20" @click="goLogin(job?.id)">立即投递</button>
           </div>
         </section>
 
@@ -132,7 +137,7 @@ function goList() {
           <button class="text-sm font-semibold text-[#667085] hover:text-[#4776ff]" @click="goList"><i class="fa fa-arrow-left mr-1.5"></i>返回职位列表</button>
           <div class="flex gap-3">
             <button class="rounded-lg border border-[#dce5f2] px-5 py-2.5 text-sm font-bold text-[#475467] hover:bg-[#f5f7fa]"><i class="fa fa-share-alt mr-1.5"></i>分享</button>
-            <button class="rounded-xl bg-[#11b89f] px-8 py-2.5 text-base font-black text-white hover:bg-[#0d9488]" @click="goLogin">立即投递</button>
+            <button class="rounded-xl bg-[#11b89f] px-8 py-2.5 text-base font-black text-white hover:bg-[#0d9488]" @click="goLogin(job?.id)">立即投递</button>
           </div>
         </div>
       </article>
