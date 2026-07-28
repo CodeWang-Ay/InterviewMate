@@ -27,6 +27,7 @@ from backend.repositories.resume_repo import init_db as init_resume_db
 from backend.repositories.resume_parse_cache_repo import init_db as init_resume_parse_cache_db
 from backend.repositories.plan_repo import init_db as init_plan_db
 from backend.repositories.task_repo import init_db as init_task_db
+from backend.repositories.application_repo import init_db as init_application_db
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -37,9 +38,10 @@ os.makedirs(INTERVIEW_DIR, exist_ok=True)
 init_jd_db()
 init_resume_db()
 init_resume_parse_cache_db()
-init_plan_db()
 init_admin_db()
 init_candidate_db()
+init_plan_db()
+init_application_db()
 init_task_db()
 
 app = FastAPI(title="InterviewMate")

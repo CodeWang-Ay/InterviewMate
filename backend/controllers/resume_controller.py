@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from backend.controllers.auth_controller import require_admin
 from backend.config import UPLOAD_DIR
-from backend.repositories import resume_parse_cache_repo, resume_repo, upload_repo
+from backend.repositories import application_repo, candidate_repo, resume_parse_cache_repo, resume_repo, upload_repo
 from backend.services.file_service import parse_resume
 from backend.services.resume_copilot_service import polish_resume, score_resume
 from backend.services.task_service import create_task
@@ -37,6 +37,7 @@ async def list_resumes(
     parse_status: str = "",
     experience_years: str = "",
     candidate_status: str = "",
+    source: str = "",
     page: int | None = None,
     page_size: int | None = None,
     _: dict = Depends(require_admin),
@@ -44,9 +45,9 @@ async def list_resumes(
     if page is not None or page_size is not None:
         current_page = page or 1
         current_page_size = page_size or 10
-        items, total = resume_repo.list_paged(search, parse_status, experience_years, candidate_status, current_page, current_page_size)
+        items, total = resume_repo.list_paged(search, parse_status, experience_years, candidate_status, source, current_page, current_page_size)
         return {"items": items, "total": total, "page": current_page, "page_size": current_page_size}
-    return resume_repo.list_all(search, parse_status, experience_years, candidate_status)
+    return resume_repo.list_all(search, parse_status, experience_years, candidate_status, source)
 
 
 @router.get("/{rid}")
@@ -88,6 +89,7 @@ async def upload_resume_file(file: UploadFile = File(...), jd_id: int = Form(0),
         "jd_name": jd_name,
         "original_name": file.filename or "",
         "file_md5": file_md5,
+        "source": "admin",
     })
     if duplicates:
         resume["duplicate_of"] = [_public_duplicate(item) for item in duplicates]
@@ -134,12 +136,21 @@ async def download_resume_file(rid: int, _: dict = Depends(require_admin)):
 @router.delete("/{rid}")
 async def delete_resume(rid: int, _: dict = Depends(require_admin)):
     r = resume_repo.get_by_id(rid)
+    if not r:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    applications = application_repo.list_by_resume_id(rid)
+    if applications:
+        raise HTTPException(status_code=409, detail=f"该简历已关联 {len(applications)} 条投递记录，不能直接删除")
     if r:
         fp = r.get("file_path")
         if fp:
             fpath = os.path.join(UPLOAD_DIR, "resume", fp)
             if os.path.exists(fpath):
                 os.remove(fpath)
+        username = r.get("candidate_username") or ""
+        candidate = candidate_repo.get_candidate_info(username) if username else None
+        if candidate and candidate.get("resume_filename") == fp:
+            candidate_repo.update_profile(username, {"resume_filename": ""})
     if not resume_repo.delete(rid):
         raise HTTPException(status_code=404, detail="简历不存在")
     return {"status": "ok"}

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from backend.controllers.auth_controller import get_current_candidate, require_admin
 from backend.repositories import candidate_repo
-from backend.repositories import plan_repo, resume_repo
+from backend.repositories import application_repo, plan_repo, resume_repo
 from backend.repositories import upload_repo
 from backend.services.file_service import parse_resume
 from backend.config import UPLOAD_DIR
@@ -56,6 +56,9 @@ class PlanUpdate(BaseModel):
     result_score: int | None = None
     result_note: str | None = None
     recruitment_type: str | None = None
+    application_id: int | None = None
+    resume_id: int | None = None
+    jd_id: int | None = None
 
 
 class WorkflowStage(BaseModel):
@@ -74,6 +77,8 @@ class WorkflowCreate(BaseModel):
     jd_name: str = "待定岗位"
     workflow_name: str
     resume_filename: str = ""
+    resume_id: int | None = None
+    jd_id: int | None = None
     recruitment_type: str = ""
     stages: list[WorkflowStage]
 
@@ -130,35 +135,65 @@ async def apply_job(job_id: int, resume_filename: str = "", username: str = Depe
     if jd.get("status") != "enable":
         raise HTTPException(status_code=404, detail="岗位已下线")
 
-    # 检查是否已经投递过
-    existing = plan_repo.list_by_candidate_username(username)
-    already_applied = [p for p in existing if str(p.get("jd_name", "")) == str(jd.get("name", ""))]
-    if already_applied:
-        return {"applied": True, "plan": _mask_password(already_applied[0]), "message": "已投递过该岗位"}
+    existing_application = application_repo.find_by_candidate_and_jd(username, job_id)
+    if existing_application:
+        existing_plans = plan_repo.list_by_workflow_id(existing_application.get("workflow_id", ""))
+        return {
+            "applied": True,
+            "application": existing_application,
+            "plan": _mask_password(existing_plans[0]) if existing_plans else None,
+            "message": "已投递过该岗位",
+        }
 
     candidate = candidate_repo.get_candidate_info(username) or {}
-    # 自动关联候选人已有简历：优先用传入的，其次从已有 plan 中找
+    existing = plan_repo.list_by_candidate_username(username)
+    # 自动关联候选人当前简历；历史计划中的简历只作旧数据兼容，不再被覆盖
     existing_resume = resume_filename.strip() or str(candidate.get("resume_filename") or "").strip()
     if not existing_resume:
         for p in existing:
             if p.get("resume_filename"):
                 existing_resume = p.get("resume_filename")
                 break
+    resume = resume_repo.get_by_file_path(existing_resume)
+    if existing_resume and not resume:
+        raise HTTPException(status_code=400, detail="当前简历不存在，请重新上传")
+    if resume:
+        owner = resume.get("candidate_username") or ""
+        if owner and owner != username:
+            raise HTTPException(status_code=403, detail="不能使用其他候选人的简历")
+        if not owner:
+            if existing_resume != str(candidate.get("resume_filename") or ""):
+                raise HTTPException(status_code=403, detail="该简历尚未绑定当前候选人")
+            resume = resume_repo.update(resume["id"], {"candidate_username": username, "source": "candidate"})
 
+    workflow_id = f"apply_{job_id}_{username}_{uuid.uuid4().hex[:6]}"
+    application = application_repo.create({
+        "candidate_name": candidate.get("candidate_name") or username,
+        "candidate_username": username,
+        "jd_id": job_id,
+        "jd_name": jd.get("name", ""),
+        "resume_id": resume.get("id") if resume else None,
+        "source": "candidate",
+        "workflow_id": workflow_id,
+    })
     plan = plan_repo.create({
         "candidate_name": candidate.get("candidate_name") or username,
         "candidate_username": username,
         "jd_name": jd.get("name", ""),
+        "jd_id": job_id,
         "recruitment_type": jd.get("recruitment_type", "社招"),
         "status": "pending",
         "stage_order": 1,
         "stage_count": 1,
-        "workflow_id": f"apply_{job_id}_{username}",
+        "workflow_id": workflow_id,
         "workflow_name": f"投递：{jd.get('name', '')}",
         "resume_filename": existing_resume,
+        "resume_id": resume.get("id") if resume else None,
+        "application_id": application.get("id"),
     })
     return {
         "applied": True,
+        "application": application,
         "plan": plan,
         "message": "投递成功",
         "has_resume": bool(existing_resume),
@@ -173,6 +208,7 @@ async def my_resume(filename: str = Query(""), username: str = Depends(get_curre
     candidate_resume = str(candidate.get("resume_filename") or "")
     if candidate_resume:
         allowed_files.add(candidate_resume)
+    allowed_files.update(item.get("file_path", "") for item in resume_repo.list_by_candidate_username(username))
     selected = filename if filename in allowed_files else next((item for item in allowed_files if item), "")
     resume = resume_repo.get_by_file_path(selected)
     if not resume:
@@ -188,6 +224,7 @@ async def my_resume_file(filename: str = Query(""), username: str = Depends(get_
     candidate_resume = str(candidate.get("resume_filename") or "")
     if candidate_resume:
         allowed_files.add(candidate_resume)
+    allowed_files.update(item.get("file_path", "") for item in resume_repo.list_by_candidate_username(username))
     selected = filename if filename in allowed_files else next((item for item in allowed_files if item), "")
     resume = resume_repo.get_by_file_path(selected)
     if not resume or not resume.get("file_path"):
@@ -213,6 +250,7 @@ async def update_my_resume(body: ResumeEditBody, username: str = Depends(get_cur
     candidate_resume = str(candidate.get("resume_filename") or "")
     if candidate_resume:
         allowed_files.add(candidate_resume)
+    allowed_files.update(item.get("file_path", "") for item in resume_repo.list_by_candidate_username(username))
     if not allowed_files:
         raise HTTPException(status_code=404, detail="暂未绑定简历")
     selected = next((item for item in allowed_files if item), "")
@@ -232,6 +270,11 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
     ext = upload_repo.validate(file)
     content = await file.read()
     file_md5 = hashlib.md5(content).hexdigest()
+    duplicates = resume_repo.find_duplicates(file_md5)
+    owned_duplicate = next((item for item in duplicates if item.get("candidate_username") == username), None)
+    if owned_duplicate:
+        candidate_repo.update_profile(username, {"resume_filename": owned_duplicate.get("file_path", "")})
+        return owned_duplicate
     filename = upload_repo.save_content(content, file.filename or "unknown", "resume", ext)
     candidate = candidate_repo.get_candidate_info(username) or {}
     resume = resume_repo.create({
@@ -242,14 +285,13 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
         "candidate_status": "待筛选",
         "original_name": file.filename or "",
         "file_md5": file_md5,
+        "candidate_username": username,
+        "source": "candidate",
     })
     if not resume:
         raise HTTPException(status_code=500, detail="简历记录创建失败，请重试")
-    # 关联到当前候选人的所有 plan
+    # 只更新候选人的“当前简历”，历史投递继续保留投递时的简历快照
     candidate_repo.update_profile(username, {"resume_filename": filename})
-    plans = plan_repo.list_by_candidate_username(username)
-    for plan in plans:
-        plan_repo.update(plan["id"], {"resume_filename": filename})
     # 触发解析
     result = await parse_resume(filename)
     resume_repo.update(resume["id"], {
@@ -300,9 +342,28 @@ async def reset_candidate_password(pid: int, _: dict = Depends(require_admin)):
 @router.post("")
 async def create_plan(body: PlanUpdate, _: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
+    resume = resume_repo.get_by_id(data.get("resume_id")) if data.get("resume_id") else resume_repo.get_by_file_path(data.get("resume_filename", ""))
+    if resume and not data.get("candidate_username"):
+        data["candidate_username"] = resume.get("candidate_username", "")
     username, password = _ensure_candidate_account(data)
     data["candidate_username"] = username
     data["candidate_password"] = password  # plan_repo.create 内部会 bcrypt 哈希
+    if resume and not resume.get("candidate_username"):
+        resume = resume_repo.update(resume["id"], {"candidate_username": username})
+    workflow_id = data.get("workflow_id") or f"wf_{uuid.uuid4().hex[:10]}"
+    data["workflow_id"] = workflow_id
+    data["resume_id"] = (resume or {}).get("id")
+    if not data.get("application_id"):
+        application = application_repo.create({
+            "candidate_username": username,
+            "candidate_name": data.get("candidate_name", ""),
+            "jd_id": data.get("jd_id") or (resume or {}).get("jd_id"),
+            "jd_name": data.get("jd_name", ""),
+            "resume_id": (resume or {}).get("id"),
+            "source": "admin",
+            "workflow_id": workflow_id,
+        })
+        data["application_id"] = application.get("id")
     plan = plan_repo.create(data)
     return {**plan, "candidate_password": password}  # 返回明文，仅此一次
 
@@ -313,7 +374,27 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
         raise HTTPException(status_code=400, detail="流程至少需要一个面试环节")
 
     workflow_id = f"wf_{uuid.uuid4().hex[:10]}"
-    username, password = _ensure_candidate_account({"candidate_name": body.candidate_name})
+    resume = resume_repo.get_by_id(body.resume_id) if body.resume_id else resume_repo.get_by_file_path(body.resume_filename)
+    existing_owner = (resume or {}).get("candidate_username", "")
+    username, password = _ensure_candidate_account({
+        "candidate_name": body.candidate_name,
+        "candidate_username": existing_owner,
+    })
+    if resume and not existing_owner:
+        resume = resume_repo.update(resume["id"], {"candidate_username": username, "source": resume.get("source") or "admin"})
+    candidate = candidate_repo.get_candidate_info(username) or {}
+    if resume and not candidate.get("resume_filename"):
+        candidate_repo.update_profile(username, {"resume_filename": resume.get("file_path", "")})
+    application = application_repo.create({
+        "candidate_username": username,
+        "candidate_name": body.candidate_name,
+        "jd_id": body.jd_id or (resume or {}).get("jd_id"),
+        "jd_name": body.jd_name,
+        "resume_id": (resume or {}).get("id"),
+        "source": "admin",
+        "workflow_id": workflow_id,
+    })
+    resume_filename = (resume or {}).get("file_path") or body.resume_filename
     plans = []
     for index, stage in enumerate(body.stages, start=1):
         data = {
@@ -326,7 +407,10 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
             "interview_round": stage.name,
             "question_count": stage.question_count,
             "status": "wait" if index == 1 else "pending",
-            "resume_filename": body.resume_filename,
+            "resume_filename": resume_filename,
+            "resume_id": (resume or {}).get("id"),
+            "jd_id": body.jd_id or (resume or {}).get("jd_id"),
+            "application_id": application.get("id"),
             "candidate_username": username,
             "candidate_password": password,
             "recruitment_type": body.recruitment_type,
@@ -338,6 +422,7 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
         "candidate_name": body.candidate_name,
         "candidate_username": username,
         "candidate_password": password,
+        "application": application,
         "plans": plans,
     }
 
@@ -380,8 +465,12 @@ async def delete_plan(pid: int, _: dict = Depends(require_admin)):
 
 
 def _ensure_candidate_account(data: dict) -> tuple[str, str]:
-    if data.get("candidate_username") and data.get("candidate_password"):
-        return data["candidate_username"], data["candidate_password"]
+    if data.get("candidate_username"):
+        existing = candidate_repo.get_candidate_info(data["candidate_username"])
+        if existing:
+            return data["candidate_username"], data.get("candidate_password", "")
+        if data.get("candidate_password"):
+            return data["candidate_username"], data["candidate_password"]
 
     base = re.sub(r"[^a-zA-Z0-9]+", "", data.get("candidate_name", "")) or "candidate"
     base = base.lower()[:16]

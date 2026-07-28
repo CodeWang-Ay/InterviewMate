@@ -33,6 +33,8 @@ def init_db():
                 jd_id INTEGER DEFAULT NULL,
                 jd_name TEXT DEFAULT '',
                 file_md5 TEXT DEFAULT '',
+                candidate_username TEXT DEFAULT '',
+                source TEXT DEFAULT 'admin',
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
@@ -61,6 +63,12 @@ def _ensure_columns(conn) -> None:
         conn.execute("ALTER TABLE resumes ADD COLUMN file_md5 TEXT DEFAULT ''")
     if "original_name" not in cols:
         conn.execute("ALTER TABLE resumes ADD COLUMN original_name TEXT DEFAULT ''")
+    if "candidate_username" not in cols:
+        conn.execute("ALTER TABLE resumes ADD COLUMN candidate_username TEXT DEFAULT ''")
+    if "source" not in cols:
+        conn.execute("ALTER TABLE resumes ADD COLUMN source TEXT DEFAULT 'admin'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_resumes_candidate ON resumes(candidate_username)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_resumes_file_md5 ON resumes(file_md5)")
 
 
 def _normalize_existing_candidate_status(conn) -> None:
@@ -83,12 +91,15 @@ def _backfill_file_md5(conn) -> None:
         conn.execute("UPDATE resumes SET file_md5=? WHERE id=?", (digest.hexdigest(), row["id"]))
 
 
-def _build_where(search: str = "", parse_status: str = "", experience_years: str = "", candidate_status: str = "") -> tuple[str, list]:
+def _build_where(search: str = "", parse_status: str = "", experience_years: str = "", candidate_status: str = "", source: str = "") -> tuple[str, list]:
     sql = " WHERE 1=1"
     params = []
     if candidate_status:
         sql += " AND candidate_status=?"
         params.append(candidate_status)
+    if source:
+        sql += " AND source=?"
+        params.append(source)
     if parse_status:
         sql += " AND parse_status=?"
         params.append(parse_status)
@@ -102,18 +113,18 @@ def _build_where(search: str = "", parse_status: str = "", experience_years: str
     return sql, params
 
 
-def list_all(search: str = "", parse_status: str = "", experience_years: str = "", candidate_status: str = "") -> list[dict]:
-    where, params = _build_where(search, parse_status, experience_years, candidate_status)
+def list_all(search: str = "", parse_status: str = "", experience_years: str = "", candidate_status: str = "", source: str = "") -> list[dict]:
+    where, params = _build_where(search, parse_status, experience_years, candidate_status, source)
     sql = f"SELECT * FROM resumes{where} ORDER BY id DESC"
     with _conn() as conn:
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     return [_enrich_jd_fields(row) for row in rows]
 
 
-def list_paged(search: str = "", parse_status: str = "", experience_years: str = "", candidate_status: str = "", page: int = 1, page_size: int = 10) -> tuple[list[dict], int]:
+def list_paged(search: str = "", parse_status: str = "", experience_years: str = "", candidate_status: str = "", source: str = "", page: int = 1, page_size: int = 10) -> tuple[list[dict], int]:
     page = max(1, int(page or 1))
     page_size = min(max(1, int(page_size or 10)), 100)
-    where, params = _build_where(search, parse_status, experience_years, candidate_status)
+    where, params = _build_where(search, parse_status, experience_years, candidate_status, source)
     offset = (page - 1) * page_size
     with _conn() as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM resumes{where}", params).fetchone()[0]
@@ -152,15 +163,27 @@ def get_by_file_path(file_path: str) -> dict | None:
         return _enrich_jd_fields(dict(row)) if row else None
 
 
+def list_by_candidate_username(username: str) -> list[dict]:
+    if not username:
+        return []
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM resumes WHERE candidate_username=? ORDER BY id DESC",
+            (username,),
+        ).fetchall()
+    return [_enrich_jd_fields(dict(row)) for row in rows]
+
+
 def create(data: dict) -> dict:
     with _conn() as conn:
         cur = conn.execute(
-            "INSERT INTO resumes (name, target_position, education, experience_years, skills, file_path, file_type, parse_status, candidate_status, jd_id, jd_name, original_name, file_md5) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO resumes (name, target_position, education, experience_years, skills, file_path, file_type, parse_status, candidate_status, jd_id, jd_name, original_name, file_md5, candidate_username, source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (data.get("name", ""), data.get("target_position", ""), data.get("education", ""),
              data.get("experience_years", ""), data.get("skills", ""), data.get("file_path", ""),
              data.get("file_type", ""), data.get("parse_status", "wait"),
              normalize_candidate_status(data.get("candidate_status", "待筛选")),
-             data.get("jd_id"), data.get("jd_name", ""), data.get("original_name", ""), data.get("file_md5", "")),
+             data.get("jd_id"), data.get("jd_name", ""), data.get("original_name", ""), data.get("file_md5", ""),
+             data.get("candidate_username", ""), data.get("source", "admin")),
         )
         row = conn.execute("SELECT * FROM resumes WHERE id=?", (cur.lastrowid,)).fetchone()
         return dict(row) if row else None
@@ -172,7 +195,7 @@ def update(rid: int, data: dict) -> dict | None:
         return None
     if "candidate_status" in data:
         data["candidate_status"] = normalize_candidate_status(data.get("candidate_status"))
-    allowed = ["name", "target_position", "education", "experience_years", "skills", "file_path", "file_type", "parse_status", "candidate_status", "structured_data", "jd_id", "jd_name", "original_name", "file_md5"]
+    allowed = ["name", "target_position", "education", "experience_years", "skills", "file_path", "file_type", "parse_status", "candidate_status", "structured_data", "jd_id", "jd_name", "original_name", "file_md5", "candidate_username", "source"]
     sets = [f"{f}=?" for f in allowed if f in data]
     vals = [data[f] for f in allowed if f in data]
     if not sets:

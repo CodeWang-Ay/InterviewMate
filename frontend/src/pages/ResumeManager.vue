@@ -15,6 +15,7 @@ const searchText = ref('')
 const filterStatus = ref('')
 const filterYears = ref('')
 const filterCandidateStatus = ref('')
+const filterSource = ref('')
 const showJdPicker = ref(false)
 const pendingFile = ref(null)
 const selectedJdId = ref(0)
@@ -113,7 +114,8 @@ function matchesCurrentFilters(resume) {
   const matchesStatus = !filterStatus.value || String(resume.parse_status || '') === String(filterStatus.value)
   const matchesYears = !filterYears.value || String(resume.experience_years || '') === String(filterYears.value)
   const matchesCandidateStatus = !filterCandidateStatus.value || String(resume.candidate_status || '') === String(filterCandidateStatus.value)
-  return matchesSearch && matchesStatus && matchesYears && matchesCandidateStatus
+  const matchesSource = !filterSource.value || String(resume.source || 'admin') === String(filterSource.value)
+  return matchesSearch && matchesStatus && matchesYears && matchesCandidateStatus && matchesSource
 }
 
 function normalizeEducationLevel(value) {
@@ -296,6 +298,7 @@ async function fetchList() {
     if (filterStatus.value) params.set('parse_status', filterStatus.value)
     if (filterYears.value) params.set('experience_years', filterYears.value)
     if (filterCandidateStatus.value) params.set('candidate_status', filterCandidateStatus.value)
+    if (filterSource.value) params.set('source', filterSource.value)
     params.set('page', String(page.value))
     params.set('page_size', String(pageSize.value))
     params.set('_t', String(Date.now()))
@@ -405,6 +408,7 @@ async function submitResumeUpload(allowDuplicate = false) {
       filterStatus.value = ''
       filterYears.value = ''
       filterCandidateStatus.value = ''
+      filterSource.value = ''
     }
     page.value = 1
     insertResumeIntoList(optimisticResume)
@@ -680,6 +684,8 @@ async function createInterviewWorkflow() {
           jd_name: resume.jd_name || resume.target_position || '待定岗位',
           workflow_name: template.name,
           resume_filename: resume.file_path || '',
+          resume_id: resume.id,
+          jd_id: resume.jd_id || null,
           stages: template.stages,
         }),
       })
@@ -1057,7 +1063,19 @@ const candidateStatusBadge = (s) => ({
   不合适: 'bg-amber-50 text-amber-700 border-amber-100',
 }[s] || 'bg-slate-100 text-slate-600 border-slate-200')
 
-function resetFilters() { searchText.value = ''; filterStatus.value = ''; filterYears.value = ''; filterCandidateStatus.value = ''; page.value = 1; fetchList() }
+function resetFilters() { searchText.value = ''; filterStatus.value = ''; filterYears.value = ''; filterCandidateStatus.value = ''; filterSource.value = ''; page.value = 1; fetchList() }
+
+function sourceLabel(source) {
+  return { candidate: '用户上传', admin: '后台上传', import: '批量导入' }[source] || '后台上传'
+}
+
+function sourceBadge(source) {
+  return source === 'candidate'
+    ? 'border-teal-100 bg-teal-50 text-teal-700'
+    : source === 'import'
+      ? 'border-amber-100 bg-amber-50 text-amber-700'
+      : 'border-blue-100 bg-blue-50 text-blue-700'
+}
 </script>
 
 <template>
@@ -1147,6 +1165,12 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
             <option value="">全部初筛状态</option>
             <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
           </select>
+          <select v-model="filterSource" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
+            <option value="">全部简历来源</option>
+            <option value="candidate">用户上传</option>
+            <option value="admin">后台上传</option>
+            <option value="import">批量导入</option>
+          </select>
           <select v-model="filterYears" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
             <option value="">全部工作年限</option>
             <option value="应届生">应届生</option>
@@ -1190,6 +1214,10 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
                 <button class="text-left text-[#172033] hover:text-[#1677ff] hover:underline underline-offset-4" @click="viewResume(r)">
                   {{ r.name || '未命名' }}
                 </button>
+                <div class="mt-1 flex flex-wrap items-center gap-1">
+                  <span :class="['rounded border px-1.5 py-0.5 text-[10px] font-medium', sourceBadge(r.source)]">{{ sourceLabel(r.source) }}</span>
+                  <span v-if="r.candidate_username" class="max-w-[140px] truncate text-[10px] text-gray-400">{{ r.candidate_username }}</span>
+                </div>
               </td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.target_position || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ formatEducationCell(r.education) || '-' }}</td>
@@ -1287,6 +1315,7 @@ function resetFilters() { searchText.value = ''; filterStatus.value = ''; filter
                     <h3 class="text-lg font-semibold text-[#18233e] break-all">{{ r.name || '未命名候选人' }}</h3>
                     <span :class="['px-2.5 py-1 text-xs rounded-full font-medium', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
                     <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', candidateStatusBadge(r.candidate_status || '待筛选')]">{{ r.candidate_status || '待筛选' }}</span>
+                    <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', sourceBadge(r.source)]">{{ sourceLabel(r.source) }}</span>
                   </div>
                   <div class="mt-1 text-sm font-medium text-[#4f6488]">{{ getResumeHeadline(r) }}</div>
                   <div class="mt-2 text-xs text-[#7c89a2]">{{ getResumeSummary(r) }}</div>

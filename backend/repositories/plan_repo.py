@@ -72,6 +72,9 @@ def init_db():
         for col in int_cols:
             if col not in cols:
                 conn.execute(f"ALTER TABLE plans ADD COLUMN {col} INTEGER DEFAULT 1")
+        for col in ("application_id", "resume_id", "jd_id"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE plans ADD COLUMN {col} INTEGER DEFAULT NULL")
         cnt = conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
         if cnt == 0:
             samples = [
@@ -295,7 +298,8 @@ def create(data: dict) -> dict:
                 interview_round, match_score, question_count, status, jd_filename, resume_filename,
                 questions, candidate_username, candidate_password, scheduled_at, interviewer,
                 meeting_url, interview_result, result_score, result_note, recruitment_type
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                , application_id, resume_id, jd_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (data.get("candidate_name", ""), data.get("jd_name", ""),
              data.get("workflow_id", ""), data.get("workflow_name", ""),
@@ -308,7 +312,8 @@ def create(data: dict) -> dict:
              _hash_password(data.get("candidate_password", "")), data.get("scheduled_at", ""),
              data.get("interviewer", ""), data.get("meeting_url", ""),
              data.get("interview_result", ""), data.get("result_score", 0),
-             data.get("result_note", ""), data.get("recruitment_type", "社招")),
+             data.get("result_note", ""), data.get("recruitment_type", "社招"),
+             data.get("application_id"), data.get("resume_id"), data.get("jd_id")),
         )
         row = conn.execute("SELECT * FROM plans WHERE id=?", (cur.lastrowid,)).fetchone()
         return dict(row) if row else {}
@@ -327,6 +332,7 @@ def update(pid: int, data: dict) -> dict | None:
                "workflow_id", "workflow_name", "stage_order", "stage_count", "active_session_id",
                "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_score", "result_note",
                "recruitment_type"]
+    allowed += ["application_id", "resume_id", "jd_id"]
     if "candidate_password" in data:
         data = {**data, "candidate_password": _hash_password(data["candidate_password"])}
     sets = [f"{f}=?" for f in allowed if f in data]
