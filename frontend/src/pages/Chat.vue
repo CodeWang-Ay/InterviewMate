@@ -118,11 +118,17 @@ onMounted(async () => {
   }
   try {
     if (planId) await loadPlanInfo(Number(planId))
+    const token = safeGetLocalStorage('token', '')
     const res = await fetch('/api/chat/start', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(planId ? { plan_id: Number(planId) } : { jd_filename: jd, resume_filename: resume }),
     })
     const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '当前暂不能开始面试')
     sessionId.value = data.session_id
     messages.value = Array.isArray(data.history) && data.history.length
       ? data.history.map(withTimestamp)
@@ -156,7 +162,10 @@ onUnmounted(() => {
 async function loadPlanInfo(planId) {
   try {
     if (isAdmin.value) return
-    const res = await fetch('/api/plans/my')
+    const token = safeGetLocalStorage('token', '')
+    const res = await fetch('/api/plans/my', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
     if (!res.ok) return
     const list = await res.json()
     planInfo.value = Array.isArray(list) ? list.find(item => Number(item.id) === Number(planId)) || null : null
@@ -179,7 +188,11 @@ async function sendMessage() {
     await scrollDown()
 
     const res = await fetch('/api/chat/message/stream', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${safeGetLocalStorage('token', '')}`,
+      },
       body: JSON.stringify({ session_id: sessionId.value, message: text }),
     })
     if (!res.ok) {

@@ -154,6 +154,59 @@ class ApplicationModelTest(unittest.TestCase):
         self.assertEqual(quota["buckets"]["实习生"]["remaining"], 3)
         self.assertNotIn(1, [item["jd_id"] for item in quota["applications"]])
 
+    def test_candidate_application_placeholder_never_opens_interview(self):
+        resume = resume_repo.create({
+            "name": "待筛选候选人",
+            "file_path": "pending.pdf",
+            "candidate_username": "pending-user",
+            "candidate_status": "待筛选",
+            "source": "candidate",
+        })
+        plan = plan_repo.create({
+            "candidate_name": "待筛选候选人",
+            "candidate_username": "pending-user",
+            "workflow_id": "apply_7_pending-user_test",
+            "workflow_name": "投递：后端工程师",
+            "resume_id": resume["id"],
+            "resume_filename": resume["file_path"],
+            "status": "pending",
+        })
+
+        listed = plan_repo.list_by_candidate_username("pending-user")
+        refreshed = next(item for item in listed if item["id"] == plan["id"])
+        ready, reason = plan_repo.candidate_interview_readiness(refreshed)
+
+        self.assertEqual(refreshed["status"], "pending")
+        self.assertFalse(ready)
+        self.assertIn("尚未开放", reason)
+
+    def test_formal_workflow_requires_resume_screening_pass(self):
+        resume = resume_repo.create({
+            "name": "流程候选人",
+            "file_path": "workflow.pdf",
+            "candidate_username": "workflow-user",
+            "candidate_status": "待筛选",
+            "source": "candidate",
+        })
+        plan = plan_repo.create({
+            "candidate_name": "流程候选人",
+            "candidate_username": "workflow-user",
+            "workflow_id": "wf_formal_test",
+            "workflow_name": "标准技术岗流程",
+            "resume_id": resume["id"],
+            "resume_filename": resume["file_path"],
+            "status": "wait",
+        })
+
+        ready, reason = plan_repo.candidate_interview_readiness(plan)
+        self.assertFalse(ready)
+        self.assertEqual(reason, "简历尚未通过初筛")
+
+        resume_repo.update(resume["id"], {"candidate_status": "初筛通过"})
+        ready, reason = plan_repo.candidate_interview_readiness(plan)
+        self.assertTrue(ready)
+        self.assertEqual(reason, "")
+
 
 if __name__ == "__main__":
     unittest.main()

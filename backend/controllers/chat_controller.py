@@ -24,6 +24,10 @@ async def chat_start(body: ChatStart, identity: dict = Depends(get_current_ident
             raise HTTPException(status_code=404, detail="面试计划不存在")
         if identity["kind"] != "admin" and plan.get("candidate_username") != identity["username"]:
             raise HTTPException(status_code=403, detail="无权访问该面试计划")
+        if identity["kind"] != "admin":
+            ready, reason = plan_repo.candidate_interview_readiness(plan)
+            if not ready:
+                raise HTTPException(status_code=409, detail=reason)
     elif identity["kind"] != "admin":
         raise HTTPException(status_code=403, detail="仅管理员可发起自由面试")
 

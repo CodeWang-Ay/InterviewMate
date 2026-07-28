@@ -31,7 +31,15 @@ def _mask_password(plan: dict) -> dict:
 
 
 def _mask_plans(plans: list[dict]) -> list[dict]:
-    return [_mask_password(p) for p in plans]
+    result = []
+    for plan in plans:
+        ready, reason = plan_repo.candidate_interview_readiness(plan)
+        result.append(_mask_password({
+            **plan,
+            "interview_ready": ready,
+            "interview_block_reason": reason,
+        }))
+    return result
 
 
 class PlanUpdate(BaseModel):

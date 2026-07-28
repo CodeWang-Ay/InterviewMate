@@ -38,6 +38,10 @@ const quotaTypes = [
   { key: '实习生', label: '实习' },
 ]
 
+function quotaRemaining(key) {
+  return Math.max(0, Number(applicationQuota.value.buckets?.[key]?.remaining ?? 3))
+}
+
 function showToast(message, type = 'info', duration = 4200) {
   window.appNotify?.(message, type, duration)
 }
@@ -51,6 +55,23 @@ const tabs = [
   { key: 'campus', label: '校园招聘' },
   { key: 'internship', label: '实习生招聘' },
 ]
+
+const activeQuotaItem = computed(() => {
+  const quotaKey = {
+    social: '社招',
+    campus: '校招',
+    internship: '实习生',
+  }[activeTab.value] || '社招'
+  return quotaTypes.find(item => item.key === quotaKey) || quotaTypes[0]
+})
+
+const activeQuotaText = computed(() => {
+  const item = activeQuotaItem.value
+  const bucket = applicationQuota.value.buckets?.[item.key] || {}
+  const remaining = quotaRemaining(item.key)
+  const limit = Math.max(0, Number(bucket.limit ?? applicationQuota.value.limit_per_type ?? 3))
+  return `${item.label} · 还可投 ${remaining}/${limit}`
+})
 
 const workflowGroups = computed(() => {
   const map = new Map()
@@ -78,7 +99,7 @@ const workflowGroups = computed(() => {
   })
   return Array.from(map.values()).map(group => {
     const sortedPlans = [...group.plans].sort((a, b) => Number(a.stage_order || 1) - Number(b.stage_order || 1))
-    const current = sortedPlans.find(p => ['wait', 'running'].includes(p.status)) || null
+    const current = sortedPlans.find(p => p.interview_ready === true) || null
     const finished = sortedPlans.filter(p => p.status === 'finish').length
     const last = sortedPlans[sortedPlans.length - 1] || null
     return {
@@ -388,7 +409,10 @@ function toggleWorkflow(group) {
 }
 
 function enterInterview(plan = currentPlan.value) {
-  if (!plan || !['wait', 'running'].includes(plan.status)) return
+  if (!canEnterInterview(plan)) {
+    showToast(plan?.interview_block_reason || '当前面试环节尚未开放', 'warning')
+    return
+  }
   router.push({ path: '/chat', query: { plan_id: plan.id } })
 }
 
@@ -532,6 +556,10 @@ function canCancelApplication(group) {
   )
 }
 
+function canEnterInterview(plan) {
+  return Boolean(plan?.interview_ready === true && ['wait', 'running'].includes(plan.status))
+}
+
 async function cancelApplication(group) {
   if (!canCancelApplication(group)) return
   const confirmed = await window.appConfirm(`确定取消「${group.jd_name || '该岗位'}」的投递吗？取消后将立即释放对应招聘类型的投递名额。`, {
@@ -646,38 +674,28 @@ function jobSummary(job) {
                 滚动 6 个月内，社招、校招、实习岗位各可同时投递 {{ applicationQuota.limit_per_type }} 个；取消成功后立即释放对应名额。
               </div>
             </div>
-            <div class="flex shrink-0 flex-wrap gap-2">
-              <div
-                v-for="item in quotaTypes"
-                :key="item.key"
-                class="rounded-full bg-white px-3 py-1.5 font-bold text-[#4776ff]"
-              >
-                {{ item.label }} {{ applicationQuota.buckets?.[item.key]?.remaining ?? 3 }}/{{ applicationQuota.buckets?.[item.key]?.limit ?? 3 }}
+            <div class="flex shrink-0 flex-wrap gap-2 text-xs font-semibold text-[#596275]">
+              <div class="inline-flex h-7 items-center gap-1.5 rounded-lg bg-white px-2.5">
+                <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#4776ff] text-[9px] text-white">
+                  <i class="fa fa-paper-plane"></i>
+                </span>
+                <span>投递岗位</span>
+                <strong class="font-black text-[#344054]">{{ applicationCount }}</strong>
               </div>
-            </div>
-          </div>
-
-          <div class="mb-4 flex flex-wrap justify-end gap-2 text-sm font-semibold text-[#596275]">
-            <div class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#f1f2f5] px-3">
-              <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#4776ff] text-[9px] text-white">
-                <i class="fa fa-paper-plane"></i>
-              </span>
-              <span>投递岗位</span>
-              <strong class="font-black text-[#344054]">{{ applicationCount }}</strong>
-            </div>
-            <div class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#f1f2f5] px-3">
-              <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#11b89f] text-[10px] text-white">
-                <i class="fa fa-check"></i>
-              </span>
-              <span>结束流程</span>
-              <strong class="font-black text-[#344054]">{{ closedWorkflowCount }}</strong>
-            </div>
-            <div class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#f1f2f5] px-3">
-              <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#f59e0b] text-[8px] text-white">
-                <i class="fa fa-circle"></i>
-              </span>
-              <span>进行中</span>
-              <strong class="font-black text-[#344054]">{{ activeInterviewCount }}</strong>
+              <div class="inline-flex h-7 items-center gap-1.5 rounded-lg bg-white px-2.5">
+                <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#11b89f] text-[10px] text-white">
+                  <i class="fa fa-check"></i>
+                </span>
+                <span>结束流程</span>
+                <strong class="font-black text-[#344054]">{{ closedWorkflowCount }}</strong>
+              </div>
+              <div class="inline-flex h-7 items-center gap-1.5 rounded-lg bg-white px-2.5">
+                <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#f59e0b] text-[8px] text-white">
+                  <i class="fa fa-circle"></i>
+                </span>
+                <span>进行中</span>
+                <strong class="font-black text-[#344054]">{{ activeInterviewCount }}</strong>
+              </div>
             </div>
           </div>
 
@@ -724,7 +742,17 @@ function jobSummary(job) {
         <div class="rounded-2xl bg-white p-7 shadow-[0_16px_42px_rgba(15,35,80,0.08)]">
           <div class="mb-7 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 class="text-2xl font-black">投递记录 - {{ filteredWorkflowGroups.length }} 条</h2>
+              <div class="flex flex-wrap items-center gap-3">
+                <h2 class="text-2xl font-black">投递记录 - {{ filteredWorkflowGroups.length }} 条</h2>
+                <div
+                  class="rounded-full border px-2.5 py-1.5 text-xs font-bold"
+                  :class="quotaRemaining(activeQuotaItem.key) > 0
+                    ? 'border-[#dbe7ff] bg-[#f5f8ff] text-[#4776ff]'
+                    : 'border-[#ffd9d9] bg-[#fff3f3] text-[#d94242]'"
+                >
+                  {{ activeQuotaText }}
+                </div>
+              </div>
               <p class="mt-1 text-sm text-[#667085]">展开岗位后可以查看每一轮面试状态，并进入当前可操作轮次</p>
             </div>
             <div class="flex overflow-hidden rounded-full bg-[#e9ecf5] p-1">
@@ -820,8 +848,8 @@ function jobSummary(job) {
                         <td class="px-4 py-3 text-[#667085]">{{ plan.scheduled_at || '待安排' }}</td>
                         <td class="px-4 py-3"><span class="rounded-full px-3 py-1 text-xs font-bold" :class="statusPillClass(plan.status)">{{ statusLabel(plan.status) }}</span></td>
                         <td class="px-4 py-3">
-                          <button v-if="['wait', 'running'].includes(plan.status)" class="font-bold text-[#1677ff] hover:text-[#0958d9]" @click.stop="enterInterview(plan)">进入面试</button>
-                          <span v-else class="text-[#98a2b3]">等待</span>
+                          <button v-if="canEnterInterview(plan)" class="font-bold text-[#1677ff] hover:text-[#0958d9]" @click.stop="enterInterview(plan)">进入面试</button>
+                          <span v-else class="text-[#98a2b3]">{{ plan.interview_block_reason || '等待' }}</span>
                         </td>
                       </tr>
                     </tbody>

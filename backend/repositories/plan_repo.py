@@ -243,6 +243,31 @@ def get_by_id(pid: int) -> dict | None:
         return dict(row) if row else None
 
 
+def candidate_interview_readiness(plan: dict | None) -> tuple[bool, str]:
+    """候选人进入面试的统一门禁，后台管理操作不受此限制。"""
+    if not plan:
+        return False, "面试计划不存在"
+    if plan.get("status") not in {"wait", "running"}:
+        return False, "当前面试环节尚未开放"
+    if str(plan.get("workflow_id") or "").startswith("apply_"):
+        return False, "简历仍在筛选中，招聘方尚未创建面试流程"
+    if not str(plan.get("workflow_name") or "").strip():
+        return False, "招聘方尚未配置面试流程"
+
+    from backend.repositories import resume_repo
+
+    resume = None
+    if plan.get("resume_id"):
+        resume = resume_repo.get_by_id(int(plan["resume_id"]))
+    if not resume and plan.get("resume_filename"):
+        resume = resume_repo.get_by_file_path(plan["resume_filename"])
+    if not resume:
+        return False, "面试计划尚未关联有效简历"
+    if resume.get("candidate_status") != "初筛通过":
+        return False, "简历尚未通过初筛"
+    return True, ""
+
+
 def list_by_workflow_id(workflow_id: str) -> list[dict]:
     if not workflow_id:
         return []
@@ -432,6 +457,18 @@ def _reconcile_workflows(rows: list[dict]) -> None:
 def _reconcile_workflow_status(workflow_id: str) -> None:
     plans = list_by_workflow_id(workflow_id)
     if not plans:
+        return
+
+    # apply_* 是候选人自主投递后生成的待筛选占位记录，不是正式面试流程。
+    if str(workflow_id).startswith("apply_"):
+        updates = [
+            ("pending", plan["id"])
+            for plan in plans
+            if plan.get("status") == "wait"
+        ]
+        if updates:
+            with _conn() as conn:
+                conn.executemany("UPDATE plans SET status=? WHERE id=?", updates)
         return
 
     updates: list[tuple[str, int]] = []
