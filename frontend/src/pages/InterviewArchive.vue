@@ -173,14 +173,14 @@ function openLinkedArchive() {
 }
 
 async function removeRecord(sessionId) {
-  if (!confirm('确认删除这条面试档案记录？')) return
+  if (!(await window.appConfirm('确认删除这条面试档案记录？'))) return
   await fetch(`/api/records/${sessionId}`, { method: 'DELETE' })
   await fetchList()
 }
 
 async function deleteSelectedRecords() {
   if (!selectedRecords.value.length) return
-  if (!confirm(`确认删除选中的 ${selectedRecords.value.length} 条面试档案记录？`)) return
+  if (!(await window.appConfirm(`确认删除选中的 ${selectedRecords.value.length} 条面试档案记录？`))) return
   batchWorking.value = true
   for (const record of selectedRecords.value) {
     await fetch(`/api/records/${record.session_id}`, { method: 'DELETE' }).catch(() => {})

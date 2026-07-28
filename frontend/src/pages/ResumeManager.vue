@@ -384,7 +384,7 @@ async function submitResumeUpload(allowDuplicate = false) {
       const err = await uploadRes.json().catch(() => ({}))
       const duplicates = err.detail?.duplicates || []
       const names = duplicates.map(item => `#${item.id} ${item.name || item.original_name || '未命名简历'}`).join('\n')
-      const ok = confirm(`检测到重复简历，系统里已经存在：\n${names || '同一份文件'}\n\n是否仍然新增一条简历？`)
+      const ok = await window.appConfirm(`检测到重复简历，系统里已经存在：\n${names || '同一份文件'}\n\n是否仍然新增一条简历？`, { title: '发现重复简历', tone: 'primary', confirmText: '仍然新增' })
       if (ok) return submitResumeUpload(true)
       resetUploadInput()
       pendingFile.value = null
@@ -528,7 +528,7 @@ async function parseSelectedResumes() {
 async function deleteSelectedResumes() {
   const targets = selectedResumes.value
   if (!targets.length) return
-  if (!confirm(`确认删除选中的 ${targets.length} 份简历？`)) return
+  if (!(await window.appConfirm(`确认删除选中的 ${targets.length} 份简历？`))) return
   batchWorking.value = true
   for (const item of targets) {
     await fetch(`/api/resumes/${item.id}`, { method: 'DELETE' }).catch(() => {})
@@ -563,7 +563,7 @@ async function updateCandidateStatus(resume, status) {
 }
 
 async function removeResume(rid, name) {
-  if (!confirm(`确认删除「${name}」？`)) return
+  if (!(await window.appConfirm(`确认删除「${name}」？`))) return
   await fetch(`/api/resumes/${rid}`, { method: 'DELETE' })
   await fetchList()
 }

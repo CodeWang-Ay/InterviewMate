@@ -349,7 +349,7 @@ async function openVersions(jd) {
 }
 
 async function restoreVersion(version) {
-  if (!versionJd.value || !confirm('确认恢复到这个历史版本？当前 JD 会先保存为一条新版本记录。')) return
+  if (!versionJd.value || !(await window.appConfirm('确认恢复到这个历史版本？当前 JD 会先保存为一条新版本记录。', { title: '恢复历史版本', tone: 'primary', confirmText: '恢复版本' }))) return
   restoringVersion.value = true
   try {
     const res = await fetch(`/api/jds/${versionJd.value.id}/versions/${version.id}/restore`, { method: 'POST' })
@@ -369,7 +369,7 @@ async function restoreVersion(version) {
 }
 
 async function removeJd(jd) {
-  if (!confirm(`确认删除「${jd.name}」？`)) return
+  if (!(await window.appConfirm(`确认删除「${jd.name}」？`))) return
   await fetch(`/api/jds/${jd.id}`, { method: 'DELETE' })
   await fetchJds()
 }
@@ -394,7 +394,7 @@ async function updateSelectedStatus(status) {
 async function deleteSelectedJds() {
   const targets = selectedJds.value
   if (!targets.length) return
-  if (!confirm(`确认删除选中的 ${targets.length} 个岗位 JD？`)) return
+  if (!(await window.appConfirm(`确认删除选中的 ${targets.length} 个岗位 JD？`))) return
   batchWorking.value = true
   for (const jd of targets) {
     await fetch(`/api/jds/${jd.id}`, { method: 'DELETE' }).catch(() => {})

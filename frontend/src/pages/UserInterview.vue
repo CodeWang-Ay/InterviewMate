@@ -23,6 +23,24 @@ const favoriteJobs = ref([])
 const resumeUploading = ref(false)
 const pendingApplyJob = ref(null)
 const uploadedResumeFile = ref('')
+const applicationQuota = ref({
+  limit_per_type: 3,
+  window_months: 6,
+  buckets: {
+    社招: { limit: 3, used: 0, remaining: 3, available_at: '' },
+    校招: { limit: 3, used: 0, remaining: 3, available_at: '' },
+    实习生: { limit: 3, used: 0, remaining: 3, available_at: '' },
+  },
+})
+const quotaTypes = [
+  { key: '社招', label: '社招' },
+  { key: '校招', label: '校招' },
+  { key: '实习生', label: '实习' },
+]
+
+function showToast(message, type = 'info', duration = 4200) {
+  window.appNotify?.(message, type, duration)
+}
 
 const hasResume = computed(() => {
   return Boolean(resumeFileName.value && resumeFileName.value !== '暂未上传简历')
@@ -31,6 +49,7 @@ const hasResume = computed(() => {
 const tabs = [
   { key: 'social', label: '社会招聘' },
   { key: 'campus', label: '校园招聘' },
+  { key: 'internship', label: '实习生招聘' },
 ]
 
 const workflowGroups = computed(() => {
@@ -42,6 +61,7 @@ const workflowGroups = computed(() => {
         key,
         workflow_id: plan.workflow_id || '',
         workflow_name: plan.workflow_name || '我的面试流程',
+        application_id: plan.application_id || null,
         candidate_name: plan.candidate_name || nickname.value || username.value || '候选人',
         jd_name: plan.jd_name || '目标岗位',
         recruitment_type: normalizeRecruitmentType(plan.recruitment_type),
@@ -53,6 +73,7 @@ const workflowGroups = computed(() => {
     const group = map.get(key)
     group.plans.push(plan)
     if (!group.resume_filename && plan.resume_filename) group.resume_filename = plan.resume_filename
+    if (!group.application_id && plan.application_id) group.application_id = plan.application_id
     if (!group.location && plan.location) group.location = plan.location
   })
   return Array.from(map.values()).map(group => {
@@ -71,19 +92,25 @@ const workflowGroups = computed(() => {
   })
 })
 
+// 已取消的投递保留在数据库中用于审计，但不再属于候选人的当前投递。
+const currentWorkflowGroups = computed(() => (
+  workflowGroups.value.filter(group => !group.plans.length || !group.plans.every(plan => plan.status === 'cancel'))
+))
+
 const filteredWorkflowGroups = computed(() => {
-  if (activeTab.value === 'campus') {
-    // 校园招聘模块包含校招和实习生
-    return workflowGroups.value.filter(group => group.recruitment_type === '校招' || group.recruitment_type === '实习生')
-  }
-  return workflowGroups.value.filter(group => group.recruitment_type === '社招')
+  const recruitmentType = {
+    social: '社招',
+    campus: '校招',
+    internship: '实习生',
+  }[activeTab.value] || '社招'
+  return currentWorkflowGroups.value.filter(group => group.recruitment_type === recruitmentType)
 })
-const activeGroup = computed(() => workflowGroups.value.find(group => group.current_plan) || workflowGroups.value[0] || null)
+const activeGroup = computed(() => currentWorkflowGroups.value.find(group => group.current_plan) || currentWorkflowGroups.value[0] || null)
 const currentPlan = computed(() => activeGroup.value?.current_plan || null)
-const applicationCount = computed(() => workflowGroups.value.length)
-const closedWorkflowCount = computed(() => workflowGroups.value.filter(group => {
+const applicationCount = computed(() => currentWorkflowGroups.value.length)
+const closedWorkflowCount = computed(() => currentWorkflowGroups.value.filter(group => {
   if (!group.plans.length) return false
-  return group.plans.every(plan => ['finish', 'cancel'].includes(plan.status))
+  return group.plans.every(plan => plan.status === 'finish')
 }).length)
 const activeInterviewCount = computed(() => plans.value.filter(plan => ['wait', 'running'].includes(plan.status)).length)
 const displayName = computed(() => nickname.value || activeGroup.value?.candidate_name || username.value || '候选人')
@@ -93,10 +120,6 @@ const resumeFileName = computed(() => (
   activeGroup.value?.plans.find(plan => plan.resume_filename)?.resume_filename ||
   '暂未上传简历'
 ))
-const resumeMatchPercent = computed(() => {
-  const score = activeGroup.value?.current_plan?.match_score || activeGroup.value?.plans.find(plan => plan.match_score)?.match_score || 0
-  return score ? Math.min(Math.max(Number(score), 0), 100) : 85
-})
 const currentActionText = computed(() => {
   if (!currentPlan.value) return '等待通知'
   return currentPlan.value.status === 'running' ? '继续本轮面试' : '进入本轮面试'
@@ -168,7 +191,7 @@ async function uploadAvatar(e) {
     const data = await res.json()
     avatar.value = data.avatar_url
     localStorage.setItem('avatar', data.avatar_url)
-  } catch (e) { alert(e.message) }
+  } catch (e) { showToast(e.message, 'error') }
   e.target.value = ''
 }
 
@@ -185,6 +208,7 @@ async function loadPlans() {
       throw new Error(err.detail || '获取面试计划失败')
     }
     plans.value = await res.json()
+    await loadApplicationQuota()
     await loadMyResume()
     ensureDefaultExpanded()
     // 从简历数据中补全电话/邮箱（如果 localStorage 没有）
@@ -194,6 +218,17 @@ async function loadPlans() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadApplicationQuota() {
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/plans/my/application-quota', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: 'no-store',
+    })
+    if (res.ok) applicationQuota.value = await res.json()
+  } catch (_) {}
 }
 
 async function loadMyResume() {
@@ -226,14 +261,27 @@ async function applyForJob(jobId, resumeFile = '') {
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      console.error('投递失败:', err.detail || res.status)
+      const message = err.detail || '投递失败，请稍后重试'
+      console.error('投递失败:', message)
+      showToast(message, res.status === 429 ? 'warning' : 'error', 5000)
       return false
     }
     const data = await res.json()
+    const appliedType = normalizeRecruitmentType(data.application?.recruitment_type)
+    activeTab.value = {
+      社招: 'social',
+      校招: 'campus',
+      实习生: 'internship',
+    }[appliedType] || activeTab.value
+    // 投递接口已经创建了 application 和 plan；成功后立即重新拉取，
+    // 避免页面仍使用进入个人中心时取得的旧投递列表。
+    await loadPlans()
     console.log('投递结果:', data.message)
+    showToast(data.message || '投递成功', 'success')
     return true
   } catch (e) {
     console.error('投递异常:', e)
+    showToast(e.message || '投递失败，请稍后重试', 'error')
     return false
   }
 }
@@ -261,13 +309,10 @@ async function uploadResume(e) {
       const ok = await applyForJob(pendingApplyJob.value, uploadedResumeFile.value)
       if (ok) {
         pendingApplyJob.value = null
-        await loadPlans()
-      } else {
-        alert('投递失败，请稍后重试')
       }
     }
   } catch (err) {
-    alert(err.message || '简历上传失败，请重试')
+    showToast(err.message || '简历上传失败，请重试', 'error')
   } finally {
     resumeUploading.value = false
     e.target.value = ''
@@ -295,10 +340,15 @@ async function syncProfileFromResume() {
 async function loadRecommendedJobs() {
   jobLoading.value = true
   try {
+    const recruitmentType = {
+      social: '社招',
+      campus: '校招',
+      internship: '实习生',
+    }[activeTab.value] || '社招'
     const params = new URLSearchParams({
       page: '1',
       page_size: '5',
-      recruitment_type: activeTab.value === 'campus' ? '校招' : '社招',
+      recruitment_type: recruitmentType,
     })
     const res = await fetch(`/api/jds/public?${params.toString()}`)
     const data = await res.json().catch(() => ({}))
@@ -316,8 +366,8 @@ function workflowKey(plan) {
 
 function normalizeRecruitmentType(value) {
   const text = String(value || '').trim()
-  if (text.includes('校')) return '校招'
   if (text.includes('实习')) return '实习生'
+  if (text.includes('校')) return '校招'
   return '社招'
 }
 
@@ -364,7 +414,7 @@ async function viewResume() {
       resumePreviewSrc.value = URL.createObjectURL(await fileRes.blob())
     }
   } catch (e) {
-    alert(e.message || '简历暂时无法查看')
+    showToast(e.message || '简历暂时无法查看', 'error')
   } finally {
     resumePreviewLoading.value = false
   }
@@ -468,6 +518,44 @@ function groupStatusText(group) {
   return '等待通知'
 }
 
+function groupMatchPercent(group) {
+  const matchedPlan = group?.plans?.find(plan => Number(plan.match_score) > 0)
+  if (!matchedPlan) return null
+  return Math.min(Math.max(Number(matchedPlan.match_score), 0), 100)
+}
+
+function canCancelApplication(group) {
+  return Boolean(
+    group?.application_id &&
+    group.plans?.length &&
+    group.plans.every(plan => ['pending', 'wait'].includes(plan.status))
+  )
+}
+
+async function cancelApplication(group) {
+  if (!canCancelApplication(group)) return
+  const confirmed = await window.appConfirm(`确定取消「${group.jd_name || '该岗位'}」的投递吗？取消后将立即释放对应招聘类型的投递名额。`, {
+    title: '取消岗位投递',
+    confirmText: '确认取消',
+  })
+  if (!confirmed) return
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch(`/api/plans/applications/${group.application_id}/cancel`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.detail || '取消投递失败')
+    }
+    await loadPlans()
+    showToast(`已取消「${group.jd_name || '该岗位'}」的投递，并释放 1 个名额`, 'success')
+  } catch (e) {
+    showToast(e.message || '取消投递失败', 'error')
+  }
+}
+
 function jobSummary(job) {
   const text = `${job.responsibilities || ''}`.replace(/\s+/g, ' ').trim()
   return text || '根据你的投递记录与面试方向，为你推荐相近岗位。'
@@ -550,6 +638,49 @@ function jobSummary(job) {
             </div>
           </div>
 
+          <div class="mb-5 flex flex-col gap-3 rounded-xl border border-[#dbe7ff] bg-[#f5f8ff] px-4 py-3 text-sm text-[#53627a] sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-start gap-2.5">
+              <i class="fa fa-info-circle mt-0.5 text-[#4776ff]"></i>
+              <div>
+                <span class="font-bold text-[#344054]">投递规则：</span>
+                滚动 6 个月内，社招、校招、实习岗位各可同时投递 {{ applicationQuota.limit_per_type }} 个；取消成功后立即释放对应名额。
+              </div>
+            </div>
+            <div class="flex shrink-0 flex-wrap gap-2">
+              <div
+                v-for="item in quotaTypes"
+                :key="item.key"
+                class="rounded-full bg-white px-3 py-1.5 font-bold text-[#4776ff]"
+              >
+                {{ item.label }} {{ applicationQuota.buckets?.[item.key]?.remaining ?? 3 }}/{{ applicationQuota.buckets?.[item.key]?.limit ?? 3 }}
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-4 flex flex-wrap justify-end gap-2 text-sm font-semibold text-[#596275]">
+            <div class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#f1f2f5] px-3">
+              <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#4776ff] text-[9px] text-white">
+                <i class="fa fa-paper-plane"></i>
+              </span>
+              <span>投递岗位</span>
+              <strong class="font-black text-[#344054]">{{ applicationCount }}</strong>
+            </div>
+            <div class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#f1f2f5] px-3">
+              <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#11b89f] text-[10px] text-white">
+                <i class="fa fa-check"></i>
+              </span>
+              <span>结束流程</span>
+              <strong class="font-black text-[#344054]">{{ closedWorkflowCount }}</strong>
+            </div>
+            <div class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#f1f2f5] px-3">
+              <span class="flex h-4 w-4 items-center justify-center rounded-full bg-[#f59e0b] text-[8px] text-white">
+                <i class="fa fa-circle"></i>
+              </span>
+              <span>进行中</span>
+              <strong class="font-black text-[#344054]">{{ activeInterviewCount }}</strong>
+            </div>
+          </div>
+
           <!-- 无简历时的上传提示 -->
           <div v-if="pendingApplyJob && !hasResume" class="mb-6 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 p-6 text-center">
             <i class="fa fa-exclamation-triangle text-3xl text-amber-400 mb-3 block"></i>
@@ -561,9 +692,9 @@ function jobSummary(job) {
               <input type="file" accept=".pdf,.docx,.txt,.md" class="hidden" @change="uploadResume">
             </label>
           </div>
-          <div class="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)]">
+          <div>
             <!-- 无简历状态 -->
-            <div v-if="!hasResume && !pendingApplyJob" class="flex min-h-[190px] items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-gray-200 bg-[#f8fafc] p-6 lg:p-7">
+            <div v-if="!hasResume && !pendingApplyJob" class="flex min-h-[160px] items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-gray-200 bg-[#f8fafc] p-6 lg:p-7">
               <label class="flex cursor-pointer flex-col items-center gap-3 text-center">
                 <i class="fa fa-cloud-upload text-4xl text-gray-300"></i>
                 <span class="text-sm font-bold text-gray-500">尚未上传简历，点击上传</span>
@@ -575,34 +706,16 @@ function jobSummary(job) {
               </label>
             </div>
             <!-- 有简历状态 -->
-            <div v-else class="flex min-h-[190px] gap-6 rounded-2xl bg-[#f2f6fb] p-6 lg:p-7">
-              <div class="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2f80ff] to-[#11b89f] text-lg font-black text-white shadow-sm">PDF</div>
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-xl font-black lg:text-2xl">{{ resumeFileName }}</div>
-                <div class="mt-3 text-sm text-[#667085]">绑定岗位：{{ activeGroup?.jd_name || '暂未绑定岗位' }}</div>
-                <div class="mt-8">
-                  <div class="mb-2 flex items-center justify-between text-sm">
-                    <span class="font-semibold text-[#475467]">岗位匹配</span>
-                    <span class="font-black text-[#11b89f]">{{ resumeMatchPercent }}%</span>
-                  </div>
-                  <div class="h-3 overflow-hidden rounded-full bg-[#dbe3ef]">
-                    <div class="h-full rounded-full bg-[#11b89f]" :style="{ width: `${resumeMatchPercent}%` }"></div>
+            <div v-else class="rounded-2xl bg-[#f2f6fb] p-5 lg:p-6">
+              <div class="flex min-w-0 gap-5">
+                <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2f80ff] to-[#11b89f] text-base font-black text-white shadow-sm">PDF</div>
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-xl font-black lg:text-2xl">{{ resumeFileName }}</div>
+                  <div class="mt-2 text-sm text-[#667085]">{{ applicationCount ? `已用于 ${applicationCount} 个岗位投递` : '当前简历尚未投递岗位' }}</div>
+                  <div class="mt-4 inline-flex items-center rounded-lg bg-white/70 px-3 py-1.5 text-xs font-semibold text-[#667085]">
+                    <i class="fa fa-file-text-o mr-1.5 text-[#11b89f]"></i>当前使用版本
                   </div>
                 </div>
-              </div>
-            </div>
-            <div class="grid grid-cols-3 gap-3 lg:gap-4">
-              <div class="flex min-h-[190px] flex-col items-center justify-center rounded-2xl bg-[#f7f9fc] p-4 text-center">
-                <div class="text-3xl font-black text-[#4776ff]">{{ applicationCount }}</div>
-                <div class="mt-1 text-sm text-[#667085]">投递岗位</div>
-              </div>
-              <div class="flex min-h-[190px] flex-col items-center justify-center rounded-2xl bg-[#f7f9fc] p-4 text-center">
-                <div class="text-3xl font-black text-[#11b89f]">{{ closedWorkflowCount }}</div>
-                <div class="mt-1 text-sm text-[#667085]">结束流程</div>
-              </div>
-              <div class="flex min-h-[190px] flex-col items-center justify-center rounded-2xl bg-[#f7f9fc] p-4 text-center">
-                <div class="text-3xl font-black text-[#f59e0b]">{{ activeInterviewCount }}</div>
-                <div class="mt-1 text-sm text-[#667085]">进行中</div>
               </div>
             </div>
           </div>
@@ -647,6 +760,20 @@ function jobSummary(job) {
                     <div class="flex flex-wrap items-center gap-3">
                       <h3 class="truncate text-2xl font-black">{{ group.jd_name }}</h3>
                       <span class="rounded-full px-3 py-1 text-sm font-bold" :class="statusPillClass(group.latest_status)">{{ groupStatusText(group) }}</span>
+                      <span
+                        class="rounded-full border px-3 py-1 text-sm font-bold"
+                        :class="groupMatchPercent(group) === null ? 'border-[#e4e9f1] bg-white text-[#98a2b3]' : 'border-[#ccefe7] bg-[#ecfdf8] text-[#0f9f8f]'"
+                      >
+                        <i class="fa fa-bullseye mr-1"></i>
+                        岗位匹配 {{ groupMatchPercent(group) === null ? '待评估' : `${groupMatchPercent(group)}%` }}
+                      </span>
+                      <button
+                        v-if="canCancelApplication(group)"
+                        class="rounded-full border border-red-100 bg-white px-3 py-1 text-sm font-bold text-red-500 transition hover:border-red-200 hover:bg-red-50"
+                        @click.stop="cancelApplication(group)"
+                      >
+                        取消投递
+                      </button>
                     </div>
                     <div class="mt-2 text-sm text-[#667085]">
                       {{ group.workflow_name }} ｜ 已完成 {{ group.finished_count }}/{{ group.plans.length }} ｜ {{ group.location || '地点待定' }}

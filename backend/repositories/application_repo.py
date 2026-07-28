@@ -4,6 +4,8 @@ from backend.config import DB_PATH
 
 
 APPLICATION_SOURCES = {"candidate", "admin", "import"}
+APPLICATION_LIMIT_PER_SIX_MONTHS = 3
+RECRUITMENT_TYPES = ("社招", "校招", "实习生")
 
 
 def _conn():
@@ -24,6 +26,9 @@ def init_db() -> None:
                 jd_id INTEGER DEFAULT NULL,
                 jd_name TEXT DEFAULT '',
                 resume_id INTEGER DEFAULT NULL,
+                match_score INTEGER DEFAULT 0,
+                match_details TEXT DEFAULT '{}',
+                recruitment_type TEXT DEFAULT '社招',
                 source TEXT DEFAULT 'candidate',
                 status TEXT DEFAULT 'pending',
                 workflow_id TEXT DEFAULT '',
@@ -34,6 +39,13 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_applications_candidate ON applications(candidate_username)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_applications_resume ON applications(resume_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_applications_workflow ON applications(workflow_id)")
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(applications)").fetchall()}
+        if "match_score" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN match_score INTEGER DEFAULT 0")
+        if "match_details" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN match_details TEXT DEFAULT '{}'")
+        if "recruitment_type" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN recruitment_type TEXT DEFAULT '社招'")
         _backfill_existing_plans(conn)
 
 
@@ -99,7 +111,12 @@ def _backfill_existing_plans(conn) -> None:
                 """
                 UPDATE applications
                 SET candidate_username=?, candidate_name=?, jd_id=COALESCE(jd_id, ?),
-                    jd_name=?, resume_id=COALESCE(resume_id, ?), source=?, updated_at=datetime('now')
+                    jd_name=?, resume_id=COALESCE(resume_id, ?), source=?,
+                    recruitment_type=COALESCE(
+                        (SELECT recruitment_type FROM jds WHERE id=COALESCE(applications.jd_id, ?)),
+                        recruitment_type
+                    ),
+                    updated_at=datetime('now')
                 WHERE id=?
                 """,
                 (
@@ -109,6 +126,7 @@ def _backfill_existing_plans(conn) -> None:
                     group["jd_name"] or "",
                     resume_id,
                     source,
+                    jd_id,
                     application_id,
                 ),
             )
@@ -150,8 +168,8 @@ def create(data: dict) -> dict:
             """
             INSERT INTO applications (
                 candidate_username, candidate_name, jd_id, jd_name, resume_id,
-                source, status, workflow_id
-            ) VALUES (?,?,?,?,?,?,?,?)
+                match_score, match_details, recruitment_type, source, status, workflow_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 data.get("candidate_username", ""),
@@ -159,6 +177,9 @@ def create(data: dict) -> dict:
                 data.get("jd_id"),
                 data.get("jd_name", ""),
                 data.get("resume_id"),
+                data.get("match_score", 0),
+                data.get("match_details", "{}"),
+                normalize_recruitment_type(data.get("recruitment_type")),
                 source,
                 data.get("status", "pending"),
                 data.get("workflow_id", ""),
@@ -166,6 +187,34 @@ def create(data: dict) -> dict:
         )
         row = conn.execute("SELECT * FROM applications WHERE id=?", (cur.lastrowid,)).fetchone()
     return dict(row) if row else {}
+
+
+def update_match(application_id: int, match_score: int, match_details: str) -> dict | None:
+    with _conn() as conn:
+        conn.execute(
+            """
+            UPDATE applications
+            SET match_score=?, match_details=?, updated_at=datetime('now')
+            WHERE id=?
+            """,
+            (min(max(int(match_score or 0), 0), 100), match_details or "{}", application_id),
+        )
+        row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def cancel(application_id: int) -> dict | None:
+    with _conn() as conn:
+        conn.execute(
+            """
+            UPDATE applications
+            SET status='cancel', updated_at=datetime('now')
+            WHERE id=? AND status<>'cancel'
+            """,
+            (application_id,),
+        )
+        row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def get_by_id(application_id: int) -> dict | None:
@@ -187,6 +236,55 @@ def find_by_candidate_and_jd(candidate_username: str, jd_id: int) -> dict | None
             (candidate_username, jd_id),
         ).fetchone()
     return dict(row) if row else None
+
+
+def get_candidate_quota(candidate_username: str) -> dict:
+    with _conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, jd_id, jd_name, recruitment_type, status, created_at
+            FROM applications
+            WHERE candidate_username=? AND source='candidate'
+              AND status<>'cancel'
+              AND datetime(created_at) >= datetime('now', '-6 months')
+            ORDER BY datetime(created_at) ASC, id ASC
+            """,
+            (candidate_username,),
+        ).fetchall()
+        buckets = {}
+        for recruitment_type in RECRUITMENT_TYPES:
+            type_rows = [
+                row for row in rows
+                if normalize_recruitment_type(row["recruitment_type"]) == recruitment_type
+            ]
+            available_at = ""
+            if len(type_rows) >= APPLICATION_LIMIT_PER_SIX_MONTHS:
+                value = conn.execute(
+                    "SELECT datetime(?, '+6 months') AS available_at",
+                    (type_rows[0]["created_at"],),
+                ).fetchone()
+                available_at = value["available_at"] if value else ""
+            buckets[recruitment_type] = {
+                "limit": APPLICATION_LIMIT_PER_SIX_MONTHS,
+                "used": len(type_rows),
+                "remaining": max(0, APPLICATION_LIMIT_PER_SIX_MONTHS - len(type_rows)),
+                "available_at": available_at,
+            }
+    return {
+        "limit_per_type": APPLICATION_LIMIT_PER_SIX_MONTHS,
+        "window_months": 6,
+        "buckets": buckets,
+        "applications": [dict(row) for row in rows],
+    }
+
+
+def normalize_recruitment_type(value: str | None) -> str:
+    text = str(value or "").strip()
+    if "实习" in text:
+        return "实习生"
+    if "校" in text:
+        return "校招"
+    return "社招"
 
 
 def list_by_resume_id(resume_id: int) -> list[dict]:

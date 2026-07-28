@@ -15,6 +15,7 @@ from backend.repositories import candidate_repo
 from backend.repositories import application_repo, plan_repo, resume_repo
 from backend.repositories import upload_repo
 from backend.services.file_service import parse_resume
+from backend.services.job_match_service import evaluate_resume_match
 from backend.config import UPLOAD_DIR
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
@@ -122,7 +123,17 @@ async def update_workflow_template(template_id: int, body: WorkflowTemplateSave,
 
 @router.get("/my")
 async def my_plans(username: str = Depends(get_current_candidate)):
+    plans = plan_repo.list_by_candidate_username(username)
+    for application_id in {plan.get("application_id") for plan in plans if plan.get("application_id")}:
+        application = application_repo.get_by_id(int(application_id))
+        if application and application.get("candidate_username") == username and not application.get("match_score"):
+            _calculate_and_save_application_match(application)
     return _mask_plans(plan_repo.list_by_candidate_username(username))
+
+
+@router.get("/my/application-quota")
+async def my_application_quota(username: str = Depends(get_current_candidate)):
+    return application_repo.get_candidate_quota(username)
 
 
 @router.post("/apply/{job_id}")
@@ -137,6 +148,8 @@ async def apply_job(job_id: int, resume_filename: str = "", username: str = Depe
 
     existing_application = application_repo.find_by_candidate_and_jd(username, job_id)
     if existing_application:
+        if not existing_application.get("match_score"):
+            existing_application = _calculate_and_save_application_match(existing_application)
         existing_plans = plan_repo.list_by_workflow_id(existing_application.get("workflow_id", ""))
         return {
             "applied": True,
@@ -144,6 +157,15 @@ async def apply_job(job_id: int, resume_filename: str = "", username: str = Depe
             "plan": _mask_password(existing_plans[0]) if existing_plans else None,
             "message": "已投递过该岗位",
         }
+    quota = application_repo.get_candidate_quota(username)
+    recruitment_type = application_repo.normalize_recruitment_type(jd.get("recruitment_type"))
+    type_quota = quota["buckets"][recruitment_type]
+    if type_quota["remaining"] <= 0:
+        available_text = f"，下一次可投递时间：{type_quota['available_at']}" if type_quota.get("available_at") else ""
+        raise HTTPException(
+            status_code=429,
+            detail=f"每位候选人滚动 6 个月内最多主动投递 {type_quota['limit']} 个{recruitment_type}岗位{available_text}",
+        )
 
     candidate = candidate_repo.get_candidate_info(username) or {}
     existing = plan_repo.list_by_candidate_username(username)
@@ -167,12 +189,17 @@ async def apply_job(job_id: int, resume_filename: str = "", username: str = Depe
             resume = resume_repo.update(resume["id"], {"candidate_username": username, "source": "candidate"})
 
     workflow_id = f"apply_{job_id}_{username}_{uuid.uuid4().hex[:6]}"
+    match_result = evaluate_resume_match(resume["id"], job_id) if resume else None
+    match_score = int((match_result or {}).get("total_score") or 0)
     application = application_repo.create({
         "candidate_name": candidate.get("candidate_name") or username,
         "candidate_username": username,
         "jd_id": job_id,
         "jd_name": jd.get("name", ""),
         "resume_id": resume.get("id") if resume else None,
+        "match_score": match_score,
+        "match_details": json.dumps(match_result or {}, ensure_ascii=False),
+        "recruitment_type": recruitment_type,
         "source": "candidate",
         "workflow_id": workflow_id,
     })
@@ -190,6 +217,7 @@ async def apply_job(job_id: int, resume_filename: str = "", username: str = Depe
         "resume_filename": existing_resume,
         "resume_id": resume.get("id") if resume else None,
         "application_id": application.get("id"),
+        "match_score": match_score,
     })
     return {
         "applied": True,
@@ -312,6 +340,24 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
     return resume_repo.get_by_id(resume["id"])
 
 
+@router.post("/applications/{application_id}/cancel")
+async def cancel_my_application(application_id: int, username: str = Depends(get_current_candidate)):
+    application = application_repo.get_by_id(application_id)
+    if not application or application.get("candidate_username") != username:
+        raise HTTPException(status_code=404, detail="投递记录不存在")
+    if application.get("status") == "cancel":
+        return {"status": "cancel", "application": application}
+
+    plans = plan_repo.list_by_workflow_id(application.get("workflow_id", ""))
+    if any(plan.get("status") in {"running", "finish"} for plan in plans):
+        raise HTTPException(status_code=409, detail="该投递已进入面试流程，不能取消")
+    for plan in plans:
+        if plan.get("status") in {"pending", "wait"}:
+            plan_repo.update(plan["id"], {"status": "cancel"})
+    cancelled = application_repo.cancel(application_id)
+    return {"status": "cancel", "application": cancelled}
+
+
 @router.get("/{pid}")
 async def get_plan(pid: int, _: dict = Depends(require_admin)):
     p = plan_repo.get_by_id(pid)
@@ -354,12 +400,20 @@ async def create_plan(body: PlanUpdate, _: dict = Depends(require_admin)):
     data["workflow_id"] = workflow_id
     data["resume_id"] = (resume or {}).get("id")
     if not data.get("application_id"):
+        match_result = None
+        jd_id = data.get("jd_id") or (resume or {}).get("jd_id")
+        if resume and jd_id:
+            match_result = evaluate_resume_match(resume["id"], int(jd_id))
+            data["match_score"] = int(match_result.get("total_score") or 0)
         application = application_repo.create({
             "candidate_username": username,
             "candidate_name": data.get("candidate_name", ""),
-            "jd_id": data.get("jd_id") or (resume or {}).get("jd_id"),
+            "jd_id": jd_id,
             "jd_name": data.get("jd_name", ""),
             "resume_id": (resume or {}).get("id"),
+            "match_score": data.get("match_score", 0),
+            "match_details": json.dumps(match_result or {}, ensure_ascii=False),
+            "recruitment_type": data.get("recruitment_type", "社招"),
             "source": "admin",
             "workflow_id": workflow_id,
         })
@@ -385,16 +439,22 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
     candidate = candidate_repo.get_candidate_info(username) or {}
     if resume and not candidate.get("resume_filename"):
         candidate_repo.update_profile(username, {"resume_filename": resume.get("file_path", "")})
+    workflow_jd_id = body.jd_id or (resume or {}).get("jd_id")
+    match_result = evaluate_resume_match(resume["id"], int(workflow_jd_id)) if resume and workflow_jd_id else None
     application = application_repo.create({
         "candidate_username": username,
         "candidate_name": body.candidate_name,
-        "jd_id": body.jd_id or (resume or {}).get("jd_id"),
+        "jd_id": workflow_jd_id,
         "jd_name": body.jd_name,
         "resume_id": (resume or {}).get("id"),
+        "match_score": int((match_result or {}).get("total_score") or 0),
+        "match_details": json.dumps(match_result or {}, ensure_ascii=False),
+        "recruitment_type": body.recruitment_type,
         "source": "admin",
         "workflow_id": workflow_id,
     })
     resume_filename = (resume or {}).get("file_path") or body.resume_filename
+    match_score = int(application.get("match_score") or 0)
     plans = []
     for index, stage in enumerate(body.stages, start=1):
         data = {
@@ -411,6 +471,7 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
             "resume_id": (resume or {}).get("id"),
             "jd_id": body.jd_id or (resume or {}).get("jd_id"),
             "application_id": application.get("id"),
+            "match_score": match_score,
             "candidate_username": username,
             "candidate_password": password,
             "recruitment_type": body.recruitment_type,
@@ -481,3 +542,21 @@ def _ensure_candidate_account(data: dict) -> tuple[str, str]:
         if result:
             return username, password
     raise HTTPException(status_code=500, detail="候选人账号生成失败，请重试")
+
+
+def _calculate_and_save_application_match(application: dict) -> dict:
+    resume_id = application.get("resume_id")
+    jd_id = application.get("jd_id")
+    if not resume_id or not jd_id:
+        return application
+    result = evaluate_resume_match(int(resume_id), int(jd_id))
+    score = int(result.get("total_score") or 0)
+    updated = application_repo.update_match(
+        int(application["id"]),
+        score,
+        json.dumps(result, ensure_ascii=False),
+    ) or application
+    for plan in plan_repo.list_by_workflow_id(application.get("workflow_id", "")):
+        if int(plan.get("match_score") or 0) != score:
+            plan_repo.update(plan["id"], {"match_score": score})
+    return updated

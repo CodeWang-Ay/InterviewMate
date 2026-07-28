@@ -270,13 +270,13 @@ async function updateStatus(pid, status) {
 }
 
 async function removePlan(pid) {
-  if (!confirm('确认删除这个面试环节？')) return
+  if (!(await window.appConfirm('确认删除这个面试环节？'))) return
   await fetch(`/api/plans/${pid}`, { method: 'DELETE' })
   await fetchList()
 }
 
 async function removeGroup(group) {
-  if (!confirm(`确认删除「${group.candidate_name}」的 ${group.plans.length} 个面试环节？`)) return
+  if (!(await window.appConfirm(`确认删除「${group.candidate_name}」的 ${group.plans.length} 个面试环节？`))) return
   batchWorking.value = true
   for (const plan of group.plans) {
     await fetch(`/api/plans/${plan.id}`, { method: 'DELETE' }).catch(() => {})
@@ -308,7 +308,7 @@ async function updateSelectedStatus(status) {
 async function deleteSelectedPlans() {
   const targets = selectedPlans.value
   if (!targets.length) return
-  if (!confirm(`确认删除选中的 ${targets.length} 个面试环节？`)) return
+  if (!(await window.appConfirm(`确认删除选中的 ${targets.length} 个面试环节？`))) return
   batchWorking.value = true
   for (const plan of targets) {
     await fetch(`/api/plans/${plan.id}`, { method: 'DELETE' }).catch(() => {})
