@@ -7,6 +7,7 @@ const route = useRoute()
 const username = ref('')
 const password = ref('')
 const showPassword = ref(false)
+const rememberPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
 const isCandidateLogin = computed(() => route.path === '/user/login')
@@ -30,9 +31,36 @@ const authPanelTitle = computed(() => isCandidateLogin.value ? '用户身份验�
 const authPanelNote = computed(() => isCandidateLogin.value ? '验证通过后将直接进入你的面试空间。' : '验证通过后将恢复你的后台工作台状态。')
 
 onMounted(() => {
-  username.value = String(route.query.username || '')
-  password.value = String(route.query.password || '')
+  const queryUsername = String(route.query.username || '')
+  const queryPassword = String(route.query.password || '')
+  if (queryUsername || queryPassword) {
+    username.value = queryUsername
+    password.value = queryPassword
+    return
+  }
+  if (!isCandidateLogin.value) return
+  try {
+    rememberPassword.value = localStorage.getItem('candidate_remember_password') === '1'
+    if (rememberPassword.value) {
+      username.value = localStorage.getItem('candidate_saved_username') || ''
+      password.value = localStorage.getItem('candidate_saved_password') || ''
+    }
+  } catch (_) {
+    rememberPassword.value = false
+  }
 })
+
+function clearRememberedPassword() {
+  try {
+    localStorage.removeItem('candidate_remember_password')
+    localStorage.removeItem('candidate_saved_username')
+    localStorage.removeItem('candidate_saved_password')
+  } catch (_) {}
+}
+
+function onRememberPasswordChange() {
+  if (!rememberPassword.value) clearRememberedPassword()
+}
 
 async function doLogin() {
   if (!username.value.trim() || !password.value) return
@@ -57,6 +85,13 @@ async function doLogin() {
     if (data.phone) localStorage.setItem('phone', data.phone)
     if (data.email) localStorage.setItem('email', data.email)
     localStorage.setItem('role', data.role || 'user')
+    if (isCandidateLogin.value && rememberPassword.value) {
+      localStorage.setItem('candidate_remember_password', '1')
+      localStorage.setItem('candidate_saved_username', username.value.trim())
+      localStorage.setItem('candidate_saved_password', password.value)
+    } else if (isCandidateLogin.value) {
+      clearRememberedPassword()
+    }
     router.push(route.query.redirect || (isCandidateLogin.value ? '/user' : '/admin'))
   } catch (e) {
     error.value = e.message
@@ -165,6 +200,7 @@ async function doLogin() {
                 <input
                   v-model="username"
                   type="text"
+                  autocomplete="username"
                   :placeholder="accountPlaceholder"
                   :class="['w-full rounded-2xl border border-slate-200 bg-slate-50/70 px-5 py-4 text-base text-slate-900 outline-none transition focus:bg-white focus:ring-4', inputFocusClass]"
                   @keydown.enter="doLogin"
@@ -176,6 +212,7 @@ async function doLogin() {
                   <input
                     v-model="password"
                     :type="showPassword ? 'text' : 'password'"
+                    autocomplete="current-password"
                     :placeholder="passwordPlaceholder"
                     :class="['w-full rounded-2xl border border-slate-200 bg-slate-50/70 px-5 py-4 pr-14 text-base text-slate-900 outline-none transition focus:bg-white focus:ring-4', inputFocusClass]"
                     @keydown.enter="doLogin"
@@ -200,6 +237,17 @@ async function doLogin() {
                 </div>
               </div>
             </div>
+
+            <label v-if="isCandidateLogin" class="mt-5 flex cursor-pointer items-center gap-2.5 text-sm text-slate-600">
+              <input
+                v-model="rememberPassword"
+                type="checkbox"
+                class="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-200"
+                @change="onRememberPasswordChange"
+              >
+              <span>记住密码</span>
+              <span class="text-xs text-slate-400">仅保存在当前设备</span>
+            </label>
 
             <button
               :disabled="!username.trim() || !password || loading"
