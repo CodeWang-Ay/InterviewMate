@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import CandidateNavbar from '../components/CandidateNavbar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,24 +46,7 @@ function goList() {
       <div class="absolute top-1/3 left-1/2 h-[400px] w-[400px] -translate-x-1/2 rounded-full bg-gradient-to-r from-emerald-100/30 to-teal-100/20 blur-3xl"></div>
     </div>
 
-    <!-- header -->
-    <header class="sticky top-0 z-30 border-b border-white/10 bg-[#071c22] text-white shadow-[0_8px_24px_rgba(7,28,34,0.18)]">
-      <div class="mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6">
-        <button class="flex items-center gap-3" @click="router.push('/')">
-          <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-sm font-black text-[#0f9f8f]">AI</span>
-          <span class="text-lg font-bold">OPC Mate 招聘</span>
-        </button>
-        <nav class="hidden items-center gap-8 text-sm font-semibold text-white/80 md:flex">
-          <button @click="router.push('/')">首页</button>
-          <button @click="router.push('/jobs/social')">社会招聘</button>
-          <button @click="router.push('/jobs/campus')">校园招聘</button>
-          <button @click="router.push('/about')">了解我们</button>
-        </nav>
-        <div class="flex items-center gap-3">
-          <button class="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/10" @click="router.push('/user/login')">登录</button>
-        </div>
-      </div>
-    </header>
+    <CandidateNavbar :active="job?.recruitment_type?.includes('校') || job?.recruitment_type?.includes('实习') ? 'campus' : 'social'" />
 
     <main class="relative z-10 mx-auto max-w-[960px] px-4 py-10 sm:px-8">
       <div v-if="loading" class="rounded-2xl bg-white p-16 text-center text-[#667085]">正在加载...</div>

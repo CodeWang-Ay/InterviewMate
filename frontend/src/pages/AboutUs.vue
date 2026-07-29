@@ -5,6 +5,7 @@ import aboutAgentImage from '../../images/about_agent.png'
 import aboutLlmImage from '../../images/about_llm.png'
 import aboutMultiAgentImage from '../../images/about_multi_agent.png'
 import aboutTopImage from '../../images/about_top.png'
+import CandidateNavbar from '../components/CandidateNavbar.vue'
 
 const router = useRouter()
 const username = ref('')
@@ -77,27 +78,7 @@ function goCenter() {
 
 <template>
   <div class="min-h-screen bg-[#f6f7fb] text-[#182033]">
-    <header class="fixed left-0 right-0 top-0 z-30 border-b border-white/10 bg-[#071c22]/88 text-white backdrop-blur-xl">
-      <div class="mx-auto flex h-16 max-w-[1680px] items-center justify-between px-5 lg:px-8">
-        <button class="flex items-center gap-3" @click="router.push('/')">
-          <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-sm font-black text-[#0f9f8f]">AI</span>
-          <span class="text-lg font-bold">OPC Mate 招聘</span>
-        </button>
-        <nav class="hidden items-center gap-8 text-sm font-semibold text-white/82 md:flex">
-          <button @click="router.push('/')">首页</button>
-          <button @click="router.push('/jobs/social')">社会招聘</button>
-          <button @click="router.push('/jobs/campus')">校园招聘</button>
-          <button class="text-[#72f2d1]">了解我们</button>
-          <button v-if="isLoggedIn" @click="goCenter">个人中心</button>
-        </nav>
-        <div class="flex items-center gap-3 text-sm font-semibold">
-          <button v-if="isLoggedIn" class="rounded-full px-3 py-2 text-white/90 hover:bg-white/10" @click="goCenter">
-            你好，{{ displayedName || '用户' }} <i class="fa fa-angle-down ml-1"></i>
-          </button>
-          <button v-else class="rounded-full px-3 py-2 text-white/90 hover:bg-white/10" @click="goLogin">登录/注册</button>
-        </div>
-      </div>
-    </header>
+    <CandidateNavbar position="fixed" active="about" />
 
     <section class="about-hero relative min-h-[760px] overflow-hidden pt-16 text-white">
       <img :src="aboutTopImage" alt="" class="absolute inset-0 h-full w-full object-cover" />
