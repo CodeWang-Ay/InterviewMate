@@ -38,12 +38,12 @@ onMounted(() => {
     password.value = queryPassword
     return
   }
-  if (!isCandidateLogin.value) return
   try {
-    rememberPassword.value = localStorage.getItem('candidate_remember_password') === '1'
+    const prefix = isCandidateLogin.value ? 'candidate' : 'admin'
+    rememberPassword.value = localStorage.getItem(`${prefix}_remember_password`) === '1'
     if (rememberPassword.value) {
-      username.value = localStorage.getItem('candidate_saved_username') || ''
-      password.value = localStorage.getItem('candidate_saved_password') || ''
+      username.value = localStorage.getItem(`${prefix}_saved_username`) || ''
+      password.value = localStorage.getItem(`${prefix}_saved_password`) || ''
     }
   } catch (_) {
     rememberPassword.value = false
@@ -52,9 +52,10 @@ onMounted(() => {
 
 function clearRememberedPassword() {
   try {
-    localStorage.removeItem('candidate_remember_password')
-    localStorage.removeItem('candidate_saved_username')
-    localStorage.removeItem('candidate_saved_password')
+    const prefix = isCandidateLogin.value ? 'candidate' : 'admin'
+    localStorage.removeItem(`${prefix}_remember_password`)
+    localStorage.removeItem(`${prefix}_saved_username`)
+    localStorage.removeItem(`${prefix}_saved_password`)
   } catch (_) {}
 }
 
@@ -85,11 +86,12 @@ async function doLogin() {
     if (data.phone) localStorage.setItem('phone', data.phone)
     if (data.email) localStorage.setItem('email', data.email)
     localStorage.setItem('role', data.role || 'user')
-    if (isCandidateLogin.value && rememberPassword.value) {
-      localStorage.setItem('candidate_remember_password', '1')
-      localStorage.setItem('candidate_saved_username', username.value.trim())
-      localStorage.setItem('candidate_saved_password', password.value)
-    } else if (isCandidateLogin.value) {
+    if (rememberPassword.value) {
+      const prefix = isCandidateLogin.value ? 'candidate' : 'admin'
+      localStorage.setItem(`${prefix}_remember_password`, '1')
+      localStorage.setItem(`${prefix}_saved_username`, username.value.trim())
+      localStorage.setItem(`${prefix}_saved_password`, password.value)
+    } else {
       clearRememberedPassword()
     }
     router.push(route.query.redirect || (isCandidateLogin.value ? '/user' : '/admin'))
@@ -238,11 +240,12 @@ async function doLogin() {
               </div>
             </div>
 
-            <label v-if="isCandidateLogin" class="mt-5 flex cursor-pointer items-center gap-2.5 text-sm text-slate-600">
+            <label class="mt-5 flex cursor-pointer items-center gap-2.5 text-sm text-slate-600">
               <input
                 v-model="rememberPassword"
                 type="checkbox"
-                class="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-200"
+                class="h-4 w-4 rounded border-slate-300"
+                :class="isCandidateLogin ? 'accent-emerald-500' : 'accent-sky-600'"
                 @change="onRememberPasswordChange"
               >
               <span>记住密码</span>

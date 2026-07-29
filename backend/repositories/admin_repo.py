@@ -7,6 +7,14 @@ import bcrypt
 from backend.config import DB_PATH
 
 
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def _hash(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
@@ -26,7 +34,7 @@ def _needs_rehash(stored_hash: str) -> bool:
 
 
 def _conn():
-    c = sqlite3.connect(DB_PATH)
+    c = sqlite3.connect(DB_PATH, timeout=5, factory=_ClosingConnection)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=5000")
@@ -130,17 +138,17 @@ def login(username: str, password: str) -> dict | None:
             "SELECT * FROM admins WHERE username=?",
             (username,),
         ).fetchone()
-    if not row:
-        return None
-    stored_hash = row["password_hash"]
-    if not _verify_password(password, stored_hash):
-        return None
-    # 旧 SHA256 哈希自动升级为 bcrypt
-    if _needs_rehash(stored_hash):
-        conn.execute(
-            "UPDATE admins SET password_hash=? WHERE username=?",
-            (_hash(password), username),
-        )
+        if not row:
+            return None
+        stored_hash = row["password_hash"]
+        if not _verify_password(password, stored_hash):
+            return None
+        # 验证与旧密码升级必须在同一事务内完成，退出后立即提交并关闭连接。
+        if _needs_rehash(stored_hash):
+            conn.execute(
+                "UPDATE admins SET password_hash=? WHERE username=?",
+                (_hash(password), username),
+            )
     token = uuid.uuid4().hex
     tokens[token] = username
     return {
