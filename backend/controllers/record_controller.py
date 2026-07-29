@@ -54,6 +54,10 @@ async def list_records(search: str = "", record_type: str = "", conclusion: str 
         session_id = item["session_id"]
         score = item["score"]
         meta = _resolve_record_meta(data, inferred_meta.get(session_id))
+        # apply_* 只代表候选人已投递，旧版本曾误允许其创建 READY_CHECK 会话；
+        # 这类会话没有进入正式面试，不应出现在记录或报告列表。
+        if str(meta.get("workflow_id") or data.get("workflow_id") or "").startswith("apply_"):
+            continue
         mode = data.get("mode", "candidate_interview")
         is_training = mode == "interviewer_training"
         is_formal = bool(data.get("plan_id") or data.get("jd_filename") or meta.get("jd_name"))

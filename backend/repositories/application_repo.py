@@ -8,6 +8,9 @@ APPLICATION_SOURCES = {"candidate", "admin", "import"}
 APPLICATION_LIMIT_PER_SIX_MONTHS = 3
 RECRUITMENT_TYPES = ("社招", "校招", "实习生")
 SCREENING_STATUSES = {"待筛选", "初筛通过", "不合适"}
+OFFER_STATUSES = {"", "pending", "offered", "accepted", "declined", "rejected"}
+APPLICATION_STATUSES = {"active", "rejected", "withdrawn", "hired", "closed"}
+APPLICATION_STAGES = {"screening", "interview", "offer", "completed"}
 
 
 class _ClosingConnection(sqlite3.Connection):
@@ -40,7 +43,8 @@ def init_db() -> None:
                 match_details TEXT DEFAULT '{}',
                 recruitment_type TEXT DEFAULT '社招',
                 source TEXT DEFAULT 'candidate',
-                status TEXT DEFAULT 'pending',
+                status TEXT DEFAULT 'active',
+                current_stage TEXT DEFAULT 'screening',
                 screening_status TEXT DEFAULT '待筛选',
                 workflow_id TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now')),
@@ -66,6 +70,32 @@ def init_db() -> None:
                     '待筛选'
                 )
             """)
+        if "offer_status" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN offer_status TEXT DEFAULT ''")
+        if "offer_updated_at" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN offer_updated_at TEXT DEFAULT ''")
+        if "current_stage" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN current_stage TEXT DEFAULT 'screening'")
+        conn.execute("""
+            UPDATE applications
+            SET status=CASE status
+                WHEN 'pending' THEN 'active'
+                WHEN 'reject' THEN 'rejected'
+                WHEN 'cancel' THEN 'withdrawn'
+                ELSE status
+            END
+        """)
+        conn.execute("""
+            UPDATE applications
+            SET current_stage=CASE
+                WHEN status IN ('rejected', 'withdrawn', 'hired', 'closed') THEN 'completed'
+                WHEN offer_status IN ('pending', 'offered') THEN 'offer'
+                WHEN offer_status='accepted' THEN 'completed'
+                WHEN IFNULL(workflow_id, '') LIKE 'apply_%' THEN 'screening'
+                WHEN screening_status='初筛通过' AND IFNULL(workflow_id, '')<>'' THEN 'interview'
+                ELSE 'screening'
+            END
+        """)
         _backfill_existing_plans(conn)
 
 
@@ -106,6 +136,7 @@ def _backfill_existing_plans(conn) -> None:
         SELECT
             workflow_id,
             MIN(id) AS seed_id,
+            MAX(application_id) AS seed_application_id,
             MAX(candidate_username) AS candidate_username,
             MAX(candidate_name) AS candidate_name,
             MAX(jd_name) AS jd_name,
@@ -116,6 +147,16 @@ def _backfill_existing_plans(conn) -> None:
     """).fetchall()
     for group in groups:
         existing = conn.execute("SELECT id FROM applications WHERE workflow_id=?", (group["workflow_id"],)).fetchone()
+        if not existing and group["seed_application_id"]:
+            owner = conn.execute(
+                "SELECT id, workflow_id FROM applications WHERE id=?",
+                (group["seed_application_id"],),
+            ).fetchone()
+            if owner and str(group["workflow_id"]).startswith("apply_") and not str(owner["workflow_id"] or "").startswith("apply_"):
+                # 该投递已经升级为正式流程，旧 apply_* 只是历史占位，不能反向创建第二条 application。
+                continue
+            if owner:
+                existing = owner
         resume = resume_by_file.get(group["resume_filename"] or "")
         resume_id = resume["id"] if resume else None
         jd_id = (resume or {}).get("jd_id") or jd_by_name.get(group["jd_name"] or "")
@@ -158,8 +199,9 @@ def _backfill_existing_plans(conn) -> None:
             cur = conn.execute(
                 """
                 INSERT INTO applications (
-                    candidate_username, candidate_name, jd_id, jd_name, resume_id, source, workflow_id
-                ) VALUES (?,?,?,?,?,?,?)
+                    candidate_username, candidate_name, jd_id, jd_name, resume_id, source, workflow_id,
+                    status, current_stage, screening_status
+                ) VALUES (?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     group["candidate_username"] or "",
@@ -169,6 +211,9 @@ def _backfill_existing_plans(conn) -> None:
                     resume_id,
                     source,
                     group["workflow_id"],
+                    "active",
+                    "screening" if str(group["workflow_id"]).startswith("apply_") else "interview",
+                    "待筛选" if str(group["workflow_id"]).startswith("apply_") else "初筛通过",
                 ),
             )
             application_id = cur.lastrowid
@@ -193,8 +238,8 @@ def create(data: dict) -> dict:
             INSERT INTO applications (
                 candidate_username, candidate_name, jd_id, jd_name, resume_id,
                 match_score, match_details, recruitment_type, source, status, workflow_id
-                , screening_status
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                , screening_status, current_stage
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 data.get("candidate_username", ""),
@@ -206,9 +251,10 @@ def create(data: dict) -> dict:
                 data.get("match_details", "{}"),
                 normalize_recruitment_type(data.get("recruitment_type")),
                 source,
-                data.get("status", "pending"),
+                normalize_application_status(data.get("status")),
                 data.get("workflow_id", ""),
                 normalize_screening_status(data.get("screening_status")),
+                normalize_application_stage(data.get("current_stage")),
             ),
         )
         row = conn.execute("SELECT * FROM applications WHERE id=?", (cur.lastrowid,)).fetchone()
@@ -236,13 +282,29 @@ def update_match(application_id: int, match_score: int, match_details: str) -> d
     return None
 
 
+def update_lifecycle(application_id: int, status: str, current_stage: str) -> dict | None:
+    normalized_status = normalize_application_status(status)
+    normalized_stage = normalize_application_stage(current_stage)
+    with _conn() as conn:
+        conn.execute(
+            """
+            UPDATE applications
+            SET status=?, current_stage=?, updated_at=datetime('now')
+            WHERE id=?
+            """,
+            (normalized_status, normalized_stage, application_id),
+        )
+        row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def cancel(application_id: int) -> dict | None:
     with _conn() as conn:
         conn.execute(
             """
             UPDATE applications
-            SET status='cancel', updated_at=datetime('now')
-            WHERE id=? AND status<>'cancel'
+            SET status='withdrawn', current_stage='completed', updated_at=datetime('now')
+            WHERE id=? AND status<>'withdrawn'
             """,
             (application_id,),
         )
@@ -252,17 +314,18 @@ def cancel(application_id: int) -> dict | None:
 
 def update_screening(application_id: int, screening_status: str) -> dict | None:
     normalized = normalize_screening_status(screening_status)
-    application_status = "reject" if normalized == "不合适" else "pending"
+    application_status = "rejected" if normalized == "不合适" else "active"
+    current_stage = "completed" if normalized == "不合适" else "screening"
     for attempt in range(3):
         try:
             with _conn() as conn:
                 conn.execute(
                     """
                     UPDATE applications
-                    SET screening_status=?, status=?, updated_at=datetime('now')
+                    SET screening_status=?, status=?, current_stage=?, updated_at=datetime('now')
                     WHERE id=?
                     """,
-                    (normalized, application_status, application_id),
+                    (normalized, application_status, current_stage, application_id),
                 )
                 if normalized == "不合适":
                     conn.execute(
@@ -282,12 +345,36 @@ def update_screening(application_id: int, screening_status: str) -> dict | None:
     return None
 
 
+def update_offer(application_id: int, offer_status: str) -> dict | None:
+    normalized = str(offer_status or "").strip().lower()
+    if normalized not in OFFER_STATUSES:
+        raise ValueError("不支持的 Offer 状态")
+    application_status, current_stage = {
+        "accepted": ("hired", "completed"),
+        "declined": ("rejected", "completed"),
+        "rejected": ("rejected", "completed"),
+    }.get(normalized, ("active", "offer"))
+    with _conn() as conn:
+        conn.execute(
+            """
+            UPDATE applications
+            SET offer_status=?, status=?, current_stage=?,
+                offer_updated_at=datetime('now'), updated_at=datetime('now')
+            WHERE id=?
+            """,
+            (normalized, application_status, current_stage, application_id),
+        )
+        row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def attach_workflow(application_id: int, workflow_id: str) -> dict | None:
     with _conn() as conn:
         conn.execute(
             """
             UPDATE applications
-            SET workflow_id=?, screening_status='初筛通过', status='pending',
+            SET workflow_id=?, screening_status='初筛通过', status='active',
+                current_stage='interview',
                 updated_at=datetime('now')
             WHERE id=?
             """,
@@ -303,6 +390,17 @@ def get_by_id(application_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+def list_by_candidate_username(candidate_username: str) -> list[dict]:
+    if not candidate_username:
+        return []
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM applications WHERE candidate_username=? ORDER BY id DESC",
+            (candidate_username,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def find_by_candidate_and_jd(candidate_username: str, jd_id: int) -> dict | None:
     if not candidate_username or not jd_id:
         return None
@@ -310,7 +408,7 @@ def find_by_candidate_and_jd(candidate_username: str, jd_id: int) -> dict | None
         row = conn.execute(
             """
             SELECT * FROM applications
-            WHERE candidate_username=? AND jd_id=? AND status<>'cancel'
+            WHERE candidate_username=? AND jd_id=? AND status NOT IN ('withdrawn', 'cancel')
             ORDER BY id DESC LIMIT 1
             """,
             (candidate_username, jd_id),
@@ -325,7 +423,7 @@ def get_candidate_quota(candidate_username: str) -> dict:
             SELECT id, jd_id, jd_name, recruitment_type, status, created_at
             FROM applications
             WHERE candidate_username=? AND source='candidate'
-              AND status<>'cancel'
+              AND status NOT IN ('withdrawn', 'cancel')
               AND datetime(created_at) >= datetime('now', '-6 months')
             ORDER BY datetime(created_at) ASC, id ASC
             """,
@@ -370,6 +468,18 @@ def normalize_recruitment_type(value: str | None) -> str:
 def normalize_screening_status(value: str | None) -> str:
     text = str(value or "").strip()
     return text if text in SCREENING_STATUSES else "待筛选"
+
+
+def normalize_application_status(value: str | None) -> str:
+    text = str(value or "").strip().lower()
+    legacy = {"pending": "active", "reject": "rejected", "cancel": "withdrawn"}
+    text = legacy.get(text, text)
+    return text if text in APPLICATION_STATUSES else "active"
+
+
+def normalize_application_stage(value: str | None) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in APPLICATION_STAGES else "screening"
 
 
 def list_by_resume_id(resume_id: int) -> list[dict]:

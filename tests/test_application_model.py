@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.repositories import application_repo, plan_repo, resume_repo
+from backend.controllers.plan_controller import PlanAction, _apply_plan_action
 from backend.services.job_match_service import calculate_resume_jd_match
 
 
@@ -59,7 +60,7 @@ class ApplicationModelTest(unittest.TestCase):
         self.assertEqual(plan["application_id"], application["id"])
         self.assertEqual(application_repo.find_by_candidate_and_jd("candidate-user", 9)["id"], application["id"])
         self.assertEqual(len(application_repo.list_by_resume_id(resume["id"])), 1)
-        self.assertEqual(application_repo.cancel(application["id"])["status"], "cancel")
+        self.assertEqual(application_repo.cancel(application["id"])["status"], "withdrawn")
 
     def test_resumes_can_be_owned_and_filtered_by_source(self):
         resume_repo.create({
@@ -300,6 +301,145 @@ class ApplicationModelTest(unittest.TestCase):
         ready, reason = plan_repo.candidate_interview_readiness(plan)
         self.assertTrue(ready)
         self.assertEqual(reason, "")
+
+    def test_rejecting_interview_finishes_current_stage_and_cancels_following_stages(self):
+        workflow_id = "wf_interview_reject"
+        first = plan_repo.create({
+            "candidate_name": "面试候选人",
+            "workflow_id": workflow_id,
+            "workflow_name": "快速招聘流程",
+            "interview_round": "综合面试",
+            "stage_order": 1,
+            "stage_count": 2,
+            "status": "finish",
+        })
+        second = plan_repo.create({
+            "candidate_name": "面试候选人",
+            "workflow_id": workflow_id,
+            "workflow_name": "快速招聘流程",
+            "interview_round": "HR 面",
+            "stage_order": 2,
+            "stage_count": 2,
+            "status": "pending",
+        })
+
+        rejected = plan_repo.transition(first["id"], "reject", {
+            "result_note": "综合面试评估不通过",
+        })
+
+        self.assertEqual(rejected["status"], "finish")
+        self.assertEqual(rejected["interview_result"], "reject")
+        self.assertEqual(rejected["result_note"], "综合面试评估不通过")
+        following = plan_repo.get_by_id(second["id"])
+        self.assertEqual(following["status"], "cancel")
+        self.assertIn("流程终止", following["result_note"])
+
+    def test_interview_must_finish_before_evaluation_and_pass_opens_next_stage(self):
+        workflow_id = "wf_interview_pass"
+        first = plan_repo.create({
+            "candidate_name": "评估候选人",
+            "workflow_id": workflow_id,
+            "workflow_name": "快速招聘流程",
+            "interview_round": "综合面试",
+            "stage_order": 1,
+            "stage_count": 2,
+            "status": "running",
+        })
+        second = plan_repo.create({
+            "candidate_name": "评估候选人",
+            "workflow_id": workflow_id,
+            "workflow_name": "快速招聘流程",
+            "interview_round": "HR 面",
+            "stage_order": 2,
+            "stage_count": 2,
+            "status": "pending",
+        })
+
+        with self.assertRaisesRegex(ValueError, "面试结束后"):
+            plan_repo.transition(first["id"], "pass")
+
+        plan_repo.transition(first["id"], "finish")
+        passed = plan_repo.transition(first["id"], "pass", {"result_note": "综合面试通过"})
+
+        self.assertEqual(passed["interview_result"], "pass")
+        self.assertEqual(plan_repo.get_by_id(second["id"])["status"], "wait")
+
+    def test_offer_status_has_complete_lifecycle(self):
+        application = application_repo.create({
+            "candidate_username": "offer-user",
+            "candidate_name": "Offer 候选人",
+            "jd_id": 88,
+            "jd_name": "算法工程师",
+            "source": "candidate",
+            "workflow_id": "wf_offer",
+        })
+
+        pending = application_repo.update_offer(application["id"], "pending")
+        self.assertEqual(pending["offer_status"], "pending")
+        self.assertEqual((pending["status"], pending["current_stage"]), ("active", "offer"))
+        offered = application_repo.update_offer(application["id"], "offered")
+        self.assertEqual(offered["offer_status"], "offered")
+        self.assertEqual((offered["status"], offered["current_stage"]), ("active", "offer"))
+        accepted = application_repo.update_offer(application["id"], "accepted")
+        self.assertEqual(accepted["offer_status"], "accepted")
+        self.assertEqual((accepted["status"], accepted["current_stage"]), ("hired", "completed"))
+        self.assertTrue(accepted["offer_updated_at"])
+
+    def test_application_is_the_master_lifecycle_record(self):
+        application = application_repo.create({
+            "candidate_username": "lifecycle-user",
+            "candidate_name": "状态机候选人",
+            "jd_id": 101,
+            "jd_name": "平台工程师",
+            "source": "candidate",
+            "workflow_id": "apply_101_lifecycle",
+        })
+        self.assertEqual((application["status"], application["current_stage"]), ("active", "screening"))
+
+        attached = application_repo.attach_workflow(application["id"], "wf_lifecycle")
+        self.assertEqual(attached["screening_status"], "初筛通过")
+        self.assertEqual((attached["status"], attached["current_stage"]), ("active", "interview"))
+
+        rejected = application_repo.update_screening(application["id"], "不合适")
+        self.assertEqual((rejected["status"], rejected["current_stage"]), ("rejected", "completed"))
+
+    def test_interview_actions_advance_application_master_stage(self):
+        application = application_repo.create({
+            "candidate_username": "master-user",
+            "candidate_name": "主流程候选人",
+            "jd_id": 102,
+            "jd_name": "后端工程师",
+            "source": "candidate",
+            "workflow_id": "apply_102_master",
+        })
+        application_repo.attach_workflow(application["id"], "wf_master")
+        first = plan_repo.create({
+            "application_id": application["id"],
+            "workflow_id": "wf_master",
+            "interview_round": "一面",
+            "stage_order": 1,
+            "stage_count": 2,
+            "status": "finish",
+        })
+        second = plan_repo.create({
+            "application_id": application["id"],
+            "workflow_id": "wf_master",
+            "interview_round": "二面",
+            "stage_order": 2,
+            "stage_count": 2,
+            "status": "pending",
+        })
+
+        _apply_plan_action(first["id"], PlanAction(action="pass"))
+        after_first = application_repo.get_by_id(application["id"])
+        self.assertEqual((after_first["status"], after_first["current_stage"]), ("active", "interview"))
+        self.assertEqual(plan_repo.get_by_id(second["id"])["status"], "wait")
+
+        plan_repo.transition(second["id"], "finish")
+        _apply_plan_action(second["id"], PlanAction(action="pass"))
+        after_final = application_repo.get_by_id(application["id"])
+        self.assertEqual((after_final["status"], after_final["current_stage"]), ("active", "offer"))
+        self.assertEqual(after_final["offer_status"], "pending")
 
 
 if __name__ == "__main__":

@@ -84,8 +84,11 @@ const workflowGroups = computed(() => {
         workflow_name: plan.workflow_name || '我的面试流程',
         application_id: plan.application_id || null,
         application_status: plan.application_status || '',
+        application_current_stage: plan.application_current_stage || '',
         screening_status: plan.screening_status || '',
         application_created_at: plan.application_created_at || '',
+        offer_status: plan.offer_status || '',
+        offer_updated_at: plan.offer_updated_at || '',
         candidate_name: plan.candidate_name || nickname.value || username.value || '候选人',
         jd_name: plan.jd_name || '目标岗位',
         recruitment_type: normalizeRecruitmentType(plan.recruitment_type),
@@ -99,13 +102,18 @@ const workflowGroups = computed(() => {
     if (!group.resume_filename && plan.resume_filename) group.resume_filename = plan.resume_filename
     if (!group.application_id && plan.application_id) group.application_id = plan.application_id
     if (!group.application_status && plan.application_status) group.application_status = plan.application_status
+    if (!group.application_current_stage && plan.application_current_stage) group.application_current_stage = plan.application_current_stage
     if (!group.screening_status && plan.screening_status) group.screening_status = plan.screening_status
     if (!group.application_created_at && plan.application_created_at) group.application_created_at = plan.application_created_at
+    if (!group.offer_status && plan.offer_status) group.offer_status = plan.offer_status
+    if (!group.offer_updated_at && plan.offer_updated_at) group.offer_updated_at = plan.offer_updated_at
     if (!group.location && plan.location) group.location = plan.location
   })
   return Array.from(map.values()).map(group => {
     const sortedPlans = [...group.plans].sort((a, b) => Number(a.stage_order || 1) - Number(b.stage_order || 1))
-    const current = sortedPlans.find(p => p.interview_ready === true) || null
+    const current = group.application_status === 'active' && group.application_current_stage === 'interview'
+      ? sortedPlans.find(p => p.interview_ready === true) || null
+      : null
     const finished = sortedPlans.filter(p => p.status === 'finish').length
     const last = sortedPlans[sortedPlans.length - 1] || null
     return {
@@ -122,8 +130,8 @@ const workflowGroups = computed(() => {
 // 用户主动取消的投递隐藏；后台初筛不通过的投递继续保留并展示结果。
 const currentWorkflowGroups = computed(() => {
   const visible = workflowGroups.value.filter((group) => {
-    if (group.application_status === 'cancel') return false
-    if (group.application_status === 'reject' || group.screening_status === '不合适') return true
+    if (['withdrawn', 'cancel'].includes(group.application_status)) return false
+    if (['rejected', 'reject', 'hired'].includes(group.application_status)) return true
     return !group.plans.length || !group.plans.every(plan => plan.status === 'cancel')
   })
   const byApplication = new Map()
@@ -150,9 +158,7 @@ const currentPlan = computed(() => activeGroup.value?.current_plan || null)
 const applicationCount = computed(() => currentWorkflowGroups.value.length)
 const closedWorkflowCount = computed(() => currentWorkflowGroups.value.filter(group => {
   if (!group.plans.length) return false
-  return group.application_status === 'reject'
-    || group.screening_status === '不合适'
-    || group.plans.every(plan => plan.status === 'finish')
+  return ['rejected', 'hired', 'closed'].includes(group.application_status)
 }).length)
 const activeInterviewCount = computed(() => plans.value.filter(plan => ['wait', 'running'].includes(plan.status)).length)
 const displayName = computed(() => nickname.value || activeGroup.value?.candidate_name || username.value || '候选人')
@@ -550,12 +556,14 @@ function statusPillClass(status) {
 }
 
 function lineClass(plan) {
+  if (plan.interview_result === 'reject') return 'bg-[#ef4444]'
   if (plan.status === 'finish') return 'bg-[#22c55e]'
   if (['wait', 'running'].includes(plan.status)) return 'bg-[#4776ff]'
   return 'bg-[#ccd4e2]'
 }
 
 function nodeClass(plan) {
+  if (plan.interview_result === 'reject') return 'bg-[#ef4444] text-white'
   if (plan.status === 'finish') return 'bg-[#22c55e] text-white'
   if (plan.status === 'running') return 'bg-[#4776ff] text-white'
   if (plan.status === 'wait') return 'bg-[#11b89f] text-white'
@@ -563,19 +571,75 @@ function nodeClass(plan) {
 }
 
 function groupStatusText(group) {
-  if (group.application_status === 'reject' || group.screening_status === '不合适') {
+  if (group.application_status === 'hired') return 'Offer 已接受 · 招聘完成'
+  if (group.application_status === 'rejected' && group.screening_status === '不合适') {
     return '初筛不通过 · 流程已结束'
   }
+  const rejectedPlan = group.plans.find(plan => plan.interview_result === 'reject')
+  if (group.application_status === 'rejected' && rejectedPlan) {
+    return `${rejectedPlan.interview_round || '面试'}不通过 · 流程已结束`
+  }
+  if (group.application_status === 'rejected' && group.offer_status === 'declined') return '候选人拒绝 Offer · 流程已结束'
+  if (group.application_status === 'rejected' && group.offer_status === 'rejected') return '未发放 Offer · 流程已结束'
+  if (group.application_current_stage === 'offer' && group.offer_status === 'pending') return '全部面试通过 · 待发放 Offer'
+  if (group.application_current_stage === 'offer' && group.offer_status === 'offered') return 'Offer 已发放 · 待确认'
+  if (group.application_current_stage === 'screening') {
+    return group.screening_status === '初筛通过' ? '初筛通过 · 待创建面试流程' : '简历筛选中'
+  }
   if (group.current_plan) return `${group.current_plan.interview_round || '面试'} · ${statusLabel(group.current_plan.status)}`
-  if (group.plans.every(plan => plan.status === 'finish')) return '全部完成'
   return '等待通知'
 }
 
 function planStatusText(plan, group) {
-  if ((group.application_status === 'reject' || group.screening_status === '不合适') && plan.status === 'cancel') {
+  if (group.application_status === 'rejected' && plan.status === 'cancel') {
     return '流程已终止'
   }
+  if (plan.interview_result === 'reject') return '面试不通过'
+  if (group.plans.some(item => item.interview_result === 'reject') && plan.status === 'cancel') return '流程已终止'
   return statusLabel(plan.status)
+}
+
+function offerStatusText(status) {
+  return {
+    pending: '待发放',
+    offered: '待确认',
+    accepted: '已接受',
+    declined: '已拒绝',
+    rejected: '不发放',
+  }[status] || '未开始'
+}
+
+function offerNodeClass(status) {
+  if (status === 'accepted') return 'bg-[#22c55e] text-white'
+  if (status === 'offered') return 'bg-[#7c3aed] text-white'
+  if (['declined', 'rejected'].includes(status)) return 'bg-[#ef4444] text-white'
+  if (status === 'pending') return 'bg-[#f59e0b] text-white'
+  return 'bg-[#d8deea] text-[#657084]'
+}
+
+async function respondOffer(group, action) {
+  if (!group.application_id) return
+  const accept = action === 'accept'
+  const confirmed = await window.appConfirm(
+    accept ? `确认接受「${group.jd_name}」的 Offer 吗？` : `确认拒绝「${group.jd_name}」的 Offer 吗？`,
+    { title: accept ? '接受 Offer' : '拒绝 Offer', confirmText: accept ? '确认接受' : '确认拒绝' },
+  )
+  if (!confirmed) return
+  const token = safeGetLocalStorage('token', '')
+  const res = await fetch(`/api/plans/my/applications/${group.application_id}/offer`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ action }),
+  })
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}))
+    alert(error.detail || '更新 Offer 状态失败')
+    return
+  }
+  await loadPlans()
 }
 
 function groupMatchPercent(group) {
@@ -852,7 +916,8 @@ function jobSummary(job) {
                   <template v-for="(plan, index) in group.plans" :key="`summary-${plan.id}`">
                     <div class="flex w-[128px] shrink-0 flex-col items-center text-center">
                       <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="nodeClass(plan)">
-                        <i v-if="plan.status === 'finish'" class="fa fa-check"></i>
+                        <i v-if="plan.interview_result === 'reject'" class="fa fa-times"></i>
+                        <i v-else-if="plan.status === 'finish'" class="fa fa-check"></i>
                         <span v-else>{{ plan.stage_order || index + 1 }}</span>
                       </div>
                       <div class="mt-2 font-bold" :class="['wait', 'running'].includes(plan.status) ? 'text-[#246bdb]' : plan.status === 'finish' ? 'text-[#15a05f]' : 'text-[#667085]'">
@@ -862,6 +927,16 @@ function jobSummary(job) {
                     </div>
                     <div v-if="index < group.plans.length - 1" class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="lineClass(plan)"></div>
                   </template>
+                  <div class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="group.offer_status ? 'bg-[#8b5cf6]' : 'bg-[#ccd4e2]'"></div>
+                  <div class="flex w-[128px] shrink-0 flex-col items-center text-center">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="offerNodeClass(group.offer_status)">
+                      <i v-if="group.offer_status === 'accepted'" class="fa fa-check"></i>
+                      <i v-else-if="['declined', 'rejected'].includes(group.offer_status)" class="fa fa-times"></i>
+                      <i v-else class="fa fa-envelope-o"></i>
+                    </div>
+                    <div class="mt-2 font-bold" :class="group.offer_status ? 'text-[#6d28d9]' : 'text-[#667085]'">Offer</div>
+                    <div class="mt-1 text-xs text-[#8a94a6]">{{ offerStatusText(group.offer_status) }}</div>
+                  </div>
                 </div>
               </div>
 
@@ -890,6 +965,16 @@ function jobSummary(job) {
                       </tr>
                     </tbody>
                   </table>
+                </div>
+                <div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-4">
+                  <div>
+                    <div class="font-black text-violet-900"><i class="fa fa-envelope-o mr-2"></i>Offer 阶段</div>
+                    <div class="mt-1 text-sm text-violet-600">{{ offerStatusText(group.offer_status) }}</div>
+                  </div>
+                  <div v-if="group.offer_status === 'offered'" class="flex gap-2">
+                    <button class="rounded-lg border border-red-200 bg-white px-4 py-2 font-bold text-red-600 hover:bg-red-50" @click="respondOffer(group, 'decline')">拒绝 Offer</button>
+                    <button class="rounded-lg bg-violet-600 px-4 py-2 font-bold text-white hover:bg-violet-700" @click="respondOffer(group, 'accept')">接受 Offer</button>
+                  </div>
                 </div>
               </div>
             </article>

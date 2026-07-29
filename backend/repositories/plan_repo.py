@@ -206,7 +206,9 @@ def _decode_workflow_template(row: dict) -> dict:
 
 
 def list_all(search: str = "", status: str = "") -> list[dict]:
-    sql = "SELECT * FROM plans WHERE 1=1"
+    # 候选人投递时生成的 apply_* 记录只是承载投递状态的兼容占位，
+    # 不属于后台已经创建的正式面试计划。
+    sql = "SELECT * FROM plans WHERE workflow_id NOT LIKE 'apply_%'"
     params = []
     if status:
         sql += " AND status=?"
@@ -268,6 +270,10 @@ def candidate_interview_readiness(plan: dict | None) -> tuple[bool, str]:
         application = application_repo.get_by_id(int(plan["application_id"]))
         if not application:
             return False, "投递记录不存在"
+        if application.get("status") != "active":
+            return False, "当前岗位招聘流程已结束"
+        if application.get("current_stage") != "interview":
+            return False, "当前岗位尚未进入面试阶段"
         if application.get("screening_status") != "初筛通过":
             return False, "简历尚未通过当前岗位的初筛"
         return True, ""
@@ -419,6 +425,50 @@ def transition(pid: int, action: str, payload: dict | None = None) -> dict | Non
     if action == "finish":
         data = {"status": "finish", "active_session_id": "", **_pick_result_payload(payload)}
         return update(pid, data)
+    if action == "pass":
+        if current.get("status") != "finish":
+            raise ValueError("面试结束后才能录入评估结果")
+        updated = update(pid, {
+            "interview_result": "pass",
+            **_pick_result_payload(payload),
+        })
+        with _conn() as conn:
+            next_row = conn.execute(
+                """
+                SELECT id FROM plans
+                WHERE workflow_id=? AND stage_order>? AND status='pending'
+                ORDER BY stage_order ASC, id ASC LIMIT 1
+                """,
+                (current.get("workflow_id", ""), int(current.get("stage_order") or 1)),
+            ).fetchone()
+            if next_row:
+                conn.execute("UPDATE plans SET status='wait' WHERE id=?", (next_row["id"],))
+        return updated
+    if action == "reject":
+        if current.get("status") != "finish":
+            raise ValueError("面试结束后才能录入评估结果")
+        data = {
+            "status": "finish",
+            "active_session_id": "",
+            "interview_result": "reject",
+            **_pick_result_payload(payload),
+        }
+        data["interview_result"] = "reject"
+        updated = update(pid, data)
+        with _conn() as conn:
+            conn.execute(
+                """
+                UPDATE plans
+                SET status='cancel', active_session_id='',
+                    result_note=CASE
+                        WHEN TRIM(COALESCE(result_note, ''))='' THEN '前序面试未通过，流程终止'
+                        ELSE result_note
+                    END
+                WHERE workflow_id=? AND stage_order>? AND status<>'finish'
+                """,
+                (current.get("workflow_id", ""), int(current.get("stage_order") or 1)),
+            )
+        return updated
     if action == "cancel":
         updated = update(pid, {"status": "cancel", "active_session_id": "", **_pick_result_payload(payload)})
         _reconcile_workflow_for_plan(pid)
@@ -515,7 +565,7 @@ def _reconcile_workflow_status(workflow_id: str) -> None:
         if status != expected:
             updates.append((expected, plan["id"]))
             plan["status"] = expected
-        previous_finished = expected == "finish" or expected == "cancel"
+        previous_finished = expected == "finish" and plan.get("interview_result") == "pass"
 
     if updates:
         with _conn() as conn:

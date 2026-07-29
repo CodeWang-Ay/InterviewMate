@@ -40,10 +40,35 @@ def _mask_plans(plans: list[dict]) -> list[dict]:
             "interview_ready": ready,
             "interview_block_reason": reason,
             "application_status": (application or {}).get("status", ""),
+            "application_current_stage": (application or {}).get("current_stage", ""),
             "screening_status": (application or {}).get("screening_status", ""),
             "application_created_at": (application or {}).get("created_at", ""),
+            "offer_status": (application or {}).get("offer_status", ""),
+            "offer_updated_at": (application or {}).get("offer_updated_at", ""),
         }))
     return result
+
+
+def _application_as_candidate_item(application: dict) -> dict:
+    terminal = application.get("status") in {"rejected", "withdrawn", "hired", "closed"}
+    return {
+        "id": -int(application["id"]),
+        "application_id": application["id"],
+        "candidate_name": application.get("candidate_name", ""),
+        "candidate_username": application.get("candidate_username", ""),
+        "jd_id": application.get("jd_id"),
+        "jd_name": application.get("jd_name", ""),
+        "resume_id": application.get("resume_id"),
+        "workflow_id": application.get("workflow_id", "") or f"application_{application['id']}",
+        "workflow_name": f"投递：{application.get('jd_name', '')}",
+        "interview_round": "简历筛选",
+        "stage_order": 0,
+        "stage_count": 0,
+        "status": "cancel" if terminal else "pending",
+        "match_score": application.get("match_score", 0),
+        "recruitment_type": application.get("recruitment_type", "社招"),
+        "created_at": application.get("created_at", ""),
+    }
 
 
 class PlanUpdate(BaseModel):
@@ -107,6 +132,10 @@ class PlanAction(BaseModel):
     result_note: str | None = None
 
 
+class OfferAction(BaseModel):
+    action: str
+
+
 @router.get("")
 async def list_plans(search: str = "", status: str = "", _: dict = Depends(require_admin)):
     return _mask_plans(plan_repo.list_all(search, status))
@@ -136,13 +165,68 @@ async def update_workflow_template(template_id: int, body: WorkflowTemplateSave,
 
 @router.get("/my")
 async def my_plans(username: str = Depends(get_current_candidate)):
-    # 投递时已经计算并保存岗位匹配；查询接口保持只读，避免浏览页面时争抢 SQLite 写锁。
-    return _mask_plans(plan_repo.list_by_candidate_username(username))
+    # application 是招聘流程主记录；只有正式面试才读取 plans。
+    applications = application_repo.list_by_candidate_username(username)
+    all_plans = plan_repo.list_by_candidate_username(username)
+    formal_by_application: dict[int, list[dict]] = {}
+    unbound_plans = []
+    for plan in all_plans:
+        if str(plan.get("workflow_id") or "").startswith("apply_"):
+            continue
+        if plan.get("application_id"):
+            formal_by_application.setdefault(int(plan["application_id"]), []).append(plan)
+        else:
+            unbound_plans.append(plan)
+
+    result = []
+    for application in applications:
+        formal_plans = formal_by_application.get(int(application["id"]), [])
+        if formal_plans:
+            result.extend(formal_plans)
+            continue
+        result.append(_application_as_candidate_item(application))
+    result.extend(unbound_plans)
+    return _mask_plans(result)
 
 
 @router.get("/my/application-quota")
 async def my_application_quota(username: str = Depends(get_current_candidate)):
     return application_repo.get_candidate_quota(username)
+
+
+@router.post("/applications/{application_id}/offer")
+async def update_application_offer(
+    application_id: int,
+    body: OfferAction,
+    _: dict = Depends(require_admin),
+):
+    application = application_repo.get_by_id(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="投递记录不存在")
+    action_status = {"send": "offered", "reject": "rejected"}.get(body.action)
+    if not action_status:
+        raise HTTPException(status_code=400, detail="不支持的 Offer 操作")
+    plans = plan_repo.list_by_application_id(application_id)
+    if not plans or any(plan.get("interview_result") != "pass" for plan in plans):
+        raise HTTPException(status_code=400, detail="所有面试轮次评估通过后才能处理 Offer")
+    return application_repo.update_offer(application_id, action_status)
+
+
+@router.post("/my/applications/{application_id}/offer")
+async def respond_application_offer(
+    application_id: int,
+    body: OfferAction,
+    username: str = Depends(get_current_candidate),
+):
+    application = application_repo.get_by_id(application_id)
+    if not application or application.get("candidate_username") != username:
+        raise HTTPException(status_code=404, detail="Offer 不存在")
+    if application.get("offer_status") != "offered":
+        raise HTTPException(status_code=400, detail="当前没有待确认的 Offer")
+    response_status = {"accept": "accepted", "decline": "declined"}.get(body.action)
+    if not response_status:
+        raise HTTPException(status_code=400, detail="不支持的 Offer 操作")
+    return application_repo.update_offer(application_id, response_status)
 
 
 @router.post("/apply/{job_id}")
@@ -212,26 +296,10 @@ async def apply_job(job_id: int, resume_filename: str = "", username: str = Depe
         "source": "candidate",
         "workflow_id": workflow_id,
     })
-    plan = plan_repo.create({
-        "candidate_name": candidate.get("candidate_name") or username,
-        "candidate_username": username,
-        "jd_name": jd.get("name", ""),
-        "jd_id": job_id,
-        "recruitment_type": jd.get("recruitment_type", "社招"),
-        "status": "pending",
-        "stage_order": 1,
-        "stage_count": 1,
-        "workflow_id": workflow_id,
-        "workflow_name": f"投递：{jd.get('name', '')}",
-        "resume_filename": existing_resume,
-        "resume_id": resume.get("id") if resume else None,
-        "application_id": application.get("id"),
-        "match_score": match_score,
-    })
     return {
         "applied": True,
         "application": application,
-        "plan": plan,
+        "plan": None,
         "message": "投递成功",
         "has_resume": bool(existing_resume),
     }
@@ -354,8 +422,8 @@ async def cancel_my_application(application_id: int, username: str = Depends(get
     application = application_repo.get_by_id(application_id)
     if not application or application.get("candidate_username") != username:
         raise HTTPException(status_code=404, detail="投递记录不存在")
-    if application.get("status") == "cancel":
-        return {"status": "cancel", "application": application}
+    if application.get("status") in {"withdrawn", "cancel"}:
+        return {"status": "withdrawn", "application": application}
 
     plans = plan_repo.list_by_workflow_id(application.get("workflow_id", ""))
     if any(plan.get("status") in {"running", "finish"} for plan in plans):
@@ -364,7 +432,7 @@ async def cancel_my_application(application_id: int, username: str = Depends(get
         if plan.get("status") in {"pending", "wait"}:
             plan_repo.update(plan["id"], {"status": "cancel"})
     cancelled = application_repo.cancel(application_id)
-    return {"status": "cancel", "application": cancelled}
+    return {"status": "withdrawn", "application": cancelled}
 
 
 @router.get("/{pid}")
@@ -455,7 +523,9 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
         if int(application.get("resume_id") or 0) != int((resume or {}).get("id") or 0):
             raise HTTPException(status_code=400, detail="投递记录与当前简历不匹配")
         for old_plan in plan_repo.list_by_application_id(int(application["id"])):
-            if old_plan.get("status") != "finish":
+            if str(old_plan.get("workflow_id") or "").startswith("apply_"):
+                plan_repo.delete(old_plan["id"])
+            elif old_plan.get("status") != "finish":
                 plan_repo.update(old_plan["id"], {"status": "cancel", "active_session_id": ""})
         application = application_repo.attach_workflow(int(application["id"]), workflow_id)
     else:
@@ -470,6 +540,8 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
             "recruitment_type": body.recruitment_type,
             "source": "admin",
             "screening_status": "初筛通过",
+            "status": "active",
+            "current_stage": "interview",
             "workflow_id": workflow_id,
         })
     resume_filename = (resume or {}).get("file_path") or body.resume_filename
@@ -513,6 +585,14 @@ async def update_plan(pid: int, body: PlanUpdate, _: dict = Depends(require_admi
     p = plan_repo.update(pid, data)
     if not p:
         raise HTTPException(status_code=404, detail="计划不存在")
+    if p.get("status") == "finish" and p.get("interview_result") in {"pass", "reject"}:
+        action_body = PlanAction(
+            action=p["interview_result"],
+            interview_result=p["interview_result"],
+            result_score=p.get("result_score"),
+            result_note=p.get("result_note"),
+        )
+        p = _apply_plan_action(pid, action_body)
     return _mask_password(p)
 
 
@@ -534,6 +614,16 @@ def _apply_plan_action(pid: int, body: PlanAction):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not p:
         raise HTTPException(status_code=404, detail="计划不存在")
+    if p.get("application_id") and body.action in {"pass", "reject"}:
+        application_id = int(p["application_id"])
+        if body.action == "reject":
+            application_repo.update_offer(application_id, "rejected")
+        else:
+            plans = plan_repo.list_by_application_id(application_id)
+            if plans and all(plan.get("interview_result") == "pass" for plan in plans):
+                application_repo.update_offer(application_id, "pending")
+            else:
+                application_repo.update_lifecycle(application_id, "active", "interview")
     return p
 
 

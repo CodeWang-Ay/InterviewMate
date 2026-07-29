@@ -141,6 +141,8 @@ def _load_records() -> list[dict]:
                 record = json.load(f)
         except (OSError, json.JSONDecodeError):
             continue
+        if str(record.get("workflow_id") or "").startswith("apply_"):
+            continue
         session_id = record.get("session_id") or fname.replace(".json", "")
         report_path = os.path.join(INTERVIEW_DIR, f"{session_id}_report.json")
         report = {}

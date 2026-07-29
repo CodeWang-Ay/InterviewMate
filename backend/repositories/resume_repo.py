@@ -185,11 +185,13 @@ def _management_row(row: sqlite3.Row) -> dict:
     application_jd_name = item.pop("application_jd_name", "")
     application_source = item.pop("application_source", "")
     application_status = item.pop("joined_application_status", "")
+    application_current_stage = item.pop("application_current_stage", "")
     application_screening_status = item.pop("application_screening_status", "")
     application_created_at = item.pop("application_created_at", "")
     if application_id:
         item["application_id"] = application_id
         item["application_status"] = application_status
+        item["application_current_stage"] = application_current_stage
         item["jd_id"] = application_jd_id
         item["jd_name"] = application_jd_name or ""
         item["source"] = application_source or item.get("source") or "candidate"
@@ -223,7 +225,7 @@ def list_management_paged(
     join_sql = """
         FROM resumes r
         LEFT JOIN applications a
-          ON a.resume_id=r.id AND a.status<>'cancel'
+          ON a.resume_id=r.id AND a.status NOT IN ('withdrawn', 'cancel')
     """
     select_sql = """
         SELECT r.*,
@@ -232,6 +234,7 @@ def list_management_paged(
                a.jd_name AS application_jd_name,
                a.source AS application_source,
                a.status AS joined_application_status,
+               a.current_stage AS application_current_stage,
                a.screening_status AS application_screening_status,
                a.created_at AS application_created_at
     """

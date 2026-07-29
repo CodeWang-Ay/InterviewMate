@@ -130,6 +130,7 @@ async def update_resume(
                 **resume,
                 "application_id": application_id,
                 "application_status": (updated_application or {}).get("status", ""),
+                "application_current_stage": (updated_application or {}).get("current_stage", ""),
                 "candidate_status": (updated_application or {}).get("screening_status", screening_status),
                 "jd_id": (updated_application or {}).get("jd_id"),
                 "jd_name": (updated_application or {}).get("jd_name", ""),
