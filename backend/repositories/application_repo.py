@@ -261,6 +261,56 @@ def create(data: dict) -> dict:
     return dict(row) if row else {}
 
 
+def create_candidate_once(data: dict) -> tuple[dict, bool]:
+    """原子地创建候选人岗位投递，防止双击或网络重试产生重复记录。"""
+    username = str(data.get("candidate_username") or "").strip()
+    jd_id = data.get("jd_id")
+    if not username or not jd_id:
+        return create(data), True
+    source = str(data.get("source") or "candidate").strip()
+    if source not in APPLICATION_SOURCES:
+        source = "candidate"
+    with _conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            """
+            SELECT * FROM applications
+            WHERE candidate_username=? AND jd_id=?
+              AND status NOT IN ('withdrawn', 'cancel')
+            ORDER BY id DESC LIMIT 1
+            """,
+            (username, jd_id),
+        ).fetchone()
+        if existing:
+            return dict(existing), False
+        cur = conn.execute(
+            """
+            INSERT INTO applications (
+                candidate_username, candidate_name, jd_id, jd_name, resume_id,
+                match_score, match_details, recruitment_type, source, status, workflow_id,
+                screening_status, current_stage
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                username,
+                data.get("candidate_name", ""),
+                jd_id,
+                data.get("jd_name", ""),
+                data.get("resume_id"),
+                data.get("match_score", 0),
+                data.get("match_details", "{}"),
+                normalize_recruitment_type(data.get("recruitment_type")),
+                source,
+                normalize_application_status(data.get("status")),
+                data.get("workflow_id", ""),
+                normalize_screening_status(data.get("screening_status")),
+                normalize_application_stage(data.get("current_stage")),
+            ),
+        )
+        row = conn.execute("SELECT * FROM applications WHERE id=?", (cur.lastrowid,)).fetchone()
+    return (dict(row) if row else {}), True
+
+
 def update_match(application_id: int, match_score: int, match_details: str) -> dict | None:
     for attempt in range(3):
         try:

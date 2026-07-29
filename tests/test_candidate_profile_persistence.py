@@ -43,6 +43,26 @@ class CandidateProfilePersistenceTest(unittest.TestCase):
         self.assertEqual(session_result["avatar"], avatar_url)
         self.assertEqual(session_result["email"], "avatar@example.com")
 
+    def test_remembered_session_survives_memory_cache_reset(self):
+        candidate_repo.register("remember-user", "password123", "长期登录用户")
+
+        login_result = candidate_repo.login("remember-user", "password123", remember_me=True)
+        token = login_result["token"]
+        candidate_repo.tokens.clear()
+
+        self.assertEqual(candidate_repo.get_candidate_by_token(token), "remember-user")
+        with candidate_repo._conn() as conn:
+            row = conn.execute(
+                "SELECT token_hash, expires_at FROM auth_sessions WHERE username=?",
+                ("remember-user",),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertNotEqual(row["token_hash"], token)
+
+        candidate_repo.logout(token)
+        candidate_repo.tokens.clear()
+        self.assertIsNone(candidate_repo.get_candidate_by_token(token))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,9 @@
 import hashlib
 import sqlite3
-import uuid
-
 import bcrypt
 
 from backend.config import DB_PATH
+from backend.repositories import auth_session_repo
 
 
 class _ClosingConnection(sqlite3.Connection):
@@ -132,7 +131,7 @@ def register(username: str, password: str, nickname: str = "", phone: str = "") 
         return None
 
 
-def login(username: str, password: str) -> dict | None:
+def login(username: str, password: str, remember_me: bool = False) -> dict | None:
     with _conn() as conn:
         row = conn.execute(
             "SELECT * FROM admins WHERE username=?",
@@ -149,7 +148,7 @@ def login(username: str, password: str) -> dict | None:
                 "UPDATE admins SET password_hash=? WHERE username=?",
                 (_hash(password), username),
             )
-    token = uuid.uuid4().hex
+    token = auth_session_repo.create(username, "admin", remember_me, DB_PATH)
     tokens[token] = username
     return {
         "token": token,
@@ -165,7 +164,12 @@ def login(username: str, password: str) -> dict | None:
 
 
 def get_admin_by_token(token: str) -> str | None:
-    return tokens.get(token)
+    username = auth_session_repo.get_username(token, "admin", DB_PATH)
+    if username:
+        tokens[token] = username
+    else:
+        tokens.pop(token, None)
+    return username
 
 
 def get_admin_info(username: str) -> dict | None:
@@ -208,3 +212,4 @@ def update_avatar(username: str, avatar_url: str) -> bool:
 
 def logout(token: str):
     tokens.pop(token, None)
+    auth_session_repo.delete(token, "admin", DB_PATH)

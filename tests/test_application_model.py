@@ -1,11 +1,21 @@
+import asyncio
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.repositories import application_repo, plan_repo, resume_repo
-from backend.controllers.plan_controller import PlanAction, _apply_plan_action
+from fastapi import HTTPException
+
+from backend.repositories import application_repo, candidate_repo, plan_repo, resume_repo
+from backend.controllers.plan_controller import (
+    PlanAction,
+    ResumeEditBody,
+    _apply_plan_action,
+    _resume_media_type,
+    cancel_my_application,
+    update_my_resume,
+)
 from backend.config import chat_sessions
 from backend.services.chat_service import end_session_early
 from backend.services.job_match_service import calculate_resume_jd_match
@@ -19,12 +29,14 @@ class ApplicationModelTest(unittest.TestCase):
             patch.object(resume_repo, "DB_PATH", self.db_path),
             patch.object(plan_repo, "DB_PATH", self.db_path),
             patch.object(application_repo, "DB_PATH", self.db_path),
+            patch.object(candidate_repo, "DB_PATH", self.db_path),
         ]
         for item in self.patches:
             item.start()
         resume_repo.init_db()
         plan_repo.init_db()
         application_repo.init_db()
+        candidate_repo.init_db()
 
     def tearDown(self):
         chat_sessions.clear()
@@ -64,6 +76,97 @@ class ApplicationModelTest(unittest.TestCase):
         self.assertEqual(application_repo.find_by_candidate_and_jd("candidate-user", 9)["id"], application["id"])
         self.assertEqual(len(application_repo.list_by_resume_id(resume["id"])), 1)
         self.assertEqual(application_repo.cancel(application["id"])["status"], "withdrawn")
+
+    def test_candidate_can_cancel_only_before_screening_is_processed(self):
+        pending = application_repo.create({
+            "candidate_username": "candidate-user",
+            "candidate_name": "候选人",
+            "jd_id": 91,
+            "jd_name": "前端工程师",
+            "source": "candidate",
+            "workflow_id": "apply-cancellable",
+        })
+
+        result = asyncio.run(cancel_my_application(pending["id"], "candidate-user"))
+
+        self.assertEqual(result["status"], "withdrawn")
+        self.assertEqual(application_repo.get_by_id(pending["id"])["status"], "withdrawn")
+
+        screened = application_repo.create({
+            "candidate_username": "candidate-user",
+            "candidate_name": "候选人",
+            "jd_id": 92,
+            "jd_name": "测试工程师",
+            "source": "candidate",
+            "workflow_id": "apply-screened",
+        })
+        application_repo.update_screening(screened["id"], "初筛通过")
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(cancel_my_application(screened["id"], "candidate-user"))
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(application_repo.get_by_id(screened["id"])["status"], "active")
+
+    def test_candidate_application_creation_is_idempotent(self):
+        payload = {
+            "candidate_username": "double-click-user",
+            "candidate_name": "重复投递测试",
+            "jd_id": 93,
+            "jd_name": "并发测试工程师",
+            "source": "candidate",
+            "workflow_id": "apply-first",
+        }
+
+        first, first_created = application_repo.create_candidate_once(payload)
+        second, second_created = application_repo.create_candidate_once({
+            **payload,
+            "workflow_id": "apply-network-retry",
+        })
+
+        self.assertTrue(first_created)
+        self.assertFalse(second_created)
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(
+            len(application_repo.list_by_candidate_username("double-click-user")),
+            1,
+        )
+
+    def test_resume_edit_uses_current_profile_resume_instead_of_historical_plan_resume(self):
+        candidate_repo.register("resume-owner", "password123", "简历用户")
+        historical = resume_repo.create({
+            "name": "历史简历",
+            "file_path": "historical.pdf",
+            "candidate_username": "resume-owner",
+            "source": "candidate",
+        })
+        current = resume_repo.create({
+            "name": "当前简历",
+            "file_path": "current.docx",
+            "original_name": "我的当前简历.docx",
+            "candidate_username": "resume-owner",
+            "source": "candidate",
+        })
+        candidate_repo.update_profile("resume-owner", {"resume_filename": current["file_path"]})
+        plan_repo.create({
+            "candidate_username": "resume-owner",
+            "resume_filename": historical["file_path"],
+            "workflow_id": "historical-workflow",
+        })
+
+        updated = asyncio.run(update_my_resume(
+            ResumeEditBody(target_position="最新目标岗位"),
+            "resume-owner",
+        ))
+
+        self.assertEqual(updated["id"], current["id"])
+        self.assertEqual(updated["target_position"], "最新目标岗位")
+        self.assertEqual(resume_repo.get_by_id(historical["id"])["target_position"], "")
+        self.assertEqual(
+            _resume_media_type({"original_name": "候选人简历.docx"}),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        self.assertEqual(_resume_media_type({"file_path": "候选人.txt"}), "text/plain")
 
     def test_resumes_can_be_owned_and_filtered_by_source(self):
         resume_repo.create({

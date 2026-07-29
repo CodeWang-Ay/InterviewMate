@@ -40,10 +40,12 @@ onMounted(() => {
   }
   try {
     const prefix = isCandidateLogin.value ? 'candidate' : 'admin'
-    rememberPassword.value = localStorage.getItem(`${prefix}_remember_password`) === '1'
+    // 清理旧版本曾写入 localStorage 的明文密码。
+    localStorage.removeItem(`${prefix}_saved_password`)
+    localStorage.removeItem(`${prefix}_remember_password`)
+    rememberPassword.value = localStorage.getItem(`${prefix}_remember_login`) === '1'
     if (rememberPassword.value) {
       username.value = localStorage.getItem(`${prefix}_saved_username`) || ''
-      password.value = localStorage.getItem(`${prefix}_saved_password`) || ''
     }
   } catch (_) {
     rememberPassword.value = false
@@ -53,6 +55,7 @@ onMounted(() => {
 function clearRememberedPassword() {
   try {
     const prefix = isCandidateLogin.value ? 'candidate' : 'admin'
+    localStorage.removeItem(`${prefix}_remember_login`)
     localStorage.removeItem(`${prefix}_remember_password`)
     localStorage.removeItem(`${prefix}_saved_username`)
     localStorage.removeItem(`${prefix}_saved_password`)
@@ -72,7 +75,11 @@ async function doLogin() {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username.value.trim(), password: password.value }),
+      body: JSON.stringify({
+        username: username.value.trim(),
+        password: password.value,
+        remember_me: rememberPassword.value,
+      }),
     })
     if (!res.ok) {
       const err = await res.json()
@@ -88,9 +95,9 @@ async function doLogin() {
     localStorage.setItem('role', data.role || 'user')
     if (rememberPassword.value) {
       const prefix = isCandidateLogin.value ? 'candidate' : 'admin'
-      localStorage.setItem(`${prefix}_remember_password`, '1')
+      localStorage.setItem(`${prefix}_remember_login`, '1')
       localStorage.setItem(`${prefix}_saved_username`, username.value.trim())
-      localStorage.setItem(`${prefix}_saved_password`, password.value)
+      localStorage.removeItem(`${prefix}_saved_password`)
     } else {
       clearRememberedPassword()
     }
@@ -248,8 +255,8 @@ async function doLogin() {
                 :class="isCandidateLogin ? 'accent-emerald-500' : 'accent-sky-600'"
                 @change="onRememberPasswordChange"
               >
-              <span>记住密码</span>
-              <span class="text-xs text-slate-400">仅保存在当前设备</span>
+              <span>保持登录 30 天</span>
+              <span class="text-xs text-slate-400">不会在浏览器保存密码</span>
             </label>
 
             <button

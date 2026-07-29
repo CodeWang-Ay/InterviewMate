@@ -23,6 +23,7 @@ const resumePreviewLoading = ref(false)
 const resumePreviewSrc = ref('')
 const showOriginalResume = ref(false)
 const favoriteJobs = ref([])
+const favoriteRefreshing = ref(false)
 const resumeUploading = ref(false)
 const pendingApplyJob = ref(null)
 const uploadedResumeFile = ref('')
@@ -125,6 +126,7 @@ const workflowGroups = computed(() => {
         application_created_at: plan.application_created_at || '',
         offer_status: plan.offer_status || '',
         offer_updated_at: plan.offer_updated_at || '',
+        match_score: Number(plan.match_score || 0),
         candidate_name: plan.candidate_name || nickname.value || username.value || '候选人',
         jd_name: plan.jd_name || '目标岗位',
         recruitment_type: normalizeRecruitmentType(plan.recruitment_type),
@@ -143,6 +145,7 @@ const workflowGroups = computed(() => {
     if (!group.application_created_at && plan.application_created_at) group.application_created_at = plan.application_created_at
     if (!group.offer_status && plan.offer_status) group.offer_status = plan.offer_status
     if (!group.offer_updated_at && plan.offer_updated_at) group.offer_updated_at = plan.offer_updated_at
+    if (!group.match_score && Number(plan.match_score) > 0) group.match_score = Number(plan.match_score)
     if (!group.location && plan.location) group.location = plan.location
   })
   return Array.from(map.values()).map(group => {
@@ -206,7 +209,6 @@ const activeGroup = computed(() => {
 const currentPlan = computed(() => activeGroup.value?.current_plan || null)
 const applicationCount = computed(() => currentWorkflowGroups.value.length)
 const closedWorkflowCount = computed(() => currentWorkflowGroups.value.filter(group => {
-  if (!group.plans.length) return false
   return ['rejected', 'hired', 'closed'].includes(group.application_status)
 }).length)
 const activeInterviewCount = computed(() => plans.value.filter(plan => ['wait', 'running'].includes(plan.status)).length)
@@ -263,12 +265,22 @@ onUnmounted(() => {
   if (plansRefreshTimer) window.clearInterval(plansRefreshTimer)
 })
 
-async function loadFavoriteJobs() {
+async function loadFavoriteJobs(withAnimation = false) {
+  if (favoriteRefreshing.value) return
+  const startedAt = Date.now()
+  if (withAnimation) favoriteRefreshing.value = true
   try {
     try { localStorage.removeItem('favorite_jobs') } catch (_) {}
     const res = await fetch('/api/jds/favorites', { cache: 'no-store' })
     favoriteJobs.value = res.ok ? await res.json() : []
   } catch (_) { favoriteJobs.value = [] }
+  finally {
+    if (withAnimation) {
+      const remaining = Math.max(0, 520 - (Date.now() - startedAt))
+      if (remaining) await new Promise(resolve => window.setTimeout(resolve, remaining))
+      favoriteRefreshing.value = false
+    }
+  }
 }
 
 watch(activeTab, loadRecommendedJobs)
@@ -613,7 +625,10 @@ function resumeSectionRows(section, item) {
   ]
 }
 
-function logout() {
+async function logout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' })
+  } catch (_) {}
   try {
     ;['token', 'username', 'nickname', 'avatar', 'role', 'email', 'phone', 'company', 'bio'].forEach(key => localStorage.removeItem(key))
   } catch (_) {}
@@ -773,16 +788,17 @@ async function respondOffer(group, action) {
 }
 
 function groupMatchPercent(group) {
-  const matchedPlan = group?.plans?.find(plan => Number(plan.match_score) > 0)
-  if (!matchedPlan) return null
-  return Math.min(Math.max(Number(matchedPlan.match_score), 0), 100)
+  const score = Number(group?.match_score || group?.plans?.find(plan => Number(plan.match_score) > 0)?.match_score || 0)
+  if (score <= 0) return null
+  return Math.min(Math.max(score, 0), 100)
 }
 
 function canCancelApplication(group) {
   return Boolean(
     group?.application_id &&
-    group.plans?.length &&
-    group.plans.every(plan => ['pending', 'wait'].includes(plan.status))
+    group.application_status === 'active' &&
+    group.application_current_stage === 'screening' &&
+    group.screening_status === '待筛选'
   )
 }
 
@@ -1217,7 +1233,15 @@ function jobSummary(job) {
         <div class="rounded-2xl bg-white p-6 shadow-[0_16px_42px_rgba(15,35,80,0.08)]">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-black">我的收藏</h2>
-            <button class="text-sm font-bold text-[#4b6cff]" @click="loadFavoriteJobs"><i class="fa fa-refresh mr-1"></i>刷新</button>
+            <button
+              class="inline-flex min-w-[76px] items-center justify-center rounded-lg px-2.5 py-1.5 text-sm font-bold text-[#4b6cff] transition hover:bg-[#eef2ff] disabled:cursor-wait disabled:text-[#8fa2e8]"
+              :disabled="favoriteRefreshing"
+              :aria-busy="favoriteRefreshing"
+              @click="loadFavoriteJobs(true)"
+            >
+              <i :class="['fa fa-refresh mr-1.5', favoriteRefreshing ? 'fa-spin' : '']"></i>
+              {{ favoriteRefreshing ? '刷新中' : '刷新' }}
+            </button>
           </div>
           <div v-if="favoriteJobs.length" class="space-y-3">
             <div v-for="job in favoriteJobs" :key="job.id" class="flex items-center justify-between rounded-xl border border-[#edf1f7] p-3 hover:bg-[#f8fbff] cursor-pointer" @click="router.push(`/jobs/${job.id}`)">
@@ -1256,7 +1280,14 @@ function jobSummary(job) {
                 <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#4776ff]">Resume Profile</div>
                 <h3 class="mt-1 text-xl font-black text-[#202838]">简历解析</h3>
               </div>
-              <span class="rounded-full bg-[#e7f8ef] px-3 py-1 text-xs font-bold text-[#15a05f]">{{ viewingResume.parse_status === 'success' ? '解析成功' : '待解析' }}</span>
+              <span
+                class="rounded-full px-3 py-1 text-xs font-bold"
+                :class="viewingResume.parse_status === 'success'
+                  ? 'bg-[#e7f8ef] text-[#15a05f]'
+                  : viewingResume.parse_status === 'fail'
+                    ? 'bg-red-50 text-red-600'
+                    : 'bg-amber-50 text-amber-700'"
+              >{{ viewingResume.parse_status === 'success' ? '解析成功' : viewingResume.parse_status === 'fail' ? '解析失败' : '未解析' }}</span>
             </div>
             <div v-if="viewingResume.structured_data" class="overflow-hidden rounded-xl border border-[#dfe6f0]">
               <table class="w-full table-fixed border-collapse text-sm leading-7 text-[#344054]">

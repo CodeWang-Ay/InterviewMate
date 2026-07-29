@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import re
 import secrets
 import uuid
@@ -284,7 +285,7 @@ async def apply_job(job_id: int, resume_filename: str = "", username: str = Depe
     workflow_id = f"apply_{job_id}_{username}_{uuid.uuid4().hex[:6]}"
     match_result = evaluate_resume_match(resume["id"], job_id) if resume else None
     match_score = int((match_result or {}).get("total_score") or 0)
-    application = application_repo.create({
+    application, created = application_repo.create_candidate_once({
         "candidate_name": candidate.get("candidate_name") or username,
         "candidate_username": username,
         "jd_id": job_id,
@@ -300,13 +301,13 @@ async def apply_job(job_id: int, resume_filename: str = "", username: str = Depe
         "applied": True,
         "application": application,
         "plan": None,
-        "message": "投递成功",
+        "message": "投递成功" if created else "已投递过该岗位",
         "has_resume": bool(existing_resume),
     }
 
 
-@router.get("/my-resume")
-async def my_resume(filename: str = Query(""), username: str = Depends(get_current_candidate)):
+def _resolve_candidate_resume(username: str, filename: str = "") -> dict | None:
+    """统一解析候选人的简历版本：显式指定优先，否则使用个人资料绑定的当前版本。"""
     plans = plan_repo.list_by_candidate_username(username)
     allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
     candidate = candidate_repo.get_candidate_info(username) or {}
@@ -314,8 +315,21 @@ async def my_resume(filename: str = Query(""), username: str = Depends(get_curre
     if candidate_resume:
         allowed_files.add(candidate_resume)
     allowed_files.update(item.get("file_path", "") for item in resume_repo.list_by_candidate_username(username))
-    selected = filename if filename in allowed_files else next((item for item in allowed_files if item), "")
-    resume = resume_repo.get_by_file_path(selected)
+    selected = filename if filename in allowed_files else candidate_resume
+    if not selected:
+        selected = next((item for item in allowed_files if item), "")
+    return resume_repo.get_by_file_path(selected) if selected else None
+
+
+def _resume_media_type(resume: dict) -> str:
+    filename = str(resume.get("original_name") or resume.get("file_path") or "")
+    guessed, _ = mimetypes.guess_type(filename)
+    return guessed or "application/octet-stream"
+
+
+@router.get("/my-resume")
+async def my_resume(filename: str = Query(""), username: str = Depends(get_current_candidate)):
+    resume = _resolve_candidate_resume(username, filename)
     if not resume:
         raise HTTPException(status_code=404, detail="暂未找到绑定的简历")
     return resume
@@ -323,21 +337,17 @@ async def my_resume(filename: str = Query(""), username: str = Depends(get_curre
 
 @router.get("/my-resume/file")
 async def my_resume_file(filename: str = Query(""), username: str = Depends(get_current_candidate)):
-    plans = plan_repo.list_by_candidate_username(username)
-    allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
-    candidate = candidate_repo.get_candidate_info(username) or {}
-    candidate_resume = str(candidate.get("resume_filename") or "")
-    if candidate_resume:
-        allowed_files.add(candidate_resume)
-    allowed_files.update(item.get("file_path", "") for item in resume_repo.list_by_candidate_username(username))
-    selected = filename if filename in allowed_files else next((item for item in allowed_files if item), "")
-    resume = resume_repo.get_by_file_path(selected)
+    resume = _resolve_candidate_resume(username, filename)
     if not resume or not resume.get("file_path"):
         raise HTTPException(status_code=404, detail="暂未找到绑定的简历文件")
     file_path = os.path.join(UPLOAD_DIR, "resume", resume["file_path"])
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="简历文件不存在")
-    return FileResponse(file_path, filename=resume.get("original_name") or resume["file_path"], media_type="application/pdf")
+    return FileResponse(
+        file_path,
+        filename=resume.get("original_name") or resume["file_path"],
+        media_type=_resume_media_type(resume),
+    )
 
 
 class ResumeEditBody(BaseModel):
@@ -349,17 +359,7 @@ class ResumeEditBody(BaseModel):
 @router.put("/my-resume")
 async def update_my_resume(body: ResumeEditBody, username: str = Depends(get_current_candidate)):
     """候选人编辑自己的简历结构化数据"""
-    plans = plan_repo.list_by_candidate_username(username)
-    allowed_files = {str(plan.get("resume_filename") or "") for plan in plans}
-    candidate = candidate_repo.get_candidate_info(username) or {}
-    candidate_resume = str(candidate.get("resume_filename") or "")
-    if candidate_resume:
-        allowed_files.add(candidate_resume)
-    allowed_files.update(item.get("file_path", "") for item in resume_repo.list_by_candidate_username(username))
-    if not allowed_files:
-        raise HTTPException(status_code=404, detail="暂未绑定简历")
-    selected = next((item for item in allowed_files if item), "")
-    resume = resume_repo.get_by_file_path(selected)
+    resume = _resolve_candidate_resume(username)
     if not resume:
         raise HTTPException(status_code=404, detail="简历不存在")
     data = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -434,6 +434,12 @@ async def cancel_my_application(application_id: int, username: str = Depends(get
         raise HTTPException(status_code=404, detail="投递记录不存在")
     if application.get("status") in {"withdrawn", "cancel"}:
         return {"status": "withdrawn", "application": application}
+    if (
+        application.get("status") != "active"
+        or application.get("current_stage") != "screening"
+        or application.get("screening_status") != "待筛选"
+    ):
+        raise HTTPException(status_code=409, detail="简历初筛已经处理，当前投递不能取消")
 
     plans = plan_repo.list_by_workflow_id(application.get("workflow_id", ""))
     if any(plan.get("status") in {"running", "finish"} for plan in plans):

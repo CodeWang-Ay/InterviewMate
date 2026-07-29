@@ -155,7 +155,10 @@ async function changePassword() {
   pwdLoading.value = false
 }
 
-function doLogout() {
+async function doLogout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' })
+  } catch (_) {}
   localStorage.clear()
   router.push('/admin/login')
 }

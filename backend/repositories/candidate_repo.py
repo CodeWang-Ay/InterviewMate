@@ -1,10 +1,9 @@
 import hashlib
 import sqlite3
-import uuid
-
 import bcrypt
 
 from backend.config import DB_PATH
+from backend.repositories import auth_session_repo
 
 
 class _ClosingConnection(sqlite3.Connection):
@@ -108,7 +107,7 @@ def register(username: str, password: str, candidate_name: str = "", phone: str 
         return None
 
 
-def login(username: str, password: str) -> dict | None:
+def login(username: str, password: str, remember_me: bool = False) -> dict | None:
     with _conn() as conn:
         row = conn.execute(
             "SELECT * FROM candidates WHERE username=?",
@@ -124,7 +123,7 @@ def login(username: str, password: str) -> dict | None:
                 "UPDATE candidates SET password_hash=? WHERE username=?",
                 (_hash(password), username),
             )
-    token = uuid.uuid4().hex
+    token = auth_session_repo.create(username, "candidate", remember_me, DB_PATH)
     tokens[token] = username
     return {
         "token": token,
@@ -138,7 +137,12 @@ def login(username: str, password: str) -> dict | None:
 
 
 def get_candidate_by_token(token: str) -> str | None:
-    return tokens.get(token)
+    username = auth_session_repo.get_username(token, "candidate", DB_PATH)
+    if username:
+        tokens[token] = username
+    else:
+        tokens.pop(token, None)
+    return username
 
 
 def get_candidate_info(username: str) -> dict | None:
@@ -171,3 +175,4 @@ def update_profile(username: str, data: dict) -> bool:
 
 def logout(token: str):
     tokens.pop(token, None)
+    auth_session_repo.delete(token, "candidate", DB_PATH)

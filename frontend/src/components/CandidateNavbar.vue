@@ -34,7 +34,10 @@ function navigate(path) {
   router.push(path)
 }
 
-function logout() {
+async function logout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' })
+  } catch (_) {}
   try {
     ;['token', 'username', 'nickname', 'avatar', 'role', 'email', 'phone', 'company', 'bio']
       .forEach(key => localStorage.removeItem(key))

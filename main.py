@@ -29,6 +29,7 @@ from backend.repositories.plan_repo import init_db as init_plan_db
 from backend.repositories.task_repo import init_db as init_task_db
 from backend.repositories.application_repo import init_db as init_application_db
 from backend.repositories.favorite_repo import init_db as init_favorite_db
+from backend.repositories.auth_session_repo import init_db as init_auth_session_db
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -41,6 +42,7 @@ init_resume_db()
 init_resume_parse_cache_db()
 init_admin_db()
 init_candidate_db()
+init_auth_session_db()
 init_plan_db()
 init_application_db()
 init_favorite_db()

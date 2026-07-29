@@ -71,6 +71,7 @@ def require_admin(user: dict = Depends(get_current_admin_info)) -> dict:
 class LoginBody(BaseModel):
     username: str
     password: str
+    remember_me: bool = False
 
 
 class RegisterBody(BaseModel):
@@ -108,7 +109,7 @@ async def register(body: RegisterBody):
 
 @router.post("/login")
 async def login(body: LoginBody):
-    result = admin_repo.login(body.username.strip(), body.password)
+    result = admin_repo.login(body.username.strip(), body.password, body.remember_me)
     if result is None:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     return {"status": "ok", **result}
@@ -116,7 +117,7 @@ async def login(body: LoginBody):
 
 @router.post("/candidate-login")
 async def candidate_login(body: LoginBody):
-    result = candidate_repo.login(body.username.strip(), body.password)
+    result = candidate_repo.login(body.username.strip(), body.password, body.remember_me)
     if result is None:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     return {"status": "ok", **result}
@@ -140,7 +141,10 @@ async def session_info(identity: dict = Depends(get_current_identity)):
 
 
 @router.post("/logout")
-async def logout(body: LoginBody):
+async def logout(authorization: str | None = Header(None)):
+    token = _read_token(authorization)
+    admin_repo.logout(token)
+    candidate_repo.logout(token)
     return {"status": "ok"}
 
 
