@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -11,6 +11,7 @@ const recommendedJobs = ref([])
 const error = ref('')
 const expandedWorkflows = ref(new Set())
 const activeTab = ref('social')
+let plansRefreshTimer = null
 const username = ref('')
 const nickname = ref('')
 const phone = ref('')
@@ -55,6 +56,19 @@ const tabs = [
   { key: 'campus', label: '校园招聘' },
   { key: 'internship', label: '实习生招聘' },
 ]
+
+function recruitmentTypeForTab(tabKey) {
+  return {
+    social: '社招',
+    campus: '校招',
+    internship: '实习生',
+  }[tabKey] || '社招'
+}
+
+function tabApplicationCount(tabKey) {
+  const recruitmentType = recruitmentTypeForTab(tabKey)
+  return currentWorkflowGroups.value.filter(group => group.recruitment_type === recruitmentType).length
+}
 
 const activeQuotaItem = computed(() => {
   const quotaKey = {
@@ -191,6 +205,15 @@ onMounted(async () => {
   }
   loadRecommendedJobs()
   loadFavoriteJobs()
+  window.addEventListener('focus', refreshPlansSilently)
+  document.addEventListener('visibilitychange', refreshPlansWhenVisible)
+  plansRefreshTimer = window.setInterval(refreshPlansSilently, 15000)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('focus', refreshPlansSilently)
+  document.removeEventListener('visibilitychange', refreshPlansWhenVisible)
+  if (plansRefreshTimer) window.clearInterval(plansRefreshTimer)
 })
 
 async function loadFavoriteJobs() {
@@ -243,13 +266,22 @@ async function uploadAvatar(e) {
   e.target.value = ''
 }
 
-async function loadPlans() {
-  loading.value = true
+function refreshPlansSilently() {
+  if (document.visibilityState === 'visible') loadPlans(true)
+}
+
+function refreshPlansWhenVisible() {
+  if (document.visibilityState === 'visible') refreshPlansSilently()
+}
+
+async function loadPlans(silent = false) {
+  if (!silent) loading.value = true
   error.value = ''
   try {
     const token = localStorage.getItem('token') || ''
     const res = await fetch('/api/plans/my', {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: 'no-store',
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
@@ -264,7 +296,7 @@ async function loadPlans() {
   } catch (e) {
     error.value = e.message
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -555,19 +587,25 @@ function statusPillClass(status) {
   }[status] || 'bg-[#eef1f6] text-[#7c8595]'
 }
 
-function lineClass(plan) {
-  if (plan.interview_result === 'reject') return 'bg-[#ef4444]'
-  if (plan.status === 'finish') return 'bg-[#22c55e]'
+function lineClass(plan, group) {
+  if (plan.interview_result === 'pass') return 'bg-[#22c55e]'
   if (['wait', 'running'].includes(plan.status)) return 'bg-[#4776ff]'
   return 'bg-[#ccd4e2]'
 }
 
-function nodeClass(plan) {
-  if (plan.interview_result === 'reject') return 'bg-[#ef4444] text-white'
-  if (plan.status === 'finish') return 'bg-[#22c55e] text-white'
+function nodeClass(plan, group) {
+  if (plan.interview_result === 'pass') return 'bg-[#22c55e] text-white'
+  if (group.application_status === 'rejected' || plan.interview_result === 'reject' || plan.status === 'cancel') return 'bg-[#c7ccd6] text-white'
+  if (plan.status === 'finish') return 'bg-[#f59e0b] text-white'
   if (plan.status === 'running') return 'bg-[#4776ff] text-white'
   if (plan.status === 'wait') return 'bg-[#11b89f] text-white'
   return 'bg-[#d8deea] text-[#657084]'
+}
+
+function groupStatusPillClass(group) {
+  if (group.application_status === 'rejected') return 'bg-[#d8dce5] text-[#667085]'
+  if (group.application_status === 'hired') return 'bg-[#e7f8ef] text-[#15a05f]'
+  return statusPillClass(group.latest_status)
 }
 
 function groupStatusText(group) {
@@ -599,7 +637,8 @@ function planStatusText(plan, group) {
   return statusLabel(plan.status)
 }
 
-function offerStatusText(status) {
+function offerStatusText(status, applicationStatus = '') {
+  if (applicationStatus === 'rejected' && !status) return '流程终止'
   return {
     pending: '待发放',
     offered: '待确认',
@@ -609,12 +648,20 @@ function offerStatusText(status) {
   }[status] || '未开始'
 }
 
-function offerNodeClass(status) {
+function offerNodeClass(status, applicationStatus = '') {
+  if (applicationStatus === 'rejected') return 'bg-[#c7ccd6] text-white'
   if (status === 'accepted') return 'bg-[#22c55e] text-white'
   if (status === 'offered') return 'bg-[#7c3aed] text-white'
-  if (['declined', 'rejected'].includes(status)) return 'bg-[#ef4444] text-white'
+  if (['declined', 'rejected'].includes(status)) return 'bg-[#c7ccd6] text-white'
   if (status === 'pending') return 'bg-[#f59e0b] text-white'
   return 'bg-[#d8deea] text-[#657084]'
+}
+
+function offerLineClass(group) {
+  if (group.offer_status === 'accepted') return 'bg-[#22c55e]'
+  if (group.application_status === 'rejected' || ['declined', 'rejected'].includes(group.offer_status)) return 'bg-[#ccd4e2]'
+  if (group.offer_status) return 'bg-[#8b5cf6]'
+  return 'bg-[#ccd4e2]'
 }
 
 async function respondOffer(group, action) {
@@ -864,6 +911,12 @@ function jobSummary(job) {
                 @click="activeTab = tab.key"
               >
                 {{ tab.label }}
+                <span
+                  class="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px]"
+                  :class="activeTab === tab.key ? 'bg-white/20 text-white' : 'bg-white text-[#667085]'"
+                >
+                  {{ tabApplicationCount(tab.key) }}
+                </span>
               </button>
             </div>
           </div>
@@ -871,7 +924,7 @@ function jobSummary(job) {
           <div v-if="loading" class="rounded-xl bg-[#f7f9fc] p-10 text-center text-[#667085]">正在加载你的面试安排...</div>
           <div v-else-if="error" class="rounded-xl border border-red-200 bg-red-50 p-8 text-center text-red-600">
             {{ error }}
-            <button class="ml-3 font-bold underline" @click="loadPlans">重试</button>
+            <button class="ml-3 font-bold underline" @click="loadPlans()">重试</button>
           </div>
           <div v-else-if="filteredWorkflowGroups.length" class="space-y-4">
             <article
@@ -887,7 +940,7 @@ function jobSummary(job) {
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-3">
                       <h3 class="truncate text-2xl font-black">{{ group.jd_name }}</h3>
-                      <span class="rounded-full px-3 py-1 text-sm font-bold" :class="statusPillClass(group.latest_status)">{{ groupStatusText(group) }}</span>
+                      <span class="rounded-full px-3 py-1 text-sm font-bold" :class="groupStatusPillClass(group)">{{ groupStatusText(group) }}</span>
                       <span
                         class="rounded-full border px-3 py-1 text-sm font-bold"
                         :class="groupMatchPercent(group) === null ? 'border-[#e4e9f1] bg-white text-[#98a2b3]' : 'border-[#ccefe7] bg-[#ecfdf8] text-[#0f9f8f]'"
@@ -915,27 +968,27 @@ function jobSummary(job) {
                 <div class="flex min-w-[680px] items-start">
                   <template v-for="(plan, index) in group.plans" :key="`summary-${plan.id}`">
                     <div class="flex w-[128px] shrink-0 flex-col items-center text-center">
-                      <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="nodeClass(plan)">
-                        <i v-if="plan.interview_result === 'reject'" class="fa fa-times"></i>
+                      <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="nodeClass(plan, group)">
+                        <i v-if="group.application_status === 'rejected' || plan.interview_result === 'reject'" class="fa fa-exclamation"></i>
                         <i v-else-if="plan.status === 'finish'" class="fa fa-check"></i>
                         <span v-else>{{ plan.stage_order || index + 1 }}</span>
                       </div>
-                      <div class="mt-2 font-bold" :class="['wait', 'running'].includes(plan.status) ? 'text-[#246bdb]' : plan.status === 'finish' ? 'text-[#15a05f]' : 'text-[#667085]'">
+                      <div class="mt-2 font-bold" :class="plan.interview_result === 'pass' ? 'text-[#15a05f]' : ['wait', 'running'].includes(plan.status) ? 'text-[#246bdb]' : 'text-[#667085]'">
                         {{ plan.interview_round }}
                       </div>
                       <div class="mt-1 text-xs text-[#8a94a6]">{{ planStatusText(plan, group) }}</div>
                     </div>
-                    <div v-if="index < group.plans.length - 1" class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="lineClass(plan)"></div>
+                    <div v-if="index < group.plans.length - 1" class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="lineClass(plan, group)"></div>
                   </template>
-                  <div class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="group.offer_status ? 'bg-[#8b5cf6]' : 'bg-[#ccd4e2]'"></div>
+                  <div class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="offerLineClass(group)"></div>
                   <div class="flex w-[128px] shrink-0 flex-col items-center text-center">
-                    <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="offerNodeClass(group.offer_status)">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="offerNodeClass(group.offer_status, group.application_status)">
                       <i v-if="group.offer_status === 'accepted'" class="fa fa-check"></i>
-                      <i v-else-if="['declined', 'rejected'].includes(group.offer_status)" class="fa fa-times"></i>
+                      <i v-else-if="group.application_status === 'rejected' || ['declined', 'rejected'].includes(group.offer_status)" class="fa fa-exclamation"></i>
                       <i v-else class="fa fa-envelope-o"></i>
                     </div>
-                    <div class="mt-2 font-bold" :class="group.offer_status ? 'text-[#6d28d9]' : 'text-[#667085]'">Offer</div>
-                    <div class="mt-1 text-xs text-[#8a94a6]">{{ offerStatusText(group.offer_status) }}</div>
+                    <div class="mt-2 font-bold" :class="group.offer_status === 'accepted' ? 'text-[#15a05f]' : group.application_status === 'rejected' ? 'text-[#667085]' : group.offer_status ? 'text-[#6d28d9]' : 'text-[#667085]'">Offer</div>
+                    <div class="mt-1 text-xs text-[#8a94a6]">{{ offerStatusText(group.offer_status, group.application_status) }}</div>
                   </div>
                 </div>
               </div>
@@ -969,7 +1022,7 @@ function jobSummary(job) {
                 <div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-4">
                   <div>
                     <div class="font-black text-violet-900"><i class="fa fa-envelope-o mr-2"></i>Offer 阶段</div>
-                    <div class="mt-1 text-sm text-violet-600">{{ offerStatusText(group.offer_status) }}</div>
+                    <div class="mt-1 text-sm text-violet-600">{{ offerStatusText(group.offer_status, group.application_status) }}</div>
                   </div>
                   <div v-if="group.offer_status === 'offered'" class="flex gap-2">
                     <button class="rounded-lg border border-red-200 bg-white px-4 py-2 font-bold text-red-600 hover:bg-red-50" @click="respondOffer(group, 'decline')">拒绝 Offer</button>

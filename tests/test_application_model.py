@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from backend.repositories import application_repo, plan_repo, resume_repo
 from backend.controllers.plan_controller import PlanAction, _apply_plan_action
+from backend.config import chat_sessions
+from backend.services.chat_service import end_session_early
 from backend.services.job_match_service import calculate_resume_jd_match
 
 
@@ -25,6 +27,7 @@ class ApplicationModelTest(unittest.TestCase):
         application_repo.init_db()
 
     def tearDown(self):
+        chat_sessions.clear()
         for item in reversed(self.patches):
             item.stop()
         self.temp_dir.cleanup()
@@ -440,6 +443,33 @@ class ApplicationModelTest(unittest.TestCase):
         after_final = application_repo.get_by_id(application["id"])
         self.assertEqual((after_final["status"], after_final["current_stage"]), ("active", "offer"))
         self.assertEqual(after_final["offer_status"], "pending")
+
+    def test_interview_can_end_early_and_wait_for_evaluation(self):
+        plan = plan_repo.create({
+            "candidate_name": "提前结束候选人",
+            "workflow_id": "wf_end_early",
+            "workflow_name": "快速招聘流程",
+            "interview_round": "综合面试",
+            "stage_order": 1,
+            "stage_count": 1,
+            "status": "running",
+        })
+        session_id = "early-end-session"
+        chat_sessions[session_id] = {
+            "plan_id": plan["id"],
+            "state": "INTERVIEWING",
+            "history": [],
+        }
+
+        with patch("backend.services.chat_service.save_record"):
+            message, state = end_session_early(session_id)
+
+        self.assertEqual(state, "COMPLETED")
+        self.assertTrue(chat_sessions[session_id]["ended_early"])
+        self.assertIn("提前结束", message)
+        finished_plan = plan_repo.get_by_id(plan["id"])
+        self.assertEqual(finished_plan["status"], "finish")
+        self.assertEqual(finished_plan["interview_result"], "")
 
 
 if __name__ == "__main__":

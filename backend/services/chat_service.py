@@ -334,6 +334,22 @@ def _complete_session(session: dict) -> str:
     )
 
 
+def end_session_early(session_id: str) -> tuple[str, str]:
+    session = chat_sessions.get(session_id)
+    if not session:
+        raise ValueError("面试会话不存在或已过期")
+    if session.get("state") == "COMPLETED":
+        return "本轮面试已经结束，已回答内容已保存。", "COMPLETED"
+    session["ended_early"] = True
+    session["state"] = "COMPLETED"
+    if session.get("plan_id"):
+        plan_repo.mark_finished(session["plan_id"])
+    reply = "本轮面试已提前结束，你已完成的回答已经保存，将由招聘方进行后续评估。"
+    session["history"].append(_history_message("interviewer", reply))
+    _persist(session_id)
+    return reply, session["state"]
+
+
 async def _evaluate_answer(session: dict, question: dict, answer: str, attempt: int) -> dict:
     if OPENAI_API_KEY:
         try:

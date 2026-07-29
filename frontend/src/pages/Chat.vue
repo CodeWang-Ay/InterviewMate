@@ -16,6 +16,8 @@ const answerInputRef = ref(null)
 const role = ref(safeGetLocalStorage('role', 'user'))
 const planInfo = ref(null)
 const completionDialogVisible = ref(false)
+const endingEarly = ref(false)
+const endedEarly = ref(false)
 const textDecoder = new TextDecoder('utf-8')
 
 // ── composables ──────────────────────────────────────────────
@@ -252,6 +254,44 @@ function showCompletionDialog() {
   completionDialogVisible.value = true
 }
 
+async function endInterviewEarly() {
+  if (!sessionId.value || state.value !== 'INTERVIEWING' || sending.value || endingEarly.value) return
+  const confirmed = await window.appConfirm(
+    '确认提前结束本轮面试吗？已完成的回答会保留并提交招聘方评估，未回答的问题将不再继续。',
+    { title: '提前结束面试', confirmText: '确认结束' },
+  )
+  if (!confirmed) return
+  endingEarly.value = true
+  try {
+    voice.stopRecording()
+    live2d.stopSpeaking()
+    const token = safeGetLocalStorage('token', '')
+    const res = await fetch('/api/chat/end', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ session_id: sessionId.value }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.detail || '提前结束面试失败')
+    endedEarly.value = true
+    state.value = data.state || 'COMPLETED'
+    messages.value.push(withTimestamp({
+      role: 'interviewer',
+      content: data.message || '本轮面试已提前结束，已完成的回答已经保存。',
+      timestamp: nowIso(),
+    }))
+    await scrollDown()
+    showCompletionDialog()
+  } catch (error) {
+    messages.value.push(withTimestamp({ role: 'system', content: error.message || '提前结束面试失败', timestamp: nowIso() }))
+  } finally {
+    endingEarly.value = false
+  }
+}
+
 function returnAfterCompletion() {
   completionDialogVisible.value = false
   router.push(backPath.value)
@@ -357,6 +397,14 @@ function returnAfterCompletion() {
                 @click="live2d.stopSpeaking"
               >
                 停止朗读
+              </button>
+              <button
+                v-if="state === 'INTERVIEWING'"
+                :disabled="sending || endingEarly"
+                class="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                @click="endInterviewEarly"
+              >
+                {{ endingEarly ? '正在结束…' : '提前结束面试' }}
               </button>
               <span class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500">{{ messages.length }} 条消息</span>
             </div>
@@ -490,9 +538,9 @@ function returnAfterCompletion() {
           ✓
         </div>
         <p class="mt-5 text-sm font-black uppercase tracking-[0.22em] text-emerald-400">Interview complete</p>
-        <h3 class="mt-2 text-2xl font-black text-slate-950">本轮面试已结束</h3>
+        <h3 class="mt-2 text-2xl font-black text-slate-950">{{ endedEarly ? '本轮面试已提前结束' : '本轮面试已结束' }}</h3>
         <p class="mx-auto mt-3 max-w-sm text-sm font-medium leading-7 text-slate-500">
-          感谢你的参与，本轮回答已经保存。你可以回到面试入口查看后续安排。
+          {{ endedEarly ? '已完成的回答已经保存并提交招聘方评估，未回答的问题不会影响记录保存。' : '感谢你的参与，本轮回答已经保存。你可以回到面试入口查看后续安排。' }}
         </p>
         <div class="mt-7 flex flex-col gap-3">
           <button

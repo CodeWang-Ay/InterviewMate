@@ -3,17 +3,22 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from backend.config import chat_sessions
 from backend.controllers.auth_controller import get_current_identity
 from backend.models.schemas import ChatStart, ChatMessage
 from backend.repositories import plan_repo
 from backend.repositories.interview_repo import load_record_if_exists
-from backend.services.chat_service import start_session, process_message
+from backend.services.chat_service import end_session_early, start_session, process_message
 from backend.repositories.interview_repo import save_record
 from backend.services.report_service import generate_report
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+class ChatEndRequest(BaseModel):
+    session_id: str
 
 
 @router.post("/start")
@@ -77,6 +82,18 @@ async def chat_message_stream(body: ChatMessage, identity: dict = Depends(get_cu
         media_type="text/plain; charset=utf-8",
         headers={"X-Chat-State": state},
     )
+
+
+@router.post("/end")
+async def chat_end(body: ChatEndRequest, identity: dict = Depends(get_current_identity)):
+    _ensure_session_access(body.session_id, identity)
+    try:
+        message, state = end_session_early(body.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    save_record(body.session_id)
+    generate_report(body.session_id)
+    return {"message": message, "state": state, "ended_early": True}
 
 
 def _ensure_session_access(session_id: str, identity: dict) -> None:
