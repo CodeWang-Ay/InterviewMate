@@ -81,6 +81,100 @@ class ApplicationModelTest(unittest.TestCase):
         self.assertTrue(any(item["name"] == "自主投递" for item in resume_repo.list_all(source="candidate")))
         self.assertTrue(any(item["name"] == "后台推荐" for item in resume_repo.list_all(source="admin")))
 
+    def test_resume_management_expands_one_resume_into_each_active_application(self):
+        resume = resume_repo.create({
+            "name": "多岗位候选人",
+            "file_path": "multi-job.pdf",
+            "candidate_username": "multi-job-user",
+            "source": "candidate",
+        })
+        first = application_repo.create({
+            "candidate_username": "multi-job-user",
+            "candidate_name": "多岗位候选人",
+            "jd_id": 11,
+            "jd_name": "算法工程师",
+            "resume_id": resume["id"],
+            "source": "candidate",
+            "workflow_id": "apply-11",
+        })
+        second = application_repo.create({
+            "candidate_username": "multi-job-user",
+            "candidate_name": "多岗位候选人",
+            "jd_id": 12,
+            "jd_name": "平台工程师",
+            "resume_id": resume["id"],
+            "source": "candidate",
+            "workflow_id": "apply-12",
+        })
+        first_plan = plan_repo.create({
+            "candidate_username": "multi-job-user",
+            "candidate_name": "多岗位候选人",
+            "jd_id": 11,
+            "jd_name": "算法工程师",
+            "resume_id": resume["id"],
+            "application_id": first["id"],
+            "workflow_id": "apply-11",
+            "status": "pending",
+        })
+        second_plan = plan_repo.create({
+            "candidate_username": "multi-job-user",
+            "candidate_name": "多岗位候选人",
+            "jd_id": 12,
+            "jd_name": "平台工程师",
+            "resume_id": resume["id"],
+            "application_id": second["id"],
+            "workflow_id": "apply-12",
+            "status": "pending",
+        })
+
+        application_repo.update_screening(first["id"], "不合适")
+
+        items, total = resume_repo.list_management_paged(source="candidate", page=1, page_size=10)
+
+        self.assertEqual(total, 2)
+        self.assertEqual({item["application_id"] for item in items}, {first["id"], second["id"]})
+        self.assertEqual({item["jd_name"] for item in items}, {"算法工程师", "平台工程师"})
+        self.assertEqual({item["id"] for item in items}, {resume["id"]})
+        self.assertEqual(len({item["record_key"] for item in items}), 2)
+        self.assertTrue(all(item["record_created_at"] for item in items))
+        status_by_application = {item["application_id"]: item["candidate_status"] for item in items}
+        self.assertEqual(status_by_application[first["id"]], "不合适")
+        self.assertEqual(status_by_application[second["id"]], "待筛选")
+        self.assertEqual(plan_repo.get_by_id(first_plan["id"])["status"], "cancel")
+        self.assertEqual(plan_repo.get_by_id(second_plan["id"])["status"], "pending")
+
+    def test_formal_workflow_backfill_preserves_candidate_application_source(self):
+        resume = resume_repo.create({
+            "name": "来源测试",
+            "file_path": "source-test.pdf",
+            "candidate_username": "source-user",
+            "source": "candidate",
+        })
+        application = application_repo.create({
+            "candidate_username": "source-user",
+            "candidate_name": "来源测试",
+            "jd_id": 20,
+            "jd_name": "测试岗位",
+            "resume_id": resume["id"],
+            "source": "candidate",
+            "workflow_id": "wf_source_test",
+        })
+        plan_repo.create({
+            "candidate_username": "source-user",
+            "candidate_name": "来源测试",
+            "jd_id": 20,
+            "jd_name": "测试岗位",
+            "resume_id": resume["id"],
+            "resume_filename": resume["file_path"],
+            "application_id": application["id"],
+            "workflow_id": "wf_source_test",
+            "status": "wait",
+        })
+
+        application_repo.init_db()
+
+        self.assertEqual(application_repo.get_by_id(application["id"])["source"], "candidate")
+
     def test_job_match_is_explainable_and_changes_with_jd(self):
         resume = {
             "id": 1,

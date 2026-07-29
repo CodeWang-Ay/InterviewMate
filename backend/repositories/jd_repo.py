@@ -4,8 +4,16 @@ from backend.config import DB_PATH
 EXPERIENCE_OPTIONS = ["不限经验", "应届生", "1-3年", "3-5年", "5-10年", "10年以上"]
 
 
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def _conn():
-    c = sqlite3.connect(DB_PATH)
+    c = sqlite3.connect(DB_PATH, timeout=5, factory=_ClosingConnection)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=5000")

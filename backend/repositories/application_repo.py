@@ -1,4 +1,5 @@
 import sqlite3
+import time
 
 from backend.config import DB_PATH
 
@@ -6,10 +7,19 @@ from backend.config import DB_PATH
 APPLICATION_SOURCES = {"candidate", "admin", "import"}
 APPLICATION_LIMIT_PER_SIX_MONTHS = 3
 RECRUITMENT_TYPES = ("社招", "校招", "实习生")
+SCREENING_STATUSES = {"待筛选", "初筛通过", "不合适"}
+
+
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 
 def _conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5, factory=_ClosingConnection)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
@@ -31,6 +41,7 @@ def init_db() -> None:
                 recruitment_type TEXT DEFAULT '社招',
                 source TEXT DEFAULT 'candidate',
                 status TEXT DEFAULT 'pending',
+                screening_status TEXT DEFAULT '待筛选',
                 workflow_id TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
@@ -46,6 +57,15 @@ def init_db() -> None:
             conn.execute("ALTER TABLE applications ADD COLUMN match_details TEXT DEFAULT '{}'")
         if "recruitment_type" not in cols:
             conn.execute("ALTER TABLE applications ADD COLUMN recruitment_type TEXT DEFAULT '社招'")
+        if "screening_status" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN screening_status TEXT DEFAULT '待筛选'")
+            conn.execute("""
+                UPDATE applications
+                SET screening_status=COALESCE(
+                    (SELECT candidate_status FROM resumes WHERE resumes.id=applications.resume_id),
+                    '待筛选'
+                )
+            """)
         _backfill_existing_plans(conn)
 
 
@@ -107,28 +127,32 @@ def _backfill_existing_plans(conn) -> None:
         source = "candidate" if str(group["workflow_id"]).startswith("apply_") else "admin"
         if existing:
             application_id = existing["id"]
+            recruitment_sql = (
+                "COALESCE((SELECT recruitment_type FROM jds "
+                "WHERE id=COALESCE(applications.jd_id, ?)), recruitment_type)"
+                if "jds" in tables else "recruitment_type"
+            )
+            recruitment_params = [jd_id] if "jds" in tables else []
             conn.execute(
-                """
+                f"""
                 UPDATE applications
                 SET candidate_username=?, candidate_name=?, jd_id=COALESCE(jd_id, ?),
-                    jd_name=?, resume_id=COALESCE(resume_id, ?), source=?,
-                    recruitment_type=COALESCE(
-                        (SELECT recruitment_type FROM jds WHERE id=COALESCE(applications.jd_id, ?)),
-                        recruitment_type
-                    ),
+                    jd_name=?, resume_id=COALESCE(resume_id, ?),
+                    source=CASE WHEN applications.source='candidate' THEN 'candidate' ELSE ? END,
+                    recruitment_type={recruitment_sql},
                     updated_at=datetime('now')
                 WHERE id=?
                 """,
-                (
+                tuple([
                     group["candidate_username"] or "",
                     group["candidate_name"] or "",
                     jd_id,
                     group["jd_name"] or "",
                     resume_id,
                     source,
-                    jd_id,
+                    *recruitment_params,
                     application_id,
-                ),
+                ]),
             )
         else:
             cur = conn.execute(
@@ -169,7 +193,8 @@ def create(data: dict) -> dict:
             INSERT INTO applications (
                 candidate_username, candidate_name, jd_id, jd_name, resume_id,
                 match_score, match_details, recruitment_type, source, status, workflow_id
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                , screening_status
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 data.get("candidate_username", ""),
@@ -183,6 +208,7 @@ def create(data: dict) -> dict:
                 source,
                 data.get("status", "pending"),
                 data.get("workflow_id", ""),
+                normalize_screening_status(data.get("screening_status")),
             ),
         )
         row = conn.execute("SELECT * FROM applications WHERE id=?", (cur.lastrowid,)).fetchone()
@@ -190,17 +216,24 @@ def create(data: dict) -> dict:
 
 
 def update_match(application_id: int, match_score: int, match_details: str) -> dict | None:
-    with _conn() as conn:
-        conn.execute(
-            """
-            UPDATE applications
-            SET match_score=?, match_details=?, updated_at=datetime('now')
-            WHERE id=?
-            """,
-            (min(max(int(match_score or 0), 0), 100), match_details or "{}", application_id),
-        )
-        row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
-    return dict(row) if row else None
+    for attempt in range(3):
+        try:
+            with _conn() as conn:
+                conn.execute(
+                    """
+                    UPDATE applications
+                    SET match_score=?, match_details=?, updated_at=datetime('now')
+                    WHERE id=?
+                    """,
+                    (min(max(int(match_score or 0), 0), 100), match_details or "{}", application_id),
+                )
+                row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
+            return dict(row) if row else None
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == 2:
+                raise
+            time.sleep(0.12 * (attempt + 1))
+    return None
 
 
 def cancel(application_id: int) -> dict | None:
@@ -212,6 +245,53 @@ def cancel(application_id: int) -> dict | None:
             WHERE id=? AND status<>'cancel'
             """,
             (application_id,),
+        )
+        row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_screening(application_id: int, screening_status: str) -> dict | None:
+    normalized = normalize_screening_status(screening_status)
+    application_status = "reject" if normalized == "不合适" else "pending"
+    for attempt in range(3):
+        try:
+            with _conn() as conn:
+                conn.execute(
+                    """
+                    UPDATE applications
+                    SET screening_status=?, status=?, updated_at=datetime('now')
+                    WHERE id=?
+                    """,
+                    (normalized, application_status, application_id),
+                )
+                if normalized == "不合适":
+                    conn.execute(
+                        """
+                        UPDATE plans
+                        SET status='cancel', active_session_id=''
+                        WHERE application_id=? AND status<>'finish'
+                        """,
+                        (application_id,),
+                    )
+                row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
+            return dict(row) if row else None
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == 2:
+                raise
+            time.sleep(0.12 * (attempt + 1))
+    return None
+
+
+def attach_workflow(application_id: int, workflow_id: str) -> dict | None:
+    with _conn() as conn:
+        conn.execute(
+            """
+            UPDATE applications
+            SET workflow_id=?, screening_status='初筛通过', status='pending',
+                updated_at=datetime('now')
+            WHERE id=?
+            """,
+            (workflow_id, application_id),
         )
         row = conn.execute("SELECT * FROM applications WHERE id=?", (application_id,)).fetchone()
     return dict(row) if row else None
@@ -285,6 +365,11 @@ def normalize_recruitment_type(value: str | None) -> str:
     if "校" in text:
         return "校招"
     return "社招"
+
+
+def normalize_screening_status(value: str | None) -> str:
+    text = str(value or "").strip()
+    return text if text in SCREENING_STATUSES else "待筛选"
 
 
 def list_by_resume_id(resume_id: int) -> list[dict]:

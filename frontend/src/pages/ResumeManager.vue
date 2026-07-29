@@ -88,12 +88,23 @@ workflowTemplates.value = defaultWorkflowTemplates.map(template => cloneWorkflow
 const selectedWorkflowTemplate = computed(() => workflowTemplates.value[selectedWorkflowIndex.value] || workflowTemplates.value[0] || null)
 const selectedEditingStage = computed(() => editingWorkflowTemplate.value?.stages?.[selectedWorkflowStageIndex.value] || null)
 
-const parseQueue = computed(() => resumeList.value.filter(r => r.file_path && r.parse_status !== 'success'))
+function resumeRowKey(resume) {
+  return resume?.record_key || `resume:${resume?.id}`
+}
+
+const parseQueue = computed(() => {
+  const seen = new Set()
+  return resumeList.value.filter((resume) => {
+    if (!resume.file_path || resume.parse_status === 'success' || seen.has(resume.id)) return false
+    seen.add(resume.id)
+    return true
+  })
+})
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const pagedResumeList = computed(() => resumeList.value)
-const selectedResumes = computed(() => resumeList.value.filter(r => selectedResumeIds.value.has(r.id)))
+const selectedResumes = computed(() => resumeList.value.filter(r => selectedResumeIds.value.has(resumeRowKey(r))))
 const selectableResumes = computed(() => pagedResumeList.value)
-const allSelected = computed(() => selectableResumes.value.length > 0 && selectableResumes.value.every(r => selectedResumeIds.value.has(r.id)))
+const allSelected = computed(() => selectableResumes.value.length > 0 && selectableResumes.value.every(r => selectedResumeIds.value.has(resumeRowKey(r))))
 const visiblePages = computed(() => {
   const total = totalPages.value
   const start = Math.max(1, page.value - 2)
@@ -137,6 +148,11 @@ function formatEducationCell(value) {
   return parts[0] || ''
 }
 
+function formatDateTime(value) {
+  const text = String(value || '').trim().replace('T', ' ')
+  return text ? text.slice(0, 16) : '-'
+}
+
 function getEducationFromItem(item) {
   if (!item) return ''
   return normalizeEducationLevel(item.学历) || normalizeEducationLevel(item.学位)
@@ -144,7 +160,8 @@ function getEducationFromItem(item) {
 
 function insertResumeIntoList(resume) {
   if (!matchesCurrentFilters(resume)) return
-  const next = [resume, ...resumeList.value.filter(item => item.id !== resume.id)].slice(0, pageSize.value)
+  const key = resumeRowKey(resume)
+  const next = [resume, ...resumeList.value.filter(item => resumeRowKey(item) !== key)].slice(0, pageSize.value)
   resumeList.value = next
   total.value = Math.max(total.value, resumeList.value.length)
 }
@@ -249,7 +266,7 @@ function toggleBatchMode() {
 }
 
 function toggleSelectAll() {
-  selectedResumeIds.value = allSelected.value ? new Set() : new Set(selectableResumes.value.map(r => r.id))
+  selectedResumeIds.value = allSelected.value ? new Set() : new Set(selectableResumes.value.map(resumeRowKey))
 }
 
 function setPage(nextPage) {
@@ -543,7 +560,8 @@ async function updateCandidateStatus(resume, status) {
   const previous = resume.candidate_status
   resume.candidate_status = status
   try {
-    const res = await fetch(`/api/resumes/${resume.id}`, {
+    const applicationQuery = resume.application_id ? `?application_id=${resume.application_id}` : ''
+    const res = await fetch(`/api/resumes/${resume.id}${applicationQuery}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ candidate_status: status }),
@@ -685,6 +703,7 @@ async function createInterviewWorkflow() {
           workflow_name: template.name,
           resume_filename: resume.file_path || '',
           resume_id: resume.id,
+          application_id: resume.application_id || null,
           jd_id: resume.jd_id || null,
           stages: template.stages,
         }),
@@ -1199,15 +1218,16 @@ function sourceBadge(source) {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">关联 JD</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">技能</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">文件</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">投递/上传时间</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">解析状态</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">初筛状态</th>
               <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-64">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <tr v-for="(r, i) in pagedResumeList" :key="r.id" class="hover:bg-gray-50">
+            <tr v-for="(r, i) in pagedResumeList" :key="resumeRowKey(r)" class="hover:bg-gray-50">
               <td v-if="batchMode" class="px-4 py-3 text-center">
-                <input type="checkbox" :checked="selectedResumeIds.has(r.id)" @change="setSelectedResume(r.id, $event.target.checked)">
+                <input type="checkbox" :checked="selectedResumeIds.has(resumeRowKey(r))" @change="setSelectedResume(resumeRowKey(r), $event.target.checked)">
               </td>
               <td class="px-4 py-3 text-sm text-gray-500">{{ (page - 1) * pageSize + i + 1 }}</td>
               <td class="px-4 py-3 font-medium text-sm">
@@ -1225,6 +1245,7 @@ function sourceBadge(source) {
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.jd_name || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate">{{ r.skills || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-400 max-w-[140px] truncate">{{ r.original_name || r.file_path || '-' }}</td>
+              <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">{{ formatDateTime(r.record_created_at || r.created_at) }}</td>
               <td class="px-4 py-3">
                 <div class="min-w-[180px]">
                   <span :class="['px-2 py-1 text-xs rounded', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
@@ -1299,13 +1320,13 @@ function sourceBadge(source) {
         <div v-else-if="pagedResumeList.length" class="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-5">
           <article
             v-for="r in pagedResumeList"
-            :key="r.id"
+            :key="resumeRowKey(r)"
             class="group rounded-2xl border border-[#e6edf9] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(27,76,173,0.10)]"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="flex items-start gap-3 min-w-0">
                 <label v-if="batchMode" class="pt-1">
-                  <input type="checkbox" :checked="selectedResumeIds.has(r.id)" @change="setSelectedResume(r.id, $event.target.checked)">
+                  <input type="checkbox" :checked="selectedResumeIds.has(resumeRowKey(r))" @change="setSelectedResume(resumeRowKey(r), $event.target.checked)">
                 </label>
                 <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#eaf2ff_0%,#f5f8ff_100%)] text-[#2f6df6]">
                   <i class="fa fa-user-o text-lg"></i>
@@ -1350,6 +1371,7 @@ function sourceBadge(source) {
             <div class="mt-4 flex flex-wrap gap-2">
               <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1 text-xs text-[#5f708f]">{{ r.jd_name || '未关联 JD' }}</span>
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ r.original_name || r.file_path || '无文件名' }}</span>
+              <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ formatDateTime(r.record_created_at || r.created_at) }}</span>
               <select
                 :value="r.candidate_status || '待筛选'"
                 class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f] outline-none"

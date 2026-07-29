@@ -34,10 +34,14 @@ def _mask_plans(plans: list[dict]) -> list[dict]:
     result = []
     for plan in plans:
         ready, reason = plan_repo.candidate_interview_readiness(plan)
+        application = application_repo.get_by_id(int(plan["application_id"])) if plan.get("application_id") else None
         result.append(_mask_password({
             **plan,
             "interview_ready": ready,
             "interview_block_reason": reason,
+            "application_status": (application or {}).get("status", ""),
+            "screening_status": (application or {}).get("screening_status", ""),
+            "application_created_at": (application or {}).get("created_at", ""),
         }))
     return result
 
@@ -87,6 +91,7 @@ class WorkflowCreate(BaseModel):
     workflow_name: str
     resume_filename: str = ""
     resume_id: int | None = None
+    application_id: int | None = None
     jd_id: int | None = None
     recruitment_type: str = ""
     stages: list[WorkflowStage]
@@ -131,11 +136,7 @@ async def update_workflow_template(template_id: int, body: WorkflowTemplateSave,
 
 @router.get("/my")
 async def my_plans(username: str = Depends(get_current_candidate)):
-    plans = plan_repo.list_by_candidate_username(username)
-    for application_id in {plan.get("application_id") for plan in plans if plan.get("application_id")}:
-        application = application_repo.get_by_id(int(application_id))
-        if application and application.get("candidate_username") == username and not application.get("match_score"):
-            _calculate_and_save_application_match(application)
+    # 投递时已经计算并保存岗位匹配；查询接口保持只读，避免浏览页面时争抢 SQLite 写锁。
     return _mask_plans(plan_repo.list_by_candidate_username(username))
 
 
@@ -449,18 +450,28 @@ async def create_workflow(body: WorkflowCreate, _: dict = Depends(require_admin)
         candidate_repo.update_profile(username, {"resume_filename": resume.get("file_path", "")})
     workflow_jd_id = body.jd_id or (resume or {}).get("jd_id")
     match_result = evaluate_resume_match(resume["id"], int(workflow_jd_id)) if resume and workflow_jd_id else None
-    application = application_repo.create({
-        "candidate_username": username,
-        "candidate_name": body.candidate_name,
-        "jd_id": workflow_jd_id,
-        "jd_name": body.jd_name,
-        "resume_id": (resume or {}).get("id"),
-        "match_score": int((match_result or {}).get("total_score") or 0),
-        "match_details": json.dumps(match_result or {}, ensure_ascii=False),
-        "recruitment_type": body.recruitment_type,
-        "source": "admin",
-        "workflow_id": workflow_id,
-    })
+    application = application_repo.get_by_id(body.application_id) if body.application_id else None
+    if application:
+        if int(application.get("resume_id") or 0) != int((resume or {}).get("id") or 0):
+            raise HTTPException(status_code=400, detail="投递记录与当前简历不匹配")
+        for old_plan in plan_repo.list_by_application_id(int(application["id"])):
+            if old_plan.get("status") != "finish":
+                plan_repo.update(old_plan["id"], {"status": "cancel", "active_session_id": ""})
+        application = application_repo.attach_workflow(int(application["id"]), workflow_id)
+    else:
+        application = application_repo.create({
+            "candidate_username": username,
+            "candidate_name": body.candidate_name,
+            "jd_id": workflow_jd_id,
+            "jd_name": body.jd_name,
+            "resume_id": (resume or {}).get("id"),
+            "match_score": int((match_result or {}).get("total_score") or 0),
+            "match_details": json.dumps(match_result or {}, ensure_ascii=False),
+            "recruitment_type": body.recruitment_type,
+            "source": "admin",
+            "screening_status": "初筛通过",
+            "workflow_id": workflow_id,
+        })
     resume_filename = (resume or {}).get("file_path") or body.resume_filename
     match_score = int(application.get("match_score") or 0)
     plans = []

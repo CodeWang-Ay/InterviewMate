@@ -18,8 +18,16 @@ def _hash_password(password: str) -> str:
 PLAN_STATUSES = {"pending", "wait", "running", "finish", "cancel"}
 
 
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def _conn():
-    c = sqlite3.connect(DB_PATH)
+    c = sqlite3.connect(DB_PATH, timeout=5, factory=_ClosingConnection)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=5000")
@@ -254,6 +262,16 @@ def candidate_interview_readiness(plan: dict | None) -> tuple[bool, str]:
     if not str(plan.get("workflow_name") or "").strip():
         return False, "招聘方尚未配置面试流程"
 
+    if plan.get("application_id"):
+        from backend.repositories import application_repo
+
+        application = application_repo.get_by_id(int(plan["application_id"]))
+        if not application:
+            return False, "投递记录不存在"
+        if application.get("screening_status") != "初筛通过":
+            return False, "简历尚未通过当前岗位的初筛"
+        return True, ""
+
     from backend.repositories import resume_repo
 
     resume = None
@@ -277,6 +295,17 @@ def list_by_workflow_id(workflow_id: str) -> list[dict]:
             (workflow_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def list_by_application_id(application_id: int) -> list[dict]:
+    if not application_id:
+        return []
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM plans WHERE application_id=? ORDER BY stage_order ASC, id ASC",
+            (application_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
 
 def list_by_candidate_username_group(username: str) -> list[dict]:

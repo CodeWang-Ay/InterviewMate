@@ -107,6 +107,7 @@ function roleShort(roleName) {
 onMounted(async () => {
   window.addEventListener('keydown', voice.handleGlobalVoiceKeydown)
   window.addEventListener('keyup', voice.handleGlobalVoiceKeyup)
+  window.addEventListener('resize', live2d.keepAvatarInViewport)
   live2d.restoreAvatarPosition()
   live2d.initLive2D()
   const jd = route.query.jd
@@ -149,6 +150,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('keydown', voice.handleGlobalVoiceKeydown)
   window.removeEventListener('keyup', voice.handleGlobalVoiceKeyup)
+  window.removeEventListener('resize', live2d.keepAvatarInViewport)
   voice.isRecording.value = false
   voice.activeVoicePointerId.value = null
   voice.pendingVoiceRelease.value = false
@@ -525,6 +527,19 @@ function returnAfterCompletion() {
         class="live2d-avatar__canvas"
         aria-label="Live2D AI 面试官"
       ></canvas>
+      <div v-if="!live2d.live2dReady.value" class="live2d-avatar__fallback" :title="live2d.live2dError.value || '数字人加载中'">
+        <div class="digital-interviewer" aria-label="AI 面试官">
+          <span class="digital-interviewer__antenna"></span>
+          <span class="digital-interviewer__face">
+            <i class="digital-interviewer__eye"></i>
+            <i class="digital-interviewer__eye"></i>
+            <i class="digital-interviewer__mouth"></i>
+          </span>
+          <span class="digital-interviewer__body"></span>
+        </div>
+        <span>{{ live2d.live2dError.value ? '数字人加载失败，点击重试' : '数字人加载中…' }}</span>
+        <button v-if="live2d.live2dError.value" type="button" @pointerdown.stop @click.stop="live2d.initLive2D">重新加载</button>
+      </div>
     </div>
   </div>
 </template>
@@ -658,6 +673,39 @@ function returnAfterCompletion() {
   height: 100%;
   pointer-events: none;
   filter: drop-shadow(0 24px 30px rgba(15, 23, 42, 0.16));
+}
+
+.live2d-avatar__fallback {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  width: 190px;
+  min-height: 170px;
+  transform: translate(-50%, -50%);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid rgba(99, 102, 241, 0.16);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.14);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  backdrop-filter: blur(12px);
+}
+
+.live2d-avatar__fallback button {
+  border: 0;
+  border-radius: 999px;
+  background: #4f46e5;
+  padding: 7px 14px;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .floating-interviewer--listening {

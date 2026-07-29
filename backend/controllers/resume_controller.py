@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import sqlite3
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Query
 from fastapi.responses import FileResponse
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 
 from backend.controllers.auth_controller import require_admin
 from backend.config import UPLOAD_DIR
-from backend.repositories import application_repo, candidate_repo, resume_parse_cache_repo, resume_repo, upload_repo
+from backend.repositories import application_repo, candidate_repo, plan_repo, resume_parse_cache_repo, resume_repo, upload_repo
 from backend.services.file_service import parse_resume
 from backend.services.resume_copilot_service import polish_resume, score_resume
 from backend.services.task_service import create_task
@@ -45,7 +46,15 @@ async def list_resumes(
     if page is not None or page_size is not None:
         current_page = page or 1
         current_page_size = page_size or 10
-        items, total = resume_repo.list_paged(search, parse_status, experience_years, candidate_status, source, current_page, current_page_size)
+        items, total = resume_repo.list_management_paged(
+            search,
+            parse_status,
+            experience_years,
+            candidate_status,
+            source,
+            current_page,
+            current_page_size,
+        )
         return {"items": items, "total": total, "page": current_page, "page_size": current_page_size}
     return resume_repo.list_all(search, parse_status, experience_years, candidate_status, source)
 
@@ -97,9 +106,41 @@ async def upload_resume_file(file: UploadFile = File(...), jd_id: int = Form(0),
 
 
 @router.put("/{rid}")
-async def update_resume(rid: int, body: ResumeUpdate, _: dict = Depends(require_admin)):
+async def update_resume(
+    rid: int,
+    body: ResumeUpdate,
+    application_id: int = Query(0),
+    _: dict = Depends(require_admin),
+):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
-    r = resume_repo.update(rid, data)
+    if application_id and "candidate_status" in data:
+        application = application_repo.get_by_id(application_id)
+        if not application or int(application.get("resume_id") or 0) != rid:
+            raise HTTPException(status_code=404, detail="投递记录不存在或未关联当前简历")
+        screening_status = data.pop("candidate_status")
+        try:
+            updated_application = application_repo.update_screening(application_id, screening_status)
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower():
+                raise HTTPException(status_code=503, detail="数据库正在处理其他操作，请稍后重试") from exc
+            raise
+        if not data:
+            resume = resume_repo.get_by_id(rid) or {}
+            return {
+                **resume,
+                "application_id": application_id,
+                "application_status": (updated_application or {}).get("status", ""),
+                "candidate_status": (updated_application or {}).get("screening_status", screening_status),
+                "jd_id": (updated_application or {}).get("jd_id"),
+                "jd_name": (updated_application or {}).get("jd_name", ""),
+                "record_key": f"application:{application_id}",
+            }
+    try:
+        r = resume_repo.update(rid, data)
+    except sqlite3.OperationalError as exc:
+        if "locked" in str(exc).lower():
+            raise HTTPException(status_code=503, detail="数据库正在处理其他操作，请稍后重试") from exc
+        raise
     if not r:
         raise HTTPException(status_code=404, detail="简历不存在")
     return r

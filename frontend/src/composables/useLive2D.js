@@ -2,6 +2,11 @@ import { ref, nextTick } from 'vue'
 
 const LIVE2D_MODEL_URL = '/hiyori_pro_zh/runtime/hiyori_pro_t11.model3.json'
 const LIVE2D_SCRIPT_URLS = ['/js/live2dcubismcore.min.js', '/js/pixi.js', '/js/cubism4.min.js']
+const AVATAR_WIDTH = 860
+const AVATAR_HEIGHT = 1000
+const AVATAR_VISUAL_CENTER_X = AVATAR_WIDTH / 2
+const AVATAR_VISUAL_CENTER_Y = AVATAR_HEIGHT / 2
+const VIEWPORT_SAFE_MARGIN = 120
 
 export function useLive2D() {
   const avatarPosition = ref({ x: 0, y: 0 })
@@ -18,11 +23,19 @@ export function useLive2D() {
   const live2dAudioData = ref(null)
   const live2dMouthFrame = ref(0)
   const currentAudio = ref(null)
+  let live2dInitPromise = null
 
   // ── avatar position ────────────────────────────────────────
 
+  function defaultAvatarPosition() {
+    return {
+      x: Math.max(16, window.innerWidth - 590),
+      y: Math.max(16, window.innerHeight - 790),
+    }
+  }
+
   function restoreAvatarPosition() {
-    const fallback = { x: Math.max(60, window.innerWidth - 590), y: Math.max(60, window.innerHeight - 790) }
+    const fallback = defaultAvatarPosition()
     try {
       const saved = JSON.parse(window.localStorage?.getItem('interview_avatar_position') || 'null')
       avatarPosition.value = saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) ? clampAvatarPosition(saved) : fallback
@@ -30,10 +43,19 @@ export function useLive2D() {
   }
 
   function clampAvatarPosition(pos) {
-    // 全屏任意拖动，允许大部分移出屏幕
-    const maxX = window.innerWidth - 30
-    const maxY = window.innerHeight - 40
-    return { x: Math.min(Math.max(-830, pos.x), maxX), y: Math.min(Math.max(-960, pos.y), maxY) }
+    // 约束人物主体（画布中心）而非透明画布边缘，避免看似仍在屏幕内、实际人物已经消失。
+    const minX = VIEWPORT_SAFE_MARGIN - AVATAR_VISUAL_CENTER_X
+    const minY = VIEWPORT_SAFE_MARGIN - AVATAR_VISUAL_CENTER_Y
+    const maxX = Math.max(minX, window.innerWidth - VIEWPORT_SAFE_MARGIN - AVATAR_VISUAL_CENTER_X)
+    const maxY = Math.max(minY, window.innerHeight - VIEWPORT_SAFE_MARGIN - AVATAR_VISUAL_CENTER_Y)
+    return {
+      x: Math.min(Math.max(minX, Number(pos?.x) || 0), maxX),
+      y: Math.min(Math.max(minY, Number(pos?.y) || 0), maxY),
+    }
+  }
+
+  function keepAvatarInViewport() {
+    avatarPosition.value = clampAvatarPosition(avatarPosition.value)
   }
 
   function startAvatarDrag(event) {
@@ -77,12 +99,14 @@ export function useLive2D() {
   // ── init / destroy ─────────────────────────────────────────
 
   async function initLive2D() {
-    try {
+    if (live2dReady.value || live2dInitPromise) return live2dInitPromise
+    live2dInitPromise = (async () => {
+      try {
       await nextTick()
-      if (!live2dCanvas.value) return
+      if (!live2dCanvas.value) throw new Error('数字人画布尚未就绪')
       await ensureLive2DRuntime()
       const PIXI = window.PIXI
-      const width = 860; const height = 1000
+      const width = AVATAR_WIDTH; const height = AVATAR_HEIGHT
       const app = new PIXI.Application({
         view: live2dCanvas.value, width, height,
         resolution: window.devicePixelRatio || 1, autoDensity: true, antialias: true, backgroundAlpha: 0,
@@ -96,7 +120,14 @@ export function useLive2D() {
       model.interactive = false
       live2dApp.value = app; live2dModel.value = model; live2dReady.value = true; live2dError.value = ''
       model.motion?.('Idle')
-    } catch (error) { live2dReady.value = false; live2dError.value = error.message || 'Live2D 加载失败' }
+      } catch (error) {
+        live2dReady.value = false
+        live2dError.value = error.message || 'Live2D 加载失败'
+      } finally {
+        live2dInitPromise = null
+      }
+    })()
+    return live2dInitPromise
   }
 
   function destroyLive2D() {
@@ -194,7 +225,7 @@ export function useLive2D() {
 
   return {
     avatarPosition, avatarDragging, live2dCanvas, live2dReady, live2dError, currentAudio,
-    restoreAvatarPosition, initLive2D, destroyLive2D,
+    restoreAvatarPosition, keepAvatarInViewport, initLive2D, destroyLive2D,
     startAvatarDrag, moveAvatar, endAvatarDrag,
     speakText, stopSpeaking, playAudioToEnd, stripMarkdown,
   }

@@ -1,14 +1,23 @@
 import os
 import sqlite3
 import hashlib
+import time
 
 from backend.config import DB_PATH, UPLOAD_DIR
 
 RESUME_STATUS_OPTIONS = ["待筛选", "初筛通过", "不合适"]
 
 
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def _conn():
-    c = sqlite3.connect(DB_PATH)
+    c = sqlite3.connect(DB_PATH, timeout=5, factory=_ClosingConnection)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=5000")
@@ -135,6 +144,112 @@ def list_paged(search: str = "", parse_status: str = "", experience_years: str =
     return [_enrich_jd_fields(dict(row)) for row in rows], total
 
 
+def _management_where(
+    search: str = "",
+    parse_status: str = "",
+    experience_years: str = "",
+    candidate_status: str = "",
+    source: str = "",
+) -> tuple[str, list]:
+    sql = " WHERE 1=1"
+    params = []
+    if candidate_status:
+        sql += " AND r.candidate_status=?"
+        params.append(candidate_status)
+    if source:
+        sql += " AND COALESCE(a.source, r.source)=?"
+        params.append(source)
+    if parse_status:
+        sql += " AND r.parse_status=?"
+        params.append(parse_status)
+    if experience_years:
+        sql += " AND r.experience_years=?"
+        params.append(experience_years)
+    if search:
+        sql += """
+            AND (
+                r.name LIKE ? OR r.skills LIKE ? OR r.target_position LIKE ?
+                OR COALESCE(a.jd_name, r.jd_name) LIKE ? OR r.original_name LIKE ?
+                OR r.candidate_username LIKE ?
+            )
+        """
+        pattern = f"%{search}%"
+        params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
+    return sql, params
+
+
+def _management_row(row: sqlite3.Row) -> dict:
+    item = dict(row)
+    application_id = item.pop("joined_application_id", None)
+    application_jd_id = item.pop("application_jd_id", None)
+    application_jd_name = item.pop("application_jd_name", "")
+    application_source = item.pop("application_source", "")
+    application_status = item.pop("joined_application_status", "")
+    application_screening_status = item.pop("application_screening_status", "")
+    application_created_at = item.pop("application_created_at", "")
+    if application_id:
+        item["application_id"] = application_id
+        item["application_status"] = application_status
+        item["jd_id"] = application_jd_id
+        item["jd_name"] = application_jd_name or ""
+        item["source"] = application_source or item.get("source") or "candidate"
+        item["candidate_status"] = application_screening_status or item.get("candidate_status") or "待筛选"
+        item["record_created_at"] = application_created_at or item.get("created_at") or ""
+        item["record_key"] = f"application:{application_id}"
+        # 投递表保存的是投递当时绑定的 JD，后台列表必须以它为准。
+        return item
+    else:
+        item["application_id"] = None
+        item["application_status"] = ""
+        item["record_key"] = f"resume:{item['id']}"
+        item["record_created_at"] = item.get("created_at") or ""
+    return _enrich_jd_fields(item)
+
+
+def list_management_paged(
+    search: str = "",
+    parse_status: str = "",
+    experience_years: str = "",
+    candidate_status: str = "",
+    source: str = "",
+    page: int = 1,
+    page_size: int = 10,
+) -> tuple[list[dict], int]:
+    """后台按投递展开简历；同一份物理简历可对应多条岗位投递记录。"""
+    page = max(1, int(page or 1))
+    page_size = min(max(1, int(page_size or 10)), 100)
+    where, params = _management_where(search, parse_status, experience_years, candidate_status, source)
+    offset = (page - 1) * page_size
+    join_sql = """
+        FROM resumes r
+        LEFT JOIN applications a
+          ON a.resume_id=r.id AND a.status<>'cancel'
+    """
+    select_sql = """
+        SELECT r.*,
+               a.id AS joined_application_id,
+               a.jd_id AS application_jd_id,
+               a.jd_name AS application_jd_name,
+               a.source AS application_source,
+               a.status AS joined_application_status,
+               a.screening_status AS application_screening_status,
+               a.created_at AS application_created_at
+    """
+    with _conn() as conn:
+        total = conn.execute(f"SELECT COUNT(*) {join_sql}{where}", params).fetchone()[0]
+        rows = conn.execute(
+            f"""
+            {select_sql}
+            {join_sql}
+            {where}
+            ORDER BY COALESCE(a.created_at, r.created_at) DESC, r.id DESC
+            LIMIT ? OFFSET ?
+            """,
+            params + [page_size, offset],
+        ).fetchall()
+    return [_management_row(row) for row in rows], total
+
+
 def find_duplicates(file_md5: str = "", exclude_id: int | None = None) -> list[dict]:
     if not file_md5:
         return []
@@ -201,8 +316,15 @@ def update(rid: int, data: dict) -> dict | None:
     if not sets:
         return existing
     vals.append(rid)
-    with _conn() as conn:
-        conn.execute(f"UPDATE resumes SET {', '.join(sets)} WHERE id=?", vals)
+    for attempt in range(3):
+        try:
+            with _conn() as conn:
+                conn.execute(f"UPDATE resumes SET {', '.join(sets)} WHERE id=?", vals)
+            break
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == 2:
+                raise
+            time.sleep(0.12 * (attempt + 1))
     return get_by_id(rid)
 
 

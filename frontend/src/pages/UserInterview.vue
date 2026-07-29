@@ -83,6 +83,9 @@ const workflowGroups = computed(() => {
         workflow_id: plan.workflow_id || '',
         workflow_name: plan.workflow_name || '我的面试流程',
         application_id: plan.application_id || null,
+        application_status: plan.application_status || '',
+        screening_status: plan.screening_status || '',
+        application_created_at: plan.application_created_at || '',
         candidate_name: plan.candidate_name || nickname.value || username.value || '候选人',
         jd_name: plan.jd_name || '目标岗位',
         recruitment_type: normalizeRecruitmentType(plan.recruitment_type),
@@ -95,6 +98,9 @@ const workflowGroups = computed(() => {
     group.plans.push(plan)
     if (!group.resume_filename && plan.resume_filename) group.resume_filename = plan.resume_filename
     if (!group.application_id && plan.application_id) group.application_id = plan.application_id
+    if (!group.application_status && plan.application_status) group.application_status = plan.application_status
+    if (!group.screening_status && plan.screening_status) group.screening_status = plan.screening_status
+    if (!group.application_created_at && plan.application_created_at) group.application_created_at = plan.application_created_at
     if (!group.location && plan.location) group.location = plan.location
   })
   return Array.from(map.values()).map(group => {
@@ -113,10 +119,23 @@ const workflowGroups = computed(() => {
   })
 })
 
-// 已取消的投递保留在数据库中用于审计，但不再属于候选人的当前投递。
-const currentWorkflowGroups = computed(() => (
-  workflowGroups.value.filter(group => !group.plans.length || !group.plans.every(plan => plan.status === 'cancel'))
-))
+// 用户主动取消的投递隐藏；后台初筛不通过的投递继续保留并展示结果。
+const currentWorkflowGroups = computed(() => {
+  const visible = workflowGroups.value.filter((group) => {
+    if (group.application_status === 'cancel') return false
+    if (group.application_status === 'reject' || group.screening_status === '不合适') return true
+    return !group.plans.length || !group.plans.every(plan => plan.status === 'cancel')
+  })
+  const byApplication = new Map()
+  visible.forEach((group) => {
+    const key = group.application_id ? `application:${group.application_id}` : group.key
+    const previous = byApplication.get(key)
+    const shouldReplace = previous && String(previous.workflow_id || '').startsWith('apply_')
+      && !String(group.workflow_id || '').startsWith('apply_')
+    if (!previous || shouldReplace) byApplication.set(key, group)
+  })
+  return Array.from(byApplication.values())
+})
 
 const filteredWorkflowGroups = computed(() => {
   const recruitmentType = {
@@ -131,7 +150,9 @@ const currentPlan = computed(() => activeGroup.value?.current_plan || null)
 const applicationCount = computed(() => currentWorkflowGroups.value.length)
 const closedWorkflowCount = computed(() => currentWorkflowGroups.value.filter(group => {
   if (!group.plans.length) return false
-  return group.plans.every(plan => plan.status === 'finish')
+  return group.application_status === 'reject'
+    || group.screening_status === '不合适'
+    || group.plans.every(plan => plan.status === 'finish')
 }).length)
 const activeInterviewCount = computed(() => plans.value.filter(plan => ['wait', 'running'].includes(plan.status)).length)
 const displayName = computed(() => nickname.value || activeGroup.value?.candidate_name || username.value || '候选人')
@@ -513,6 +534,11 @@ function statusLabel(status) {
   return { wait: '待进入', pending: '等待通知', running: '进行中', finish: '已完成', cancel: '已取消' }[status] || status || '等待通知'
 }
 
+function formatDateTime(value) {
+  const text = String(value || '').trim().replace('T', ' ')
+  return text ? text.slice(0, 16) : '-'
+}
+
 function statusPillClass(status) {
   return {
     wait: 'bg-[#fff7df] text-[#a66b00]',
@@ -537,9 +563,19 @@ function nodeClass(plan) {
 }
 
 function groupStatusText(group) {
+  if (group.application_status === 'reject' || group.screening_status === '不合适') {
+    return '初筛不通过 · 流程已结束'
+  }
   if (group.current_plan) return `${group.current_plan.interview_round || '面试'} · ${statusLabel(group.current_plan.status)}`
   if (group.plans.every(plan => plan.status === 'finish')) return '全部完成'
   return '等待通知'
+}
+
+function planStatusText(plan, group) {
+  if ((group.application_status === 'reject' || group.screening_status === '不合适') && plan.status === 'cancel') {
+    return '流程已终止'
+  }
+  return statusLabel(plan.status)
 }
 
 function groupMatchPercent(group) {
@@ -804,7 +840,7 @@ function jobSummary(job) {
                       </button>
                     </div>
                     <div class="mt-2 text-sm text-[#667085]">
-                      {{ group.workflow_name }} ｜ 已完成 {{ group.finished_count }}/{{ group.plans.length }} ｜ {{ group.location || '地点待定' }}
+                      {{ group.workflow_name }} ｜ 投递时间：{{ formatDateTime(group.application_created_at) }} ｜ 已完成 {{ group.finished_count }}/{{ group.plans.length }} ｜ {{ group.location || '地点待定' }}
                     </div>
                   </div>
                 </div>
@@ -822,7 +858,7 @@ function jobSummary(job) {
                       <div class="mt-2 font-bold" :class="['wait', 'running'].includes(plan.status) ? 'text-[#246bdb]' : plan.status === 'finish' ? 'text-[#15a05f]' : 'text-[#667085]'">
                         {{ plan.interview_round }}
                       </div>
-                      <div class="mt-1 text-xs text-[#8a94a6]">{{ statusLabel(plan.status) }}</div>
+                      <div class="mt-1 text-xs text-[#8a94a6]">{{ planStatusText(plan, group) }}</div>
                     </div>
                     <div v-if="index < group.plans.length - 1" class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="lineClass(plan)"></div>
                   </template>
@@ -846,7 +882,7 @@ function jobSummary(job) {
                         <td class="px-4 py-3 font-semibold">{{ plan.interview_round }}</td>
                         <td class="px-4 py-3 text-[#475467]">{{ plan.interviewer || 'AI 面试官' }}</td>
                         <td class="px-4 py-3 text-[#667085]">{{ plan.scheduled_at || '待安排' }}</td>
-                        <td class="px-4 py-3"><span class="rounded-full px-3 py-1 text-xs font-bold" :class="statusPillClass(plan.status)">{{ statusLabel(plan.status) }}</span></td>
+                        <td class="px-4 py-3"><span class="rounded-full px-3 py-1 text-xs font-bold" :class="statusPillClass(plan.status)">{{ planStatusText(plan, group) }}</span></td>
                         <td class="px-4 py-3">
                           <button v-if="canEnterInterview(plan)" class="font-bold text-[#1677ff] hover:text-[#0958d9]" @click.stop="enterInterview(plan)">进入面试</button>
                           <span v-else class="text-[#98a2b3]">{{ plan.interview_block_reason || '等待' }}</span>
