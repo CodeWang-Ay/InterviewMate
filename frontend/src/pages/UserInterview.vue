@@ -10,6 +10,7 @@ const plans = ref([])
 const recommendedJobs = ref([])
 const error = ref('')
 const expandedWorkflows = ref(new Set())
+const selectedWorkflowKey = ref('')
 const activeTab = ref('social')
 let plansRefreshTimer = null
 const username = ref('')
@@ -70,6 +71,13 @@ function tabApplicationCount(tabKey) {
   return currentWorkflowGroups.value.filter(group => group.recruitment_type === recruitmentType).length
 }
 
+function isScreeningPlaceholder(plan) {
+  return Number(plan?.stage_order) === 0 || (
+    Number(plan?.id) < 0 &&
+    String(plan?.interview_round || '').trim() === '简历筛选'
+  )
+}
+
 const activeQuotaItem = computed(() => {
   const quotaKey = {
     social: '社招',
@@ -124,7 +132,11 @@ const workflowGroups = computed(() => {
     if (!group.location && plan.location) group.location = plan.location
   })
   return Array.from(map.values()).map(group => {
-    const sortedPlans = [...group.plans].sort((a, b) => Number(a.stage_order || 1) - Number(b.stage_order || 1))
+    // application 尚未创建正式面试流程时，接口会返回一条“简历筛选”占位项。
+    // 简历筛选已经由 application 固定节点展示，不能再次当作面试计划绘制。
+    const sortedPlans = group.plans
+      .filter(plan => !isScreeningPlaceholder(plan))
+      .sort((a, b) => Number(a.stage_order || 1) - Number(b.stage_order || 1))
     const current = group.application_status === 'active' && group.application_current_stage === 'interview'
       ? sortedPlans.find(p => p.interview_ready === true) || null
       : null
@@ -167,7 +179,16 @@ const filteredWorkflowGroups = computed(() => {
   }[activeTab.value] || '社招'
   return currentWorkflowGroups.value.filter(group => group.recruitment_type === recruitmentType)
 })
-const activeGroup = computed(() => currentWorkflowGroups.value.find(group => group.current_plan) || currentWorkflowGroups.value[0] || null)
+
+function isWorkflowOngoing(group) {
+  return !['rejected', 'withdrawn', 'cancel', 'hired', 'closed'].includes(group.application_status)
+}
+
+const operableWorkflowGroups = computed(() => currentWorkflowGroups.value.filter(isWorkflowOngoing))
+const activeGroup = computed(() => {
+  const selected = operableWorkflowGroups.value.find(group => group.key === selectedWorkflowKey.value)
+  return selected || operableWorkflowGroups.value.find(group => group.current_plan) || operableWorkflowGroups.value[0] || null
+})
 const currentPlan = computed(() => activeGroup.value?.current_plan || null)
 const applicationCount = computed(() => currentWorkflowGroups.value.length)
 const closedWorkflowCount = computed(() => currentWorkflowGroups.value.filter(group => {
@@ -180,13 +201,25 @@ const resumeFileName = computed(() => (
   uploadedResumeFile.value ||
   activeGroup.value?.resume_filename ||
   activeGroup.value?.plans.find(plan => plan.resume_filename)?.resume_filename ||
+  currentWorkflowGroups.value[0]?.resume_filename ||
   '暂未上传简历'
 ))
 const currentActionText = computed(() => {
   if (!currentPlan.value) return '等待通知'
   return currentPlan.value.status === 'running' ? '继续本轮面试' : '进入本轮面试'
 })
-const nextStepText = computed(() => currentPlan.value?.interview_round || '等待招聘方开启下一轮')
+const nextStepText = computed(() => {
+  if (currentPlan.value) return currentPlan.value.interview_round || '面试'
+  if (activeGroup.value?.application_current_stage === 'offer') return 'Offer'
+  if (activeGroup.value?.application_current_stage === 'screening') return '简历筛选'
+  return '等待招聘方开启下一轮'
+})
+
+watch(operableWorkflowGroups, (groups) => {
+  if (!groups.some(group => group.key === selectedWorkflowKey.value)) {
+    selectedWorkflowKey.value = (groups.find(group => group.current_plan) || groups[0])?.key || ''
+  }
+}, { immediate: true })
 
 onMounted(async () => {
   readUser()
@@ -460,6 +493,15 @@ function isExpanded(group) {
   return expandedWorkflows.value.has(group.key)
 }
 
+function selectWorkflow(group) {
+  if (isWorkflowOngoing(group)) selectedWorkflowKey.value = group.key
+}
+
+function selectAndToggleWorkflow(group) {
+  selectWorkflow(group)
+  toggleWorkflow(group)
+}
+
 function toggleWorkflow(group) {
   const next = new Set(expandedWorkflows.value)
   if (next.has(group.key)) next.delete(group.key)
@@ -591,6 +633,37 @@ function lineClass(plan, group) {
   if (plan.interview_result === 'pass') return 'bg-[#22c55e]'
   if (['wait', 'running'].includes(plan.status)) return 'bg-[#4776ff]'
   return 'bg-[#ccd4e2]'
+}
+
+function screeningStatusText(group) {
+  if (group.screening_status === '初筛通过') return '初筛通过'
+  if (group.screening_status === '不合适') return '筛选不通过'
+  return '筛选中'
+}
+
+function screeningNodeClass(group) {
+  if (group.screening_status === '初筛通过') return 'bg-[#22c55e] text-white'
+  if (group.screening_status === '不合适' || group.application_status === 'rejected') return 'bg-[#c7ccd6] text-white'
+  return 'bg-[#4776ff] text-white'
+}
+
+function screeningLineClass(group) {
+  return group.screening_status === '初筛通过' ? 'bg-[#22c55e]' : 'bg-[#ccd4e2]'
+}
+
+function screeningStatusPillClass(group) {
+  if (group.screening_status === '初筛通过') return 'bg-[#e7f8ef] text-[#15a05f]'
+  if (group.screening_status === '不合适' || group.application_status === 'rejected') return 'bg-[#eef1f6] text-[#667085]'
+  return 'bg-[#e8f2ff] text-[#246bdb]'
+}
+
+function shouldShowOfferStage(group) {
+  return Boolean(
+    group.plans.length ||
+    group.offer_status ||
+    group.application_current_stage === 'offer' ||
+    group.application_status === 'hired'
+  )
 }
 
 function nodeClass(plan, group) {
@@ -932,7 +1005,11 @@ function jobSummary(job) {
               :key="group.key"
               class="overflow-hidden rounded-xl border border-[#e8edf5] bg-[#f8fbff]"
             >
-              <button class="flex w-full items-center justify-between gap-5 px-5 py-5 text-left" @click="toggleWorkflow(group)">
+              <button
+                class="flex w-full items-center justify-between gap-5 px-5 py-5 text-left transition"
+                :class="activeGroup?.key === group.key ? 'bg-[#f2f7ff]' : ''"
+                @click="selectAndToggleWorkflow(group)"
+              >
                 <div class="flex min-w-0 items-center gap-4">
                   <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#2f80ff] text-white">
                     <i class="fa fa-bar-chart"></i>
@@ -965,7 +1042,24 @@ function jobSummary(job) {
               </button>
 
               <div class="overflow-x-auto border-t border-[#e8edf5] bg-[#f8fbff] px-5 py-4 pb-5">
-                <div class="flex min-w-[680px] items-start">
+                <div
+                  class="flex items-start"
+                  :class="group.plans.length || shouldShowOfferStage(group) ? 'min-w-[680px]' : 'min-w-0'"
+                >
+                  <div class="flex w-[128px] shrink-0 flex-col items-center text-center">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="screeningNodeClass(group)">
+                      <i v-if="group.screening_status === '初筛通过'" class="fa fa-check"></i>
+                      <i v-else-if="group.screening_status === '不合适' || group.application_status === 'rejected'" class="fa fa-exclamation"></i>
+                      <span v-else>1</span>
+                    </div>
+                    <div class="mt-2 font-bold" :class="group.screening_status === '初筛通过' ? 'text-[#15a05f]' : 'text-[#667085]'">简历筛选</div>
+                    <div class="mt-1 text-xs text-[#8a94a6]">{{ screeningStatusText(group) }}</div>
+                  </div>
+                  <div
+                    v-if="group.plans.length"
+                    class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full"
+                    :class="screeningLineClass(group)"
+                  ></div>
                   <template v-for="(plan, index) in group.plans" :key="`summary-${plan.id}`">
                     <div class="flex w-[128px] shrink-0 flex-col items-center text-center">
                       <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="nodeClass(plan, group)">
@@ -980,8 +1074,8 @@ function jobSummary(job) {
                     </div>
                     <div v-if="index < group.plans.length - 1" class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="lineClass(plan, group)"></div>
                   </template>
-                  <div class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="offerLineClass(group)"></div>
-                  <div class="flex w-[128px] shrink-0 flex-col items-center text-center">
+                  <div v-if="shouldShowOfferStage(group)" class="mx-2 mt-4 h-0.5 min-w-8 flex-1 rounded-full" :class="offerLineClass(group)"></div>
+                  <div v-if="shouldShowOfferStage(group)" class="flex w-[128px] shrink-0 flex-col items-center text-center">
                     <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-black" :class="offerNodeClass(group.offer_status, group.application_status)">
                       <i v-if="group.offer_status === 'accepted'" class="fa fa-check"></i>
                       <i v-else-if="group.application_status === 'rejected' || ['declined', 'rejected'].includes(group.offer_status)" class="fa fa-exclamation"></i>
@@ -1006,6 +1100,15 @@ function jobSummary(job) {
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-[#edf1f7]">
+                      <tr>
+                        <td class="px-4 py-3 font-semibold">简历筛选</td>
+                        <td class="px-4 py-3 text-[#475467]">招聘团队</td>
+                        <td class="px-4 py-3 text-[#667085]">{{ formatDateTime(group.application_created_at) }}</td>
+                        <td class="px-4 py-3">
+                          <span class="rounded-full px-3 py-1 text-xs font-bold" :class="screeningStatusPillClass(group)">{{ screeningStatusText(group) }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-[#98a2b3]">—</td>
+                      </tr>
                       <tr v-for="plan in group.plans" :key="plan.id">
                         <td class="px-4 py-3 font-semibold">{{ plan.interview_round }}</td>
                         <td class="px-4 py-3 text-[#475467]">{{ plan.interviewer || 'AI 面试官' }}</td>
@@ -1019,7 +1122,7 @@ function jobSummary(job) {
                     </tbody>
                   </table>
                 </div>
-                <div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-4">
+                <div v-if="shouldShowOfferStage(group)" class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-4">
                   <div>
                     <div class="font-black text-violet-900"><i class="fa fa-envelope-o mr-2"></i>Offer 阶段</div>
                     <div class="mt-1 text-sm text-violet-600">{{ offerStatusText(group.offer_status, group.application_status) }}</div>
@@ -1040,17 +1143,36 @@ function jobSummary(job) {
 
       <aside class="space-y-6 xl:sticky xl:top-24 xl:h-fit">
         <div class="rounded-2xl bg-white p-6 shadow-[0_16px_42px_rgba(15,35,80,0.08)]">
-          <div class="border-l-4 border-[#11b89f] pl-4 text-xl font-black">当前可操作岗位</div>
-          <div class="mt-7 flex items-center gap-4">
+          <div class="flex items-center justify-between border-l-4 border-[#11b89f] pl-4">
+            <div class="text-xl font-black">当前进行中的岗位</div>
+            <span class="rounded-full bg-[#ecfdf8] px-2.5 py-1 text-xs font-black text-[#0f9f8f]">{{ operableWorkflowGroups.length }}</span>
+          </div>
+
+          <div v-if="operableWorkflowGroups.length > 1" class="mt-5 max-h-40 space-y-2 overflow-y-auto pr-1">
+            <button
+              v-for="group in operableWorkflowGroups"
+              :key="`operation-${group.key}`"
+              class="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition"
+              :class="activeGroup?.key === group.key
+                ? 'border-[#9ce3d6] bg-[#ecfdf8] text-[#087f71]'
+                : 'border-[#e8edf5] bg-[#f8fbff] text-[#475467] hover:border-[#cdd9eb]'"
+              @click="selectWorkflow(group)"
+            >
+              <span class="truncate text-sm font-bold">{{ group.jd_name }}</span>
+              <i class="fa fa-chevron-right shrink-0 text-xs opacity-60"></i>
+            </button>
+          </div>
+
+          <div v-if="activeGroup" class="mt-6 flex items-center gap-4">
             <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#2f80ff] text-white">
               <i class="fa fa-bar-chart text-2xl"></i>
             </div>
             <div class="min-w-0">
-              <div class="truncate text-2xl font-black">{{ activeGroup?.jd_name || '暂无可操作岗位' }}</div>
-              <div class="mt-2 inline-flex rounded-lg bg-[#e8f2ff] px-3 py-1 text-sm font-bold text-[#246bdb]">{{ currentPlan ? groupStatusText(activeGroup) : '等待通知' }}</div>
+              <div class="truncate text-2xl font-black">{{ activeGroup.jd_name }}</div>
+              <div class="mt-2 inline-flex rounded-lg bg-[#e8f2ff] px-3 py-1 text-sm font-bold text-[#246bdb]">{{ groupStatusText(activeGroup) }}</div>
             </div>
           </div>
-          <div class="mt-7 space-y-3 text-sm text-[#667085]">
+          <div v-if="activeGroup" class="mt-7 space-y-3 text-sm text-[#667085]">
             <div><i class="fa fa-info-circle mr-2 text-[#98a2b3]"></i>下一环节：{{ nextStepText }}</div>
             <div><i class="fa fa-clock-o mr-2 text-[#98a2b3]"></i>面试时间：{{ currentPlan?.scheduled_at || '暂未设置' }}</div>
           </div>
@@ -1061,7 +1183,12 @@ function jobSummary(job) {
           >
             {{ currentActionText }}
           </button>
-          <button v-else class="mt-7 w-full cursor-not-allowed rounded-xl bg-[#eef1f6] px-5 py-4 font-black text-[#98a2b3]">等待通知</button>
+          <div v-else-if="activeGroup?.offer_status === 'offered'" class="mt-7 grid grid-cols-2 gap-2">
+            <button class="rounded-xl border border-[#d8dce8] bg-white px-3 py-3 text-sm font-black text-[#667085] hover:bg-[#f7f9fc]" @click="respondOffer(activeGroup, 'decline')">拒绝 Offer</button>
+            <button class="rounded-xl bg-violet-600 px-3 py-3 text-sm font-black text-white hover:bg-violet-700" @click="respondOffer(activeGroup, 'accept')">接受 Offer</button>
+          </div>
+          <button v-else-if="activeGroup" class="mt-7 w-full cursor-not-allowed rounded-xl bg-[#eef1f6] px-5 py-4 font-black text-[#98a2b3]">等待招聘方处理</button>
+          <div v-else class="mt-6 rounded-xl bg-[#f7f9fc] px-4 py-6 text-center text-sm text-[#98a2b3]">暂无进行中的岗位</div>
         </div>
 
         <div class="rounded-2xl bg-white p-6 shadow-[0_16px_42px_rgba(15,35,80,0.08)]">

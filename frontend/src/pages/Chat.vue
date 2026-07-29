@@ -138,9 +138,9 @@ onMounted(async () => {
       : [withTimestamp({ role: 'interviewer', content: data.message, timestamp: nowIso() })]
     state.value = data.state
     if (state.value === 'COMPLETED') {
-      if (voice.voiceMode.value && voice.autoSpeak.value) await live2d.speakText(messages.value.at(-1)?.content || '')
+      if (voice.autoSpeak.value) await live2d.speakText(messages.value.at(-1)?.content || '')
       showCompletionDialog()
-    } else if (voice.voiceMode.value && voice.autoSpeak.value) {
+    } else if (voice.autoSpeak.value) {
       live2d.speakText(messages.value.at(-1)?.content || '')
     }
     await scrollDown()
@@ -227,9 +227,9 @@ async function sendMessage() {
     if (nextState) state.value = nextState
     if (!interviewerMessage.content) interviewerMessage.content = '我刚刚没能正常生成回复，我们继续。'
     if (state.value === 'COMPLETED') {
-      if (voice.voiceMode.value && voice.autoSpeak.value) await live2d.speakText(interviewerMessage.content)
+      if (voice.autoSpeak.value) await live2d.speakText(interviewerMessage.content)
       showCompletionDialog()
-    } else if (voice.voiceMode.value && voice.autoSpeak.value) {
+    } else if (voice.autoSpeak.value) {
       live2d.speakText(interviewerMessage.content)
     }
     await scrollDown()
@@ -255,7 +255,7 @@ function showCompletionDialog() {
 }
 
 async function endInterviewEarly() {
-  if (!sessionId.value || state.value !== 'INTERVIEWING' || sending.value || endingEarly.value) return
+  if (!sessionId.value || !['READY_CHECK', 'INTERVIEWING'].includes(state.value) || sending.value || endingEarly.value) return
   const confirmed = await window.appConfirm(
     '确认提前结束本轮面试吗？已完成的回答会保留并提交招聘方评估，未回答的问题将不再继续。',
     { title: '提前结束面试', confirmText: '确认结束' },
@@ -362,13 +362,22 @@ function returnAfterCompletion() {
             <p class="text-xs font-semibold text-emerald-500">当前状态</p>
             <p class="mt-1 text-lg font-black text-emerald-700">{{ statusText }}</p>
             <p class="mt-2 text-xs leading-5 text-emerald-600">离开页面后可从面试入口继续当前轮次。</p>
+            <button
+              v-if="state !== 'COMPLETED'"
+              :disabled="sending || endingEarly"
+              class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-bold text-amber-700 transition hover:border-amber-300 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              @click="endInterviewEarly"
+            >
+              <i class="fa fa-stop-circle-o" aria-hidden="true"></i>
+              {{ endingEarly ? '正在结束…' : '提前结束面试' }}
+            </button>
           </div>
 
           <div class="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <p class="text-xs font-semibold text-indigo-500">语音模式</p>
-                <p class="mt-1 text-sm leading-5 text-indigo-700">{{ voice.voiceMode.value ? '已开启 FunASR 语音识别与 edge-tts 回复朗读' : '文字输入为主，可切换语音' }}</p>
+                <p class="text-xs font-semibold text-indigo-500">语音输入</p>
+                <p class="mt-1 text-sm leading-5 text-indigo-700">{{ voice.voiceMode.value ? '已开启 FunASR 语音识别' : '文字输入为主，可开启语音识别' }}</p>
               </div>
               <button
                 :class="[voice.voiceMode.value ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-600 ring-1 ring-indigo-100']"
@@ -397,14 +406,6 @@ function returnAfterCompletion() {
                 @click="live2d.stopSpeaking"
               >
                 停止朗读
-              </button>
-              <button
-                v-if="state === 'INTERVIEWING'"
-                :disabled="sending || endingEarly"
-                class="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-                @click="endInterviewEarly"
-              >
-                {{ endingEarly ? '正在结束…' : '提前结束面试' }}
               </button>
               <span class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500">{{ messages.length }} 条消息</span>
             </div>

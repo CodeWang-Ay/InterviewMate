@@ -131,8 +131,11 @@ async def session_info(identity: dict = Depends(get_current_identity)):
         "username": identity["username"],
         "nickname": profile.get("nickname") or profile.get("candidate_name") or identity["username"],
         "role": "admin" if identity["kind"] == "admin" else "candidate",
+        "avatar": profile.get("avatar") or "",
         "phone": profile.get("phone") or "",
         "email": profile.get("email") or "",
+        "company": profile.get("company") or "",
+        "bio": profile.get("bio") or "",
     }
 
 

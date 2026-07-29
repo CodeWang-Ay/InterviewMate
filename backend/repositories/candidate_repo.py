@@ -122,6 +122,8 @@ def login(username: str, password: str) -> dict | None:
         "token": token,
         "username": username,
         "nickname": row["candidate_name"] or username,
+        "avatar": row["avatar"] or "",
+        "email": row["email"] or "",
         "phone": row["phone"] or "",
         "role": "candidate",
     }
