@@ -375,13 +375,15 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
     ext = upload_repo.validate(file)
     content = await file.read()
     file_md5 = hashlib.md5(content).hexdigest()
+    candidate = candidate_repo.get_candidate_info(username) or {}
     duplicates = resume_repo.find_duplicates(file_md5)
     owned_duplicate = next((item for item in duplicates if item.get("candidate_username") == username), None)
     if owned_duplicate:
         candidate_repo.update_profile(username, {"resume_filename": owned_duplicate.get("file_path", "")})
+        if owned_duplicate.get("parse_status") != "success":
+            return await _parse_candidate_resume(owned_duplicate, candidate)
         return owned_duplicate
     filename = upload_repo.save_content(content, file.filename or "unknown", "resume", ext)
-    candidate = candidate_repo.get_candidate_info(username) or {}
     resume = resume_repo.create({
         "name": os.path.splitext(file.filename or "unknown")[0],
         "file_path": filename,
@@ -397,8 +399,16 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
         raise HTTPException(status_code=500, detail="简历记录创建失败，请重试")
     # 只更新候选人的“当前简历”，历史投递继续保留投递时的简历快照
     candidate_repo.update_profile(username, {"resume_filename": filename})
-    # 触发解析
-    result = await parse_resume(filename)
+    return await _parse_candidate_resume(resume, candidate)
+
+
+async def _parse_candidate_resume(resume: dict, candidate: dict) -> dict:
+    """自动解析候选人上传的简历，并将结果写回同一份简历记录。"""
+    try:
+        result = await parse_resume(resume["file_path"])
+    except Exception:
+        resume_repo.update(resume["id"], {"parse_status": "fail"})
+        raise
     resume_repo.update(resume["id"], {
         "parse_status": "success",
         "structured_data": json.dumps(result["structured"], ensure_ascii=False),
@@ -413,7 +423,7 @@ async def upload_my_resume(file: UploadFile = File(...), username: str = Depends
     if basic.get("邮箱") and not candidate.get("email"):
         candidate_updates["email"] = basic["邮箱"]
     if candidate_updates:
-        candidate_repo.update_profile(username, candidate_updates)
+        candidate_repo.update_profile(resume.get("candidate_username", ""), candidate_updates)
     return resume_repo.get_by_id(resume["id"])
 
 

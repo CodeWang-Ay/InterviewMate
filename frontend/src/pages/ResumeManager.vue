@@ -46,6 +46,7 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const viewMode = ref('list')
+let resumeStatusRefreshTimer = null
 
 const candidateStatusOptions = [
   '待筛选',
@@ -307,8 +308,8 @@ async function loadWorkflowTemplates() {
   }
 }
 
-async function fetchList() {
-  loading.value = true
+async function fetchList(silent = false) {
+  if (!silent) loading.value = true
   try {
     const params = new URLSearchParams()
     if (searchText.value) params.set('search', searchText.value)
@@ -332,12 +333,15 @@ async function fetchList() {
       }
     }
   } catch (_) {}
-  loading.value = false
+  if (!silent) loading.value = false
 }
 
 onMounted(() => {
   fetchList()
   loadWorkflowTemplates()
+  resumeStatusRefreshTimer = window.setInterval(() => {
+    if (resumeList.value.some(item => item.parse_status === 'wait')) fetchList(true)
+  }, 3000)
 })
 
 function resetUploadInput() {
@@ -619,6 +623,7 @@ async function viewResume(r) {
 }
 
 function goCandidatePlans(resume) {
+  if (!resume?.application_id) return
   const candidate = resume?.name || fieldValue(basicInfo.value, ['姓名'], '')
   router.push({ path: '/admin/plan-manager', query: candidate ? { candidate } : {} })
 }
@@ -655,6 +660,10 @@ async function createInterviewPlan(resume, round) {
 }
 
 async function openWorkflowPicker(resume) {
+  if (!resume?.jd_id) {
+    window.appNotify?.('该简历尚未投递岗位，绑定 JD 后才能创建面试流程', 'warning')
+    return
+  }
   workflowResume.value = resume
   workflowBatchMode.value = false
   selectedWorkflowIndex.value = 0
@@ -665,7 +674,7 @@ async function openWorkflowPicker(resume) {
 }
 
 async function openBatchWorkflowPicker() {
-  if (!selectedResumes.value.length) return
+  if (!selectedResumes.value.some(resume => resume.parse_status === 'success' && resume.jd_id)) return
   workflowResume.value = null
   workflowBatchMode.value = true
   selectedWorkflowIndex.value = 0
@@ -688,7 +697,9 @@ function toggleWorkflowFullscreen() {
 
 async function createInterviewWorkflow() {
   const template = selectedWorkflowTemplate.value
-  const targets = workflowBatchMode.value ? selectedResumes.value.filter(r => r.parse_status === 'success') : [workflowResume.value].filter(Boolean)
+  const targets = workflowBatchMode.value
+    ? selectedResumes.value.filter(r => r.parse_status === 'success' && r.jd_id)
+    : [workflowResume.value].filter(resume => resume?.jd_id)
   if (!targets.length || !template) return
   creatingWorkflow.value = true
   try {
@@ -913,6 +924,7 @@ async function saveWorkflowTemplate() {
 
 onBeforeUnmount(() => {
   stopWorkflowNodeDrag()
+  if (resumeStatusRefreshTimer) window.clearInterval(resumeStatusRefreshTimer)
 })
 
 function fieldValue(obj, keys, fallback = '-') {
@@ -1149,7 +1161,7 @@ function sourceBadge(source) {
         <div class="flex flex-wrap items-center gap-2">
           <button class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50" @click="toggleSelectAll">{{ allSelected ? '取消全选' : '全选当前页' }}</button>
           <button class="px-3 py-2 rounded-lg border border-purple-200 text-purple-600 text-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.length" @click="parseSelectedResumes"><i class="fa fa-magic mr-1"></i>批量解析</button>
-          <button class="px-3 py-2 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.some(r => r.parse_status === 'success')" @click="openBatchWorkflowPicker"><i class="fa fa-sitemap mr-1"></i>批量创建流程</button>
+          <button class="px-3 py-2 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.some(r => r.parse_status === 'success' && r.jd_id)" @click="openBatchWorkflowPicker"><i class="fa fa-sitemap mr-1"></i>批量创建流程</button>
           <button class="px-3 py-2 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedResumes.length" @click="deleteSelectedResumes"><i class="fa fa-trash-o mr-1"></i>批量删除</button>
         </div>
       </div>
@@ -1266,12 +1278,14 @@ function sourceBadge(source) {
               </td>
               <td class="px-4 py-3">
                 <select
+                  v-if="r.application_id"
                   :value="r.candidate_status || '待筛选'"
                   :class="['max-w-[116px] rounded-lg border px-2 py-1.5 text-xs font-medium outline-none transition hover:bg-white', candidateStatusBadge(r.candidate_status || '待筛选')]"
                   @change="updateCandidateStatus(r, $event.target.value)"
                 >
                   <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
                 </select>
+                <span v-else class="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500">未投递</span>
               </td>
               <td class="px-4 py-3 text-center">
                 <div class="flex items-center justify-center gap-2">
@@ -1286,13 +1300,14 @@ function sourceBadge(source) {
                   </button>
                   <span class="h-5 w-px bg-gray-200"></span>
                   <button
-                    class="w-8 h-8 rounded-lg text-indigo-600 hover:bg-indigo-50 transition flex items-center justify-center"
-                    title="查看面试计划"
+                    class="w-8 h-8 rounded-lg text-indigo-600 hover:bg-indigo-50 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
+                    :disabled="!r.application_id"
+                    :title="r.application_id ? '查看面试计划' : '该简历尚未投递岗位'"
                     @click="goCandidatePlans(r)"
                   >
                     <i class="fa fa-calendar-check-o"></i>
                   </button>
-                  <div v-if="r.parse_status === 'success'" class="flex items-center rounded-lg border border-green-100 bg-green-50 p-0.5">
+                  <div v-if="r.parse_status === 'success' && r.jd_id" class="flex items-center rounded-lg border border-green-100 bg-green-50 p-0.5">
                     <button
                       class="h-7 px-3 rounded-md text-xs font-medium text-green-700 hover:bg-white transition disabled:cursor-not-allowed disabled:text-gray-300"
                       :disabled="creatingWorkflow"
@@ -1332,11 +1347,12 @@ function sourceBadge(source) {
                   <i class="fa fa-user-o text-lg"></i>
                 </div>
                 <div class="min-w-0">
-                  <div class="flex flex-wrap items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                     <h3 class="text-lg font-semibold text-[#18233e] break-all">{{ r.name || '未命名候选人' }}</h3>
                     <span :class="['px-2.5 py-1 text-xs rounded-full font-medium', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
                     <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', candidateStatusBadge(r.candidate_status || '待筛选')]">{{ r.candidate_status || '待筛选' }}</span>
                     <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', sourceBadge(r.source)]">{{ sourceLabel(r.source) }}</span>
+                    <span v-if="!r.application_id" class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">未投递</span>
                   </div>
                   <div class="mt-1 text-sm font-medium text-[#4f6488]">{{ getResumeHeadline(r) }}</div>
                   <div class="mt-2 text-xs text-[#7c89a2]">{{ getResumeSummary(r) }}</div>
@@ -1344,7 +1360,12 @@ function sourceBadge(source) {
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewResume(r)"><i class="fa fa-eye"></i></button>
-                <button class="w-9 h-9 rounded-xl text-indigo-600 hover:bg-indigo-50 transition flex items-center justify-center" title="查看面试计划" @click="goCandidatePlans(r)"><i class="fa fa-calendar-check-o"></i></button>
+                <button
+                  class="w-9 h-9 rounded-xl text-indigo-600 hover:bg-indigo-50 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
+                  :disabled="!r.application_id"
+                  :title="r.application_id ? '查看面试计划' : '该简历尚未投递岗位'"
+                  @click="goCandidatePlans(r)"
+                ><i class="fa fa-calendar-check-o"></i></button>
                 <button
                   class="w-9 h-9 rounded-xl text-purple-600 bg-purple-50 hover:bg-purple-100 transition flex items-center justify-center disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300"
                   :disabled="!r.file_path || parsingAll || parsingIds.has(r.id)"
@@ -1373,12 +1394,14 @@ function sourceBadge(source) {
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ r.original_name || r.file_path || '无文件名' }}</span>
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ formatDateTime(r.record_created_at || r.created_at) }}</span>
               <select
+                v-if="r.application_id"
                 :value="r.candidate_status || '待筛选'"
                 class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f] outline-none"
                 @change="updateCandidateStatus(r, $event.target.value)"
               >
                 <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
               </select>
+              <span v-else class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-500">未投递岗位</span>
             </div>
 
             <div v-if="getParseProgress(r.id)" class="mt-4 rounded-2xl border border-[#e7edfb] bg-[#f9fbff] px-4 py-3">
@@ -1415,7 +1438,7 @@ function sourceBadge(source) {
             <div class="mt-4 flex items-center justify-between gap-3">
               <div class="text-xs text-[#8b98af]">简历 ID：{{ r.id }}</div>
               <button
-                v-if="r.parse_status === 'success'"
+                v-if="r.parse_status === 'success' && r.jd_id"
                 class="inline-flex items-center gap-2 rounded-xl border border-green-100 bg-green-50 px-3 py-2 text-xs font-medium text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
                 :disabled="creatingWorkflow"
                 @click="openWorkflowPicker(r)"
@@ -1423,7 +1446,7 @@ function sourceBadge(source) {
                 <i class="fa fa-sitemap"></i>
                 <span>创建流程</span>
               </button>
-              <span v-else class="text-xs text-[#9aa6bc]">解析完成后可创建流程</span>
+              <span v-else class="text-xs text-[#9aa6bc]">{{ r.parse_status !== 'success' ? '解析完成后可创建流程' : '投递岗位后可创建流程' }}</span>
             </div>
           </article>
         </div>

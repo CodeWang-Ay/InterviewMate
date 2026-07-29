@@ -32,6 +32,7 @@ onMounted(() => {
   readUser()
   syncRecruitmentTypeFromRoute()
   if (!isHomePage.value) loadJobs()
+  loadFavorites()
 })
 
 watch(() => route.path, () => {
@@ -125,28 +126,48 @@ function goLogin(jobId) {
   }
 }
 
-// ── 收藏（localStorage） ──────────────────────────────────────
+// ── 收藏（按候选人账号持久化） ───────────────────────────────
 
-const favorites = ref(new Set(loadFavorites()))
+const favorites = ref(new Set())
 
-function loadFavorites() {
-  try { return JSON.parse(localStorage.getItem('favorite_jobs') || '[]') } catch (_) { return [] }
+async function loadFavorites() {
+  favorites.value = new Set()
+  try { localStorage.removeItem('favorite_jobs') } catch (_) {}
+  if (role.value !== 'candidate' || !localStorage.getItem('token')) return
+  try {
+    const res = await fetch('/api/jds/favorites', { cache: 'no-store' })
+    if (!res.ok) return
+    const items = await res.json()
+    favorites.value = new Set((Array.isArray(items) ? items : []).map(item => Number(item.id)))
+  } catch (_) {}
 }
-function saveFavorites() {
-  try { localStorage.setItem('favorite_jobs', JSON.stringify([...favorites.value])) } catch (_) {}
-  // 同步更新页面中的 job 卡片状态
-  jobs.value = [...jobs.value]
-}
-function toggleFavorite(job) {
-  if (favorites.value.has(job.id)) {
-    favorites.value.delete(job.id)
-  } else {
-    favorites.value.add(job.id)
+
+async function toggleFavorite(job) {
+  if (role.value !== 'candidate' || !localStorage.getItem('token')) {
+    router.push({ path: '/user/login', query: { redirect: route.fullPath } })
+    return
   }
-  saveFavorites()
+  const jobId = Number(job.id)
+  const wasFavorite = favorites.value.has(jobId)
+  const next = new Set(favorites.value)
+  if (wasFavorite) next.delete(jobId)
+  else next.add(jobId)
+  favorites.value = next
+  try {
+    const res = await fetch(`/api/jds/favorites/${jobId}`, {
+      method: wasFavorite ? 'DELETE' : 'POST',
+    })
+    if (!res.ok) throw new Error('收藏更新失败')
+  } catch (error) {
+    const rollback = new Set(favorites.value)
+    if (wasFavorite) rollback.add(jobId)
+    else rollback.delete(jobId)
+    favorites.value = rollback
+    window.appNotify?.(error.message || '收藏更新失败', 'error')
+  }
 }
 function isFavorite(jobId) {
-  return favorites.value.has(jobId)
+  return favorites.value.has(Number(jobId))
 }
 
 // ── 分享 ──────────────────────────────────────────────────────

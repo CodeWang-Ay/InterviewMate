@@ -25,6 +25,7 @@ const favoriteJobs = ref([])
 const resumeUploading = ref(false)
 const pendingApplyJob = ref(null)
 const uploadedResumeFile = ref('')
+const resumeParseStatus = ref('')
 const applicationQuota = ref({
   limit_per_type: 3,
   window_months: 6,
@@ -51,6 +52,18 @@ function showToast(message, type = 'info', duration = 4200) {
 const hasResume = computed(() => {
   return Boolean(resumeFileName.value && resumeFileName.value !== '暂未上传简历')
 })
+
+const resumeParseLabel = computed(() => ({
+  success: '已解析',
+  fail: '解析失败',
+  wait: '未解析',
+}[resumeParseStatus.value] || '未解析'))
+
+const resumeParseBadgeClass = computed(() => ({
+  success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  fail: 'border-rose-200 bg-rose-50 text-rose-600',
+  wait: 'border-amber-200 bg-amber-50 text-amber-700',
+}[resumeParseStatus.value] || 'border-amber-200 bg-amber-50 text-amber-700'))
 
 const tabs = [
   { key: 'social', label: '社会招聘' },
@@ -251,16 +264,9 @@ onUnmounted(() => {
 
 async function loadFavoriteJobs() {
   try {
-    const ids = JSON.parse(localStorage.getItem('favorite_jobs') || '[]')
-    if (!ids.length) { favoriteJobs.value = []; return }
-    const jobs = []
-    for (const id of ids) {
-      try {
-        const res = await fetch(`/api/jds/public/${id}`)
-        if (res.ok) jobs.push(await res.json())
-      } catch (_) {}
-    }
-    favoriteJobs.value = jobs
+    try { localStorage.removeItem('favorite_jobs') } catch (_) {}
+    const res = await fetch('/api/jds/favorites', { cache: 'no-store' })
+    favoriteJobs.value = res.ok ? await res.json() : []
   } catch (_) { favoriteJobs.value = [] }
 }
 
@@ -354,8 +360,10 @@ async function loadMyResume() {
     if (res.ok) {
       const resume = await res.json()
       uploadedResumeFile.value = resume.file_path || ''
+      resumeParseStatus.value = resume.parse_status || 'wait'
     } else if (res.status === 404) {
       uploadedResumeFile.value = ''
+      resumeParseStatus.value = ''
     }
   } catch (_) {
     // 保留当前页面中刚上传成功的文件，避免短暂网络错误导致卡片消失
@@ -415,6 +423,7 @@ async function uploadResume(e) {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '上传失败')
     const resume = await res.json()
     uploadedResumeFile.value = resume.file_path || ''
+    resumeParseStatus.value = resume.parse_status || 'wait'
     // 刷新计划和候选人自己的简历
     await loadPlans()
     // 如果有待投递的岗位，现在投递（携带简历文件名）
@@ -948,7 +957,16 @@ function jobSummary(job) {
               <div class="flex min-w-0 gap-5">
                 <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2f80ff] to-[#11b89f] text-base font-black text-white shadow-sm">PDF</div>
                 <div class="min-w-0 flex-1">
-                  <div class="truncate text-xl font-black lg:text-2xl">{{ resumeFileName }}</div>
+                  <div class="flex min-w-0 flex-wrap items-center gap-2.5">
+                    <div class="min-w-0 truncate text-xl font-black lg:text-2xl">{{ resumeFileName }}</div>
+                    <span
+                      class="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold"
+                      :class="resumeParseBadgeClass"
+                    >
+                      <i :class="['fa', resumeParseStatus === 'success' ? 'fa-check-circle' : resumeParseStatus === 'fail' ? 'fa-exclamation-circle' : 'fa-clock-o']"></i>
+                      {{ resumeParseLabel }}
+                    </span>
+                  </div>
                   <div class="mt-2 text-sm text-[#667085]">{{ applicationCount ? `已用于 ${applicationCount} 个岗位投递` : '当前简历尚未投递岗位' }}</div>
                   <div class="mt-4 inline-flex items-center rounded-lg bg-white/70 px-3 py-1.5 text-xs font-semibold text-[#667085]">
                     <i class="fa fa-file-text-o mr-1.5 text-[#11b89f]"></i>当前使用版本

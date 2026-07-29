@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from backend.controllers.auth_controller import require_admin
-from backend.repositories import jd_repo
+from backend.controllers.auth_controller import get_current_candidate, require_admin
+from backend.repositories import favorite_repo, jd_repo
 from backend.services.jd_copilot_service import generate_jd_draft, optimize_jd_draft
 from backend.services.task_service import create_task
 
@@ -56,6 +56,26 @@ async def public_jd_detail(jd_id: int):
     if not jd or jd.get("status") != "enable":
         raise HTTPException(status_code=404, detail="职位不存在或已下线")
     return jd
+
+
+@router.get("/favorites")
+async def my_favorite_jds(username: str = Depends(get_current_candidate)):
+    return favorite_repo.list_by_candidate(username)
+
+
+@router.post("/favorites/{jd_id}")
+async def favorite_jd(jd_id: int, username: str = Depends(get_current_candidate)):
+    jd = jd_repo.get_by_id(jd_id)
+    if not jd or jd.get("status") != "enable":
+        raise HTTPException(status_code=404, detail="职位不存在或已下线")
+    favorite_repo.add(username, jd_id)
+    return {"status": "ok", "jd_id": jd_id}
+
+
+@router.delete("/favorites/{jd_id}")
+async def unfavorite_jd(jd_id: int, username: str = Depends(get_current_candidate)):
+    favorite_repo.remove(username, jd_id)
+    return {"status": "ok", "jd_id": jd_id}
 
 
 @router.get("")
