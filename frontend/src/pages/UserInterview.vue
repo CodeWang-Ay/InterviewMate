@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CandidateNavbar from '../components/CandidateNavbar.vue'
 
@@ -13,7 +13,6 @@ const error = ref('')
 const expandedWorkflows = ref(new Set())
 const selectedWorkflowKey = ref('')
 const activeTab = ref('social')
-let plansRefreshTimer = null
 const username = ref('')
 const nickname = ref('')
 const phone = ref('')
@@ -254,15 +253,6 @@ onMounted(async () => {
   }
   loadRecommendedJobs()
   loadFavoriteJobs()
-  window.addEventListener('focus', refreshPlansSilently)
-  document.addEventListener('visibilitychange', refreshPlansWhenVisible)
-  plansRefreshTimer = window.setInterval(refreshPlansSilently, 15000)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('focus', refreshPlansSilently)
-  document.removeEventListener('visibilitychange', refreshPlansWhenVisible)
-  if (plansRefreshTimer) window.clearInterval(plansRefreshTimer)
 })
 
 async function loadFavoriteJobs(withAnimation = false) {
@@ -316,14 +306,6 @@ async function uploadAvatar(e) {
     localStorage.setItem('avatar', data.avatar_url)
   } catch (e) { showToast(e.message, 'error') }
   e.target.value = ''
-}
-
-function refreshPlansSilently() {
-  if (document.visibilityState === 'visible') loadPlans(true)
-}
-
-function refreshPlansWhenVisible() {
-  if (document.visibilityState === 'visible') refreshPlansSilently()
 }
 
 async function loadPlans(silent = false) {
