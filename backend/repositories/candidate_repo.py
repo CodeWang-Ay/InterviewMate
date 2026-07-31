@@ -161,6 +161,33 @@ def reset_password(username: str, new_password: str) -> bool:
         return cur.rowcount > 0
 
 
+def change_password(username: str, old_password: str, new_password: str) -> bool:
+    if len(new_password) < 6:
+        return False
+    with _conn() as conn:
+        row = conn.execute("SELECT password_hash FROM candidates WHERE username=?", (username,)).fetchone()
+        if not row or not _verify_password(old_password, row["password_hash"]):
+            return False
+        conn.execute("UPDATE candidates SET password_hash=? WHERE username=?", (_hash(new_password), username))
+    auth_session_repo.delete_by_identity(username, "candidate", DB_PATH)
+    return True
+
+
+def reset_password_by_phone(username: str, phone: str, new_password: str) -> bool:
+    if len(new_password) < 6 or not phone:
+        return False
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM candidates WHERE username=? AND phone=?",
+            (username, phone),
+        ).fetchone()
+        if not row:
+            return False
+        conn.execute("UPDATE candidates SET password_hash=? WHERE username=?", (_hash(new_password), username))
+    auth_session_repo.delete_by_identity(username, "candidate", DB_PATH)
+    return True
+
+
 def update_profile(username: str, data: dict) -> bool:
     allowed = ["phone", "email", "candidate_name", "avatar", "resume_filename"]
     sets = [f"{k}=?" for k in allowed if k in data]
@@ -176,3 +203,20 @@ def update_profile(username: str, data: dict) -> bool:
 def logout(token: str):
     tokens.pop(token, None)
     auth_session_repo.delete(token, "candidate", DB_PATH)
+
+
+def delete_account(username: str) -> bool:
+    """删除候选人及其个人业务数据；招聘侧不再保留可识别记录。"""
+    with _conn() as conn:
+        app_rows = conn.execute("SELECT id FROM applications WHERE candidate_username=?", (username,)).fetchall()
+        application_ids = [int(row["id"]) for row in app_rows]
+        if application_ids:
+            marks = ",".join("?" for _ in application_ids)
+            conn.execute(f"DELETE FROM plans WHERE application_id IN ({marks})", application_ids)
+            conn.execute(f"DELETE FROM applications WHERE id IN ({marks})", application_ids)
+        conn.execute("DELETE FROM plans WHERE candidate_username=?", (username,))
+        conn.execute("DELETE FROM candidate_job_favorites WHERE candidate_username=?", (username,))
+        conn.execute("DELETE FROM resumes WHERE candidate_username=?", (username,))
+        cur = conn.execute("DELETE FROM candidates WHERE username=?", (username,))
+    auth_session_repo.delete_by_identity(username, "candidate", DB_PATH)
+    return cur.rowcount > 0

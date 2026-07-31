@@ -17,6 +17,13 @@ const username = ref('')
 const nickname = ref('')
 const phone = ref('')
 const email = ref('')
+const showAccountSettings = ref(false)
+const accountSaving = ref(false)
+const profileForm = ref({ candidate_name: '', phone: '', email: '' })
+const passwordForm = ref({ old_password: '', new_password: '', confirm_password: '' })
+const deletePassword = ref('')
+const reschedulePlan = ref(null)
+const rescheduleForm = ref({ reason: '', preferred_at: '' })
 const viewingResume = ref(null)
 const resumePreviewLoading = ref(false)
 const resumePreviewSrc = ref('')
@@ -290,6 +297,109 @@ function readUser() {
     phone.value = ''
     email.value = ''
     avatar.value = ''
+  }
+}
+
+function openAccountSettings() {
+  profileForm.value = { candidate_name: nickname.value || username.value, phone: phone.value, email: email.value }
+  passwordForm.value = { old_password: '', new_password: '', confirm_password: '' }
+  deletePassword.value = ''
+  showAccountSettings.value = true
+}
+
+async function saveCandidateProfile() {
+  accountSaving.value = true
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/auth/candidate-profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(profileForm.value),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.detail || '资料保存失败')
+    nickname.value = data.candidate_name
+    phone.value = data.phone
+    email.value = data.email
+    localStorage.setItem('nickname', nickname.value)
+    localStorage.setItem('phone', phone.value)
+    localStorage.setItem('email', email.value)
+    window.dispatchEvent(new CustomEvent('auth-changed'))
+    showToast('个人资料已更新', 'success')
+  } catch (e) {
+    showToast(e.message || '资料保存失败', 'error')
+  } finally {
+    accountSaving.value = false
+  }
+}
+
+async function changeCandidatePassword() {
+  if (passwordForm.value.new_password !== passwordForm.value.confirm_password) {
+    showToast('两次输入的新密码不一致', 'warning')
+    return
+  }
+  accountSaving.value = true
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/auth/candidate-password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ old_password: passwordForm.value.old_password, new_password: passwordForm.value.new_password }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.detail || '密码修改失败')
+    showToast(data.message || '密码修改成功，请重新登录', 'success')
+    window.setTimeout(logout, 900)
+  } catch (e) {
+    showToast(e.message || '密码修改失败', 'error')
+  } finally {
+    accountSaving.value = false
+  }
+}
+
+async function exportCandidateData() {
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/auth/candidate-data-export', { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '数据导出失败')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `InterviewMate-${username.value}-data.json`
+    link.click()
+    URL.revokeObjectURL(url)
+    showToast('个人数据已导出', 'success')
+  } catch (e) {
+    showToast(e.message || '数据导出失败', 'error')
+  }
+}
+
+async function deleteCandidateAccount() {
+  if (!deletePassword.value) {
+    showToast('请输入当前密码', 'warning')
+    return
+  }
+  const confirmed = await window.appConfirm('注销后将删除账号、简历、投递、面试计划和收藏数据，且无法恢复。确定继续吗？', {
+    title: '永久注销账号', confirmText: '确认永久注销', type: 'danger',
+  })
+  if (!confirmed) return
+  accountSaving.value = true
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/auth/candidate-account', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ password: deletePassword.value }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.detail || '账号注销失败')
+    showToast('账号已注销', 'success')
+    window.setTimeout(logout, 600)
+  } catch (e) {
+    showToast(e.message || '账号注销失败', 'error')
+  } finally {
+    accountSaving.value = false
   }
 }
 
@@ -789,6 +899,63 @@ function canEnterInterview(plan) {
   return Boolean(plan?.interview_ready === true && ['wait', 'running'].includes(plan.status))
 }
 
+function canCoordinateInterview(plan) {
+  return Boolean(plan?.scheduled_at && ['wait', 'running'].includes(plan.status))
+}
+
+function attendanceText(plan) {
+  if (plan?.reschedule_status === 'pending') return '改期申请处理中'
+  if (plan?.reschedule_status === 'approved') return '改期已通过，待确认'
+  if (plan?.reschedule_status === 'rejected') return '改期未通过'
+  if (plan?.attendance_status === 'confirmed') return '已确认参加'
+  return plan?.scheduled_at ? '待确认时间' : '待安排'
+}
+
+async function coordinateInterview(plan, action, payload = {}) {
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch(`/api/plans/my/interviews/${plan.id}/coordination`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, ...payload }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.detail || '面试时间操作失败')
+    reschedulePlan.value = null
+    await loadPlans(true)
+    showToast(action === 'confirm' ? '已确认参加本轮面试' : '改期申请已提交', 'success')
+  } catch (e) {
+    showToast(e.message || '面试时间操作失败', 'error')
+  }
+}
+
+function openReschedule(plan) {
+  reschedulePlan.value = plan
+  rescheduleForm.value = { reason: '', preferred_at: '' }
+}
+
+function submitReschedule() {
+  if (!reschedulePlan.value) return
+  coordinateInterview(reschedulePlan.value, 'reschedule', rescheduleForm.value)
+}
+
+async function downloadInterviewCalendar(plan) {
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch(`/api/plans/my/interviews/${plan.id}/calendar`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '日历下载失败')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `interview-${plan.id}.ics`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    showToast(e.message || '日历下载失败', 'error')
+  }
+}
+
 async function cancelApplication(group) {
   if (!canCancelApplication(group)) return
   const confirmed = await window.appConfirm(`确定取消「${group.jd_name || '该岗位'}」的投递吗？取消后将立即释放对应招聘类型的投递名额。`, {
@@ -835,6 +1002,7 @@ function jobSummary(job) {
               </div>
               <div class="flex gap-3 text-sm">
                 <button class="rounded-full px-3 py-2 font-semibold text-[#475467] hover:bg-white/70" @click="router.push('/jobs/social')">查看职位</button>
+                <button class="rounded-full px-3 py-2 font-semibold text-[#475467] hover:bg-white/70" @click="openAccountSettings"><i class="fa fa-cog mr-1"></i>账户设置</button>
                 <button class="rounded-full bg-[#11b89f] px-4 py-2 font-semibold text-white hover:bg-[#0d9488]">我的进度</button>
               </div>
             </div>
@@ -1110,11 +1278,16 @@ function jobSummary(job) {
                       <tr v-for="plan in group.plans" :key="plan.id">
                         <td class="px-4 py-3 font-semibold">{{ plan.interview_round }}</td>
                         <td class="px-4 py-3 text-[#475467]">{{ plan.interviewer || 'AI 面试官' }}</td>
-                        <td class="px-4 py-3 text-[#667085]">{{ plan.scheduled_at || '待安排' }}</td>
+                        <td class="px-4 py-3 text-[#667085]"><div>{{ plan.scheduled_at || '待安排' }}</div><div v-if="plan.scheduled_at" class="mt-1 text-xs" :class="plan.attendance_status === 'confirmed' ? 'text-emerald-600' : plan.reschedule_status === 'pending' ? 'text-amber-600' : 'text-[#8a94a6]'">{{ attendanceText(plan) }}</div></td>
                         <td class="px-4 py-3"><span class="rounded-full px-3 py-1 text-xs font-bold" :class="statusPillClass(plan.status)">{{ planStatusText(plan, group) }}</span></td>
                         <td class="px-4 py-3">
-                          <button v-if="canEnterInterview(plan)" class="font-bold text-[#1677ff] hover:text-[#0958d9]" @click.stop="enterInterview(plan)">进入面试</button>
-                          <span v-else class="text-[#98a2b3]">{{ plan.interview_block_reason || '等待' }}</span>
+                          <div class="flex flex-wrap gap-2">
+                            <button v-if="canEnterInterview(plan)" class="font-bold text-[#1677ff] hover:text-[#0958d9]" @click.stop="enterInterview(plan)">进入面试</button>
+                            <button v-if="canCoordinateInterview(plan) && plan.attendance_status !== 'confirmed' && plan.reschedule_status !== 'pending'" class="font-bold text-emerald-600 hover:text-emerald-700" @click.stop="coordinateInterview(plan, 'confirm')">确认参加</button>
+                            <button v-if="canCoordinateInterview(plan) && plan.reschedule_status !== 'pending'" class="font-bold text-amber-600 hover:text-amber-700" @click.stop="openReschedule(plan)">申请改期</button>
+                            <button v-if="plan.scheduled_at" class="font-bold text-[#667085] hover:text-[#344054]" @click.stop="downloadInterviewCalendar(plan)"><i class="fa fa-calendar-plus-o mr-1"></i>添加日历</button>
+                            <span v-if="!canEnterInterview(plan) && !canCoordinateInterview(plan)" class="text-[#98a2b3]">{{ plan.interview_block_reason || '等待' }}</span>
+                          </div>
                         </td>
                       </tr>
                     </tbody>
@@ -1240,6 +1413,56 @@ function jobSummary(job) {
         </div>
       </aside>
     </main>
+
+    <div v-if="reschedulePlan" class="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/45 p-4" @click.self="reschedulePlan = null">
+      <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+        <div class="flex items-center justify-between"><div><h3 class="text-xl font-black">申请调整面试时间</h3><p class="mt-1 text-sm text-[#667085]">{{ reschedulePlan.jd_name }} · {{ reschedulePlan.interview_round }}</p></div><button class="h-9 w-9 rounded-full hover:bg-[#f2f4f7]" @click="reschedulePlan = null"><i class="fa fa-times"></i></button></div>
+        <div class="mt-5 rounded-xl bg-[#f7f9fc] px-4 py-3 text-sm text-[#667085]">当前时间：{{ reschedulePlan.scheduled_at }}</div>
+        <label class="mt-4 block text-sm font-bold text-[#475467]">期望时间<input v-model="rescheduleForm.preferred_at" type="datetime-local" class="mt-2 w-full rounded-xl border border-[#dce3ed] px-4 py-3 outline-none focus:border-[#11b89f]"></label>
+        <label class="mt-4 block text-sm font-bold text-[#475467]">改期原因<textarea v-model="rescheduleForm.reason" rows="4" maxlength="300" class="mt-2 w-full resize-none rounded-xl border border-[#dce3ed] px-4 py-3 outline-none focus:border-[#11b89f]" placeholder="请简要说明无法按原时间参加的原因"></textarea></label>
+        <div class="mt-5 flex justify-end gap-3"><button class="rounded-xl border border-[#dce3ed] px-5 py-2.5 font-bold text-[#667085]" @click="reschedulePlan = null">取消</button><button class="rounded-xl bg-[#11b89f] px-5 py-2.5 font-bold text-white disabled:opacity-50" :disabled="!rescheduleForm.preferred_at || !rescheduleForm.reason.trim()" @click="submitReschedule">提交申请</button></div>
+      </div>
+    </div>
+
+    <div v-if="showAccountSettings" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/45 p-4" @click.self="showAccountSettings = false">
+      <div class="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div class="sticky top-0 z-10 flex items-center justify-between border-b border-[#edf1f7] bg-white px-6 py-5">
+          <div><h3 class="text-xl font-black">账户设置</h3><p class="mt-1 text-sm text-[#667085]">维护个人资料、密码和账号数据</p></div>
+          <button class="flex h-9 w-9 items-center justify-center rounded-full hover:bg-[#f2f4f7]" @click="showAccountSettings = false"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="space-y-7 p-6">
+          <section>
+            <h4 class="font-black">个人资料</h4>
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+              <label class="text-sm font-semibold text-[#475467] sm:col-span-2">姓名<input v-model="profileForm.candidate_name" class="mt-2 w-full rounded-xl border border-[#dce3ed] px-4 py-3 outline-none focus:border-[#11b89f]" maxlength="40"></label>
+              <label class="text-sm font-semibold text-[#475467]">手机号<input v-model="profileForm.phone" class="mt-2 w-full rounded-xl border border-[#dce3ed] px-4 py-3 outline-none focus:border-[#11b89f]" maxlength="11"></label>
+              <label class="text-sm font-semibold text-[#475467]">邮箱<input v-model="profileForm.email" type="email" class="mt-2 w-full rounded-xl border border-[#dce3ed] px-4 py-3 outline-none focus:border-[#11b89f]"></label>
+            </div>
+            <button class="mt-4 rounded-xl bg-[#11b89f] px-5 py-2.5 font-bold text-white disabled:opacity-50" :disabled="accountSaving" @click="saveCandidateProfile">保存资料</button>
+          </section>
+          <section class="border-t border-[#edf1f7] pt-6">
+            <h4 class="font-black">修改密码</h4>
+            <div class="mt-4 grid gap-3">
+              <input v-model="passwordForm.old_password" type="password" placeholder="当前密码" class="rounded-xl border border-[#dce3ed] px-4 py-3 outline-none focus:border-[#4b6cff]">
+              <input v-model="passwordForm.new_password" type="password" placeholder="新密码（至少 6 位）" class="rounded-xl border border-[#dce3ed] px-4 py-3 outline-none focus:border-[#4b6cff]">
+              <input v-model="passwordForm.confirm_password" type="password" placeholder="再次输入新密码" class="rounded-xl border border-[#dce3ed] px-4 py-3 outline-none focus:border-[#4b6cff]">
+            </div>
+            <button class="mt-4 rounded-xl bg-[#4b6cff] px-5 py-2.5 font-bold text-white disabled:opacity-50" :disabled="accountSaving || !passwordForm.old_password || !passwordForm.new_password" @click="changeCandidatePassword">修改密码</button>
+          </section>
+          <section class="border-t border-[#edf1f7] pt-6">
+            <h4 class="font-black">个人数据</h4>
+            <p class="mt-2 text-sm leading-6 text-[#667085]">导出账户资料、投递、面试计划、简历记录和收藏岗位的 JSON 副本。</p>
+            <button class="mt-3 rounded-xl border border-[#dce3ed] px-5 py-2.5 font-bold text-[#475467] hover:bg-[#f8fafc]" @click="exportCandidateData"><i class="fa fa-download mr-2"></i>导出我的数据</button>
+          </section>
+          <section class="rounded-xl border border-red-100 bg-red-50/60 p-5">
+            <h4 class="font-black text-red-700">永久注销账号</h4>
+            <p class="mt-2 text-sm leading-6 text-red-600">此操作无法撤销，将删除账号及关联的个人业务数据。</p>
+            <input v-model="deletePassword" type="password" placeholder="输入当前密码确认身份" class="mt-3 w-full rounded-xl border border-red-200 bg-white px-4 py-3 outline-none focus:border-red-400">
+            <button class="mt-3 rounded-xl border border-red-300 bg-white px-5 py-2.5 font-bold text-red-600 hover:bg-red-100 disabled:opacity-50" :disabled="accountSaving" @click="deleteCandidateAccount">注销账号</button>
+          </section>
+        </div>
+      </div>
+    </div>
 
     <div v-if="viewingResume" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 lg:p-6" @click.self="closeResumePreview">
       <div class="flex h-[92vh] w-[96vw] max-w-[1180px] flex-col overflow-hidden rounded-2xl bg-[#f5f7fb] shadow-2xl">

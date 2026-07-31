@@ -1,11 +1,14 @@
 import os
 import uuid
+import re
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.config import UPLOAD_DIR
-from backend.repositories import admin_repo, candidate_repo
+from backend.repositories import admin_repo, application_repo, candidate_repo, favorite_repo, plan_repo, resume_repo
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -94,6 +97,31 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
+class CandidateProfileUpdate(BaseModel):
+    candidate_name: str
+    email: str = ""
+    phone: str = ""
+
+
+class CandidatePasswordReset(BaseModel):
+    username: str
+    phone: str
+    new_password: str
+
+
+class CandidateAccountDelete(BaseModel):
+    password: str
+
+
+def _validate_candidate_contact(name: str, phone: str, email: str) -> None:
+    if not name.strip():
+        raise HTTPException(status_code=400, detail="姓名不能为空")
+    if phone and (not phone.isdigit() or len(phone) != 11):
+        raise HTTPException(status_code=400, detail="请输入正确的11位手机号")
+    if email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        raise HTTPException(status_code=400, detail="请输入正确的邮箱地址")
+
+
 @router.post("/register")
 async def register(body: RegisterBody):
     if not body.username.strip() or len(body.username) < 2:
@@ -165,6 +193,66 @@ async def change_password(body: PasswordChange, username: str = Depends(get_curr
     if not ok:
         raise HTTPException(status_code=400, detail="当前密码错误")
     return {"status": "ok"}
+
+
+@router.put("/candidate-profile")
+async def update_candidate_profile(body: CandidateProfileUpdate, username: str = Depends(get_current_candidate)):
+    data = {key: value.strip() for key, value in body.model_dump().items()}
+    _validate_candidate_contact(data["candidate_name"], data["phone"], data["email"])
+    if not candidate_repo.update_profile(username, data):
+        raise HTTPException(status_code=404, detail="候选人不存在")
+    return {"status": "ok", **data}
+
+
+@router.put("/candidate-password")
+async def change_candidate_password(body: PasswordChange, username: str = Depends(get_current_candidate)):
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少6位")
+    if not candidate_repo.change_password(username, body.old_password, body.new_password):
+        raise HTTPException(status_code=400, detail="当前密码错误")
+    return {"status": "ok", "message": "密码修改成功，请重新登录"}
+
+
+@router.post("/candidate-password/reset")
+async def reset_candidate_password(body: CandidatePasswordReset):
+    username = body.username.strip()
+    phone = body.phone.strip()
+    if not username or not phone:
+        raise HTTPException(status_code=400, detail="请输入用户名和注册手机号")
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少6位")
+    if not candidate_repo.reset_password_by_phone(username, phone, body.new_password):
+        raise HTTPException(status_code=400, detail="用户名与注册手机号不匹配")
+    return {"status": "ok", "message": "密码已重置，请使用新密码登录"}
+
+
+@router.get("/candidate-data-export")
+async def export_candidate_data(username: str = Depends(get_current_candidate)):
+    profile = candidate_repo.get_candidate_info(username) or {}
+    profile.pop("password_hash", None)
+    payload = {
+        "exported_at": datetime.now().astimezone().isoformat(),
+        "profile": profile,
+        "applications": application_repo.list_by_candidate_username(username),
+        "plans": plan_repo.list_by_candidate_username(username),
+        "resumes": resume_repo.list_by_candidate_username(username),
+        "favorites": favorite_repo.list_by_candidate(username),
+    }
+    return JSONResponse(
+        content=payload,
+        headers={"Content-Disposition": f'attachment; filename="InterviewMate-{username}-data.json"'},
+    )
+
+
+@router.delete("/candidate-account")
+async def delete_candidate_account(body: CandidateAccountDelete, username: str = Depends(get_current_candidate)):
+    candidate = candidate_repo.login(username, body.password)
+    if not candidate:
+        raise HTTPException(status_code=400, detail="密码错误，无法注销账号")
+    candidate_repo.logout(candidate["token"])
+    if not candidate_repo.delete_account(username):
+        raise HTTPException(status_code=404, detail="候选人不存在")
+    return {"status": "ok", "message": "账号及个人业务数据已删除"}
 
 
 @router.post("/avatar")

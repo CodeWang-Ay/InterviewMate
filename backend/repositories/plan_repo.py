@@ -72,6 +72,8 @@ def init_db():
             "interview_round", "candidate_username", "candidate_password", "workflow_id", "workflow_name", "active_session_id",
             "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_note",
             "recruitment_type",
+            "attendance_status", "attendance_updated_at", "reschedule_status",
+            "reschedule_reason", "reschedule_preferred_at", "reschedule_note", "reschedule_updated_at",
         ]
         for col in text_cols:
             if col not in cols:
@@ -391,7 +393,8 @@ def update(pid: int, data: dict) -> dict | None:
                "jd_filename", "resume_filename", "questions", "candidate_username", "candidate_password",
                "workflow_id", "workflow_name", "stage_order", "stage_count", "active_session_id",
                "scheduled_at", "interviewer", "meeting_url", "interview_result", "result_score", "result_note",
-               "recruitment_type"]
+               "recruitment_type", "attendance_status", "attendance_updated_at", "reschedule_status",
+               "reschedule_reason", "reschedule_preferred_at", "reschedule_note", "reschedule_updated_at"]
     allowed += ["application_id", "resume_id", "jd_id"]
     if "candidate_password" in data:
         data = {**data, "candidate_password": _hash_password(data["candidate_password"])}

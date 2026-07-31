@@ -90,3 +90,12 @@ def delete(token: str, identity_kind: str | None = None, db_path: str = DB_PATH)
             )
         else:
             conn.execute("DELETE FROM auth_sessions WHERE token_hash=?", (_token_hash(token),))
+
+
+def delete_by_identity(username: str, identity_kind: str, db_path: str = DB_PATH) -> None:
+    init_db(db_path)
+    with _conn(db_path) as conn:
+        conn.execute(
+            "DELETE FROM auth_sessions WHERE username=? AND identity_kind=?",
+            (username, identity_kind),
+        )

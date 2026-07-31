@@ -15,6 +15,9 @@ const selectedCategory = ref('')
 const selectedLocation = ref('')
 const jobs = ref([])
 const total = ref(0)
+const page = ref(1)
+const pageSize = 20
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const username = ref('')
 const nickname = ref('')
 const role = ref('')
@@ -32,14 +35,37 @@ const isHomePage = computed(() => route.path === '/')
 onMounted(() => {
   readUser()
   syncRecruitmentTypeFromRoute()
+  syncFiltersFromRoute()
   if (!isHomePage.value) loadJobs()
   loadFavorites()
 })
 
-watch(() => route.path, () => {
+watch(() => [route.path, route.query.page, route.query.search, route.query.category, route.query.location], () => {
   syncRecruitmentTypeFromRoute()
+  syncFiltersFromRoute()
   if (!isHomePage.value) loadJobs()
 })
+
+function syncFiltersFromRoute() {
+  keyword.value = String(route.query.search || '')
+  selectedCategory.value = String(route.query.category || '')
+  selectedLocation.value = String(route.query.location || '')
+  page.value = Math.max(1, Number.parseInt(String(route.query.page || '1'), 10) || 1)
+}
+
+function currentQuery(nextPage = page.value) {
+  const query = {}
+  if (keyword.value.trim()) query.search = keyword.value.trim()
+  if (selectedCategory.value) query.category = selectedCategory.value
+  if (selectedLocation.value) query.location = selectedLocation.value
+  if (nextPage > 1) query.page = String(nextPage)
+  return query
+}
+
+function replaceListQuery(nextPage = 1) {
+  page.value = nextPage
+  router.replace({ path: route.path, query: currentQuery(nextPage) })
+}
 
 function readUser() {
   try {
@@ -60,8 +86,8 @@ async function loadJobs() {
   try {
     const dbType = recruitmentType.value === '实习' ? '实习生' : recruitmentType.value
     const params = new URLSearchParams({
-      page: '1',
-      page_size: '20',
+      page: String(page.value),
+      page_size: String(pageSize),
       recruitment_type: dbType,
     })
     if (keyword.value.trim()) params.set('search', keyword.value.trim())
@@ -103,20 +129,33 @@ function syncRecruitmentTypeFromRoute() {
 }
 
 function searchJobs() {
-  if (recruitmentType.value === '校招') router.push('/jobs/campus')
-  else if (recruitmentType.value === '实习') router.push('/jobs/intern')
-  else router.push('/jobs/social')
-  if (!isHomePage.value) loadJobs()
+  const path = recruitmentType.value === '校招' ? '/jobs/campus' : recruitmentType.value === '实习' ? '/jobs/intern' : '/jobs/social'
+  page.value = 1
+  router.push({ path, query: currentQuery(1) })
 }
 
 function toggleCategory(item) {
   selectedCategory.value = selectedCategory.value === item ? '' : item
-  loadJobs()
+  replaceListQuery(1)
 }
 
 function toggleLocation(item) {
   selectedLocation.value = selectedLocation.value === item ? '' : item
-  loadJobs()
+  replaceListQuery(1)
+}
+
+function resetFilters() {
+  keyword.value = ''
+  selectedCategory.value = ''
+  selectedLocation.value = ''
+  replaceListQuery(1)
+}
+
+function goPage(nextPage) {
+  const target = Math.min(Math.max(1, nextPage), totalPages.value)
+  if (target === page.value) return
+  replaceListQuery(target)
+  window.scrollTo({ top: 560, behavior: 'smooth' })
 }
 
 function goLogin(jobId) {
@@ -308,7 +347,7 @@ function jobSummary(job) {
             </button>
           </div>
         </div>
-        <button class="mt-7 text-[#4b6cff]" @click="selectedCategory = ''; selectedLocation = ''; loadJobs()">+ 重置筛选</button>
+        <button class="mt-7 text-[#4b6cff]" @click="resetFilters">+ 重置筛选</button>
       </aside>
 
       <main class="min-w-0">
@@ -358,6 +397,12 @@ function jobSummary(job) {
 
           <div v-if="!jobs.length" class="rounded-xl bg-white p-12 text-center text-[#667085] shadow-sm">
             暂无匹配职位，换个关键词试试。
+          </div>
+
+          <div v-if="total > pageSize" class="mt-7 flex flex-wrap items-center justify-center gap-3 rounded-xl bg-white px-5 py-4 shadow-sm">
+            <button class="rounded-lg border border-[#dce5f2] px-4 py-2 font-semibold text-[#475467] disabled:cursor-not-allowed disabled:opacity-40" :disabled="page <= 1 || loading" @click="goPage(page - 1)">上一页</button>
+            <span class="px-3 text-sm text-[#667085]">第 <strong class="text-[#202838]">{{ page }}</strong> / {{ totalPages }} 页 · 共 {{ total }} 个职位</span>
+            <button class="rounded-lg border border-[#dce5f2] px-4 py-2 font-semibold text-[#475467] disabled:cursor-not-allowed disabled:opacity-40" :disabled="page >= totalPages || loading" @click="goPage(page + 1)">下一页</button>
           </div>
         </div>
       </main>

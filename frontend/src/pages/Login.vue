@@ -10,6 +10,8 @@ const showPassword = ref(false)
 const rememberPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
+const showResetPassword = ref(false)
+const resetForm = ref({ username: '', phone: '', new_password: '', confirm_password: '' })
 const isCandidateLogin = computed(() => route.path === '/user/login')
 const title = computed(() => isCandidateLogin.value ? '用户登录界面' : '后台管理员登录界面')
 const subtitle = computed(() => isCandidateLogin.value
@@ -107,6 +109,32 @@ async function doLogin() {
     error.value = e.message
   }
   loading.value = false
+}
+
+async function resetCandidatePassword() {
+  if (resetForm.value.new_password !== resetForm.value.confirm_password) {
+    error.value = '两次输入的新密码不一致'
+    return
+  }
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await fetch('/api/auth/candidate-password/reset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: resetForm.value.username.trim(), phone: resetForm.value.phone.trim(), new_password: resetForm.value.new_password }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.detail || '密码重置失败')
+    username.value = resetForm.value.username.trim()
+    password.value = ''
+    showResetPassword.value = false
+    error.value = ''
+    window.appNotify?.(data.message || '密码已重置，请重新登录', 'success')
+  } catch (e) {
+    error.value = e.message || '密码重置失败'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -259,6 +287,7 @@ async function doLogin() {
               <span>保持登录 30 天</span>
               <span class="text-xs text-slate-400">不会在浏览器保存密码</span>
             </label>
+            <button v-if="isCandidateLogin" type="button" class="mt-3 text-sm font-semibold text-emerald-700 hover:text-emerald-600" @click="resetForm.username = username; showResetPassword = true; error = ''">忘记密码？</button>
 
             <button
               :disabled="!username.trim() || !password || loading"
@@ -289,6 +318,20 @@ async function doLogin() {
             </div>
           </div>
         </section>
+      </div>
+    </div>
+
+    <div v-if="showResetPassword" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4" @click.self="showResetPassword = false">
+      <div class="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl">
+        <div class="flex items-center justify-between"><h3 class="text-xl font-bold text-slate-900">重置候选人密码</h3><button class="h-9 w-9 rounded-full hover:bg-slate-100" @click="showResetPassword = false"><i class="fa fa-times"></i></button></div>
+        <p class="mt-2 text-sm leading-6 text-slate-500">使用注册用户名和手机号验证身份。正式部署后建议接入短信验证码。</p>
+        <div class="mt-5 grid gap-3">
+          <input v-model="resetForm.username" placeholder="用户名" class="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-400">
+          <input v-model="resetForm.phone" placeholder="注册手机号" maxlength="11" class="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-400">
+          <input v-model="resetForm.new_password" type="password" placeholder="新密码（至少 6 位）" class="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-400">
+          <input v-model="resetForm.confirm_password" type="password" placeholder="再次输入新密码" class="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-400">
+        </div>
+        <button class="mt-5 w-full rounded-xl bg-emerald-500 py-3 font-bold text-white disabled:opacity-50" :disabled="loading || !resetForm.username || !resetForm.phone || !resetForm.new_password" @click="resetCandidatePassword">{{ loading ? '处理中...' : '确认重置密码' }}</button>
       </div>
     </div>
   </div>

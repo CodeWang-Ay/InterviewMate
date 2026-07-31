@@ -442,6 +442,27 @@ function offerStatusLabel(status) {
   }[status] || '等待面试结果'
 }
 
+async function handleReschedule(plan, action) {
+  const approve = action === 'approve'
+  const message = approve
+    ? `同意候选人将「${plan.interview_round || '本轮面试'}」调整到 ${formatSchedule(plan.reschedule_preferred_at)} 吗？`
+    : `拒绝候选人的「${plan.interview_round || '本轮面试'}」改期申请吗？`
+  if (!(await window.appConfirm(message, { title: approve ? '同意改期' : '拒绝改期', confirmText: approve ? '同意并更新时间' : '确认拒绝' }))) return
+  try {
+    const res = await fetch(`/api/plans/${plan.id}/coordination`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, scheduled_at: approve ? plan.reschedule_preferred_at : '', note: approve ? '招聘方已同意改期' : '招聘方暂无法调整该时间' }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.detail || '改期处理失败')
+    await fetchList()
+    window.appNotify?.(approve ? '已同意改期并更新面试时间' : '已拒绝改期申请', 'success')
+  } catch (error) {
+    window.appNotify?.(error.message || '改期处理失败', 'error')
+  }
+}
+
 function applicationStatusLabel(group) {
   if (group.application_status === 'hired') return '已录用'
   if (group.application_status === 'rejected') return '流程未通过'
@@ -933,6 +954,13 @@ const previewQuestions = computed(() => {
 
         <div class="overflow-auto p-6 space-y-4">
           <div v-for="plan in workflowGroup.plans" :key="plan.id" class="border border-gray-200 rounded-xl overflow-hidden">
+            <div v-if="plan.reschedule_status === 'pending'" class="flex flex-wrap items-center justify-between gap-4 border-b border-amber-200 bg-amber-50 px-4 py-3">
+              <div class="text-sm text-amber-900">
+                <div class="font-bold"><i class="fa fa-calendar mr-1.5"></i>候选人申请调整面试时间</div>
+                <div class="mt-1">期望时间：{{ formatSchedule(plan.reschedule_preferred_at) }} · 原因：{{ plan.reschedule_reason }}</div>
+              </div>
+              <div class="flex gap-2"><button class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-bold text-amber-700" @click="handleReschedule(plan, 'reject')">拒绝</button><button class="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-bold text-white" @click="handleReschedule(plan, 'approve')">同意改期</button></div>
+            </div>
             <div class="px-4 py-3 bg-gray-50 flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-3">
                 <span class="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-semibold">{{ plan.stage_order || 1 }}</span>

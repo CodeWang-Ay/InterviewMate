@@ -3,12 +3,13 @@ import mimetypes
 import re
 import secrets
 import uuid
+from datetime import datetime, timedelta
 
 import os
 import hashlib
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from backend.controllers.auth_controller import get_current_candidate, require_admin
@@ -137,6 +138,14 @@ class OfferAction(BaseModel):
     action: str
 
 
+class InterviewCoordinationAction(BaseModel):
+    action: str
+    reason: str = ""
+    preferred_at: str = ""
+    note: str = ""
+    scheduled_at: str = ""
+
+
 @router.get("")
 async def list_plans(search: str = "", status: str = "", _: dict = Depends(require_admin)):
     return _mask_plans(plan_repo.list_all(search, status))
@@ -228,6 +237,108 @@ async def respond_application_offer(
     if not response_status:
         raise HTTPException(status_code=400, detail="不支持的 Offer 操作")
     return application_repo.update_offer(application_id, response_status)
+
+
+def _candidate_plan(pid: int, username: str) -> dict:
+    plan = plan_repo.get_by_id(pid)
+    if not plan or plan.get("candidate_username") != username:
+        raise HTTPException(status_code=404, detail="面试计划不存在")
+    return plan
+
+
+@router.post("/my/interviews/{pid}/coordination")
+async def coordinate_my_interview(
+    pid: int,
+    body: InterviewCoordinationAction,
+    username: str = Depends(get_current_candidate),
+):
+    plan = _candidate_plan(pid, username)
+    if plan.get("status") not in {"wait", "running"}:
+        raise HTTPException(status_code=409, detail="当前面试环节不能进行时间确认或改期")
+    if not plan.get("scheduled_at"):
+        raise HTTPException(status_code=409, detail="招聘方尚未安排面试时间")
+    if body.action == "confirm":
+        now = datetime.now().astimezone().isoformat()
+        return plan_repo.update(pid, {
+            "attendance_status": "confirmed",
+            "attendance_updated_at": now,
+            "reschedule_status": "",
+            "reschedule_reason": "",
+            "reschedule_preferred_at": "",
+        })
+    if body.action == "reschedule":
+        reason = body.reason.strip()
+        preferred_at = body.preferred_at.strip()
+        if not reason or not preferred_at:
+            raise HTTPException(status_code=400, detail="请填写改期原因和期望时间")
+        now = datetime.now().astimezone().isoformat()
+        return plan_repo.update(pid, {
+            "attendance_status": "reschedule_requested",
+            "attendance_updated_at": now,
+            "reschedule_status": "pending",
+            "reschedule_reason": reason,
+            "reschedule_preferred_at": preferred_at,
+            "reschedule_note": "",
+            "reschedule_updated_at": now,
+        })
+    raise HTTPException(status_code=400, detail="不支持的面试协调操作")
+
+
+@router.post("/{pid}/coordination")
+async def handle_interview_coordination(
+    pid: int,
+    body: InterviewCoordinationAction,
+    _: dict = Depends(require_admin),
+):
+    plan = plan_repo.get_by_id(pid)
+    if not plan:
+        raise HTTPException(status_code=404, detail="面试计划不存在")
+    if body.action not in {"approve", "reject"}:
+        raise HTTPException(status_code=400, detail="不支持的改期处理操作")
+    if plan.get("reschedule_status") != "pending":
+        raise HTTPException(status_code=409, detail="当前没有待处理的改期申请")
+    now = datetime.now().astimezone().isoformat()
+    data = {
+        "reschedule_status": "approved" if body.action == "approve" else "rejected",
+        "reschedule_note": body.note.strip(),
+        "reschedule_updated_at": now,
+        "attendance_status": "pending" if body.action == "approve" else "confirmed",
+        "attendance_updated_at": now,
+    }
+    if body.action == "approve":
+        scheduled_at = body.scheduled_at.strip() or plan.get("reschedule_preferred_at", "")
+        if not scheduled_at:
+            raise HTTPException(status_code=400, detail="请设置新的面试时间")
+        data["scheduled_at"] = scheduled_at
+    return plan_repo.update(pid, data)
+
+
+@router.get("/my/interviews/{pid}/calendar")
+async def download_interview_calendar(pid: int, username: str = Depends(get_current_candidate)):
+    plan = _candidate_plan(pid, username)
+    scheduled_at = str(plan.get("scheduled_at") or "").strip()
+    if not scheduled_at:
+        raise HTTPException(status_code=409, detail="面试时间尚未安排")
+    try:
+        start = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="面试时间格式无效") from exc
+    end = start + timedelta(hours=1)
+    fmt = "%Y%m%dT%H%M%S"
+    title = f"InterviewMate 面试：{plan.get('jd_name') or plan.get('interview_round') or '面试'}"
+    description = f"面试环节：{plan.get('interview_round') or ''}\\n面试官：{plan.get('interviewer') or '待定'}"
+    location = plan.get("meeting_url") or "线上面试"
+    ics = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//InterviewMate//Candidate Interview//CN",
+        "BEGIN:VEVENT", f"UID:plan-{pid}@interviewmate", f"DTSTART:{start.strftime(fmt)}",
+        f"DTEND:{end.strftime(fmt)}", f"SUMMARY:{title}", f"DESCRIPTION:{description}",
+        f"LOCATION:{location}", "END:VEVENT", "END:VCALENDAR", "",
+    ])
+    return Response(
+        content=ics,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="interview-{pid}.ics"'},
+    )
 
 
 @router.post("/apply/{job_id}")
