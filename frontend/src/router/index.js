@@ -96,6 +96,7 @@ function clearLocalAuth() {
   } catch (_) {
     // ignore
   }
+  window.dispatchEvent(new CustomEvent('auth-changed'))
 }
 
 async function ensureSessionValid(token) {

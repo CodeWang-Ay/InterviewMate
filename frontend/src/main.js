@@ -21,6 +21,7 @@ function clearAuthAndRedirect() {
   } catch (_) {
     // ignore storage failure
   }
+  window.dispatchEvent(new CustomEvent('auth-changed'))
 
   const path = window.location.pathname.startsWith('/user') ? '/user/login' : '/admin/login'
   const redirect = encodeURIComponent(`${window.location.pathname}${window.location.search}`)

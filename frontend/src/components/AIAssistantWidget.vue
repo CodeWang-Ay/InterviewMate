@@ -8,6 +8,7 @@ const isExpanded = ref(false)
 const loading = ref(false)
 const input = ref('')
 const messages = ref([])
+const messageFeedback = ref({})
 const scrollBox = ref(null)
 const floatingShell = ref(null)
 const dragState = ref({
@@ -22,6 +23,19 @@ const dragState = ref({
 const suppressBubbleClick = ref(false)
 const floatingPosition = ref({ x: 0, y: 0, ready: false })
 
+function readStoredIdentity() {
+  try {
+    return {
+      role: window.localStorage?.getItem('role') || 'guest',
+      username: window.localStorage?.getItem('username') || 'anonymous',
+    }
+  } catch (_) {
+    return { role: 'guest', username: 'anonymous' }
+  }
+}
+
+const authIdentity = ref(readStoredIdentity())
+
 const hiddenPaths = ['/login', '/admin/login', '/user/login', '/register']
 const isVisible = computed(() => !hiddenPaths.includes(route.path))
 const floatingStyle = computed(() => {
@@ -32,22 +46,23 @@ const floatingStyle = computed(() => {
   }
 })
 
-const currentRole = computed(() => {
-  try {
-    return window.localStorage?.getItem('role') || 'guest'
-  } catch (_) {
-    return 'guest'
-  }
-})
-
-const storageKey = computed(() => `ai-assistant-history:${currentRole.value}`)
-const positionStorageKey = 'ai-assistant-floating-position'
-const panelTitle = computed(() => currentRole.value === 'candidate' ? '面试者 AI 助手' : 'AI 聊天助手')
+const currentRole = computed(() => authIdentity.value.role)
+const currentUsername = computed(() => authIdentity.value.username)
+const identityStorageSuffix = computed(() => `${currentRole.value}:${encodeURIComponent(currentUsername.value)}`)
+const storageKey = computed(() => `ai-assistant-history:${identityStorageSuffix.value}`)
+const positionStorageKey = computed(() => `ai-assistant-floating-position:${identityStorageSuffix.value}`)
+const assistantName = computed(() => currentRole.value === 'candidate' ? '招聘助手' : 'AI 助手')
+const panelTitle = computed(() => currentRole.value === 'candidate' ? '招聘助手' : 'AI 聊天助手')
 const panelSubtitle = computed(() => currentRole.value === 'candidate' ? '聊聊天，或者问问当前面试与流程问题。' : '平时闲聊、梳理想法、顺手问系统问题都可以。')
+const welcomeDescription = computed(() => currentRole.value === 'candidate'
+  ? '可以帮你查询招聘流程、准备面试，也可以随时陪你聊聊。'
+  : '可以帮你梳理招聘需求、设计面试问题，也可以随时陪你聊聊。')
+const inputPlaceholder = computed(() => `跟${assistantName.value}聊点什么...`)
 const decoder = new TextDecoder('utf-8')
 const quickPrompts = computed(() => currentRole.value === 'candidate'
   ? ['我现在这轮面试该怎么准备', '帮我整理下一个自我介绍', '我有点紧张，陪我聊两句']
   : ['帮我想几个一面追问', '这份 JD 应该重点考什么', '今天有点累，陪我随便聊聊'])
+const isWelcomeState = computed(() => messages.value.length === 1 && messages.value[0]?.role === 'assistant')
 
 function escapeHtml(value) {
   return String(value)
@@ -180,7 +195,11 @@ function formatTime(value) {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${month}/${day} ${hours}:${minutes}`
 }
 
 async function scrollToBottom() {
@@ -194,7 +213,7 @@ function ensureSeedMessage() {
     createMessage(
       'assistant',
       currentRole.value === 'candidate'
-        ? '你好呀，我是你的 AI 助手。你可以跟我闲聊，也可以问我当前面试流程、进度或者想法整理。'
+        ? '你好呀，我是你的招聘助手。你可以跟我闲聊，也可以问我当前面试流程、进度或者想法整理。'
         : '你好，我在这儿。你可以把我当成一个随手能聊的 AI 助手，平时闲聊、梳理招聘思路、拆问题都可以。'
     ),
   ]
@@ -272,7 +291,21 @@ async function sendMessage() {
 
 function clearChat() {
   messages.value = []
+  messageFeedback.value = {}
   ensureSeedMessage()
+}
+
+function toggleMessageFeedback(messageId, value) {
+  messageFeedback.value = {
+    ...messageFeedback.value,
+    [messageId]: messageFeedback.value[messageId] === value ? '' : value,
+  }
+}
+
+async function useQuickPrompt(prompt) {
+  input.value = prompt
+  await nextTick()
+  await sendMessage()
 }
 
 async function copyMessage(content) {
@@ -312,7 +345,7 @@ function onKeydown(event) {
 function saveFloatingPosition() {
   try {
     if (!floatingPosition.value.ready) return
-    window.localStorage?.setItem(positionStorageKey, JSON.stringify({
+    window.localStorage?.setItem(positionStorageKey.value, JSON.stringify({
       x: floatingPosition.value.x,
       y: floatingPosition.value.y,
     }))
@@ -338,7 +371,7 @@ function ensureFloatingPosition() {
   let next = null
   if (!floatingPosition.value.ready) {
     try {
-      const raw = window.localStorage?.getItem(positionStorageKey)
+      const raw = window.localStorage?.getItem(positionStorageKey.value)
       next = raw ? JSON.parse(raw) : null
     } catch (_) {
       next = null
@@ -414,6 +447,18 @@ function handleWindowResize() {
   ensureFloatingPosition()
 }
 
+function handleAuthChanged() {
+  const nextIdentity = readStoredIdentity()
+  if (nextIdentity.role === currentRole.value && nextIdentity.username === currentUsername.value) return
+  isOpen.value = false
+  isExpanded.value = false
+  messages.value = []
+  authIdentity.value = nextIdentity
+  floatingPosition.value = { x: 0, y: 0, ready: false }
+  loadHistory()
+  nextTick(() => ensureFloatingPosition())
+}
+
 watch(storageKey, () => {
   loadHistory()
 })
@@ -428,13 +473,24 @@ watch(isOpen, async (value) => {
 })
 
 onMounted(() => {
+  try {
+    // 旧版本只按角色保存，存在跨用户混用风险，不迁移这些公共记录。
+    ;['candidate', 'admin', 'user', 'guest'].forEach(role => {
+      window.localStorage?.removeItem(`ai-assistant-history:${role}`)
+    })
+    window.localStorage?.removeItem('ai-assistant-floating-position')
+  } catch (_) {}
   loadHistory()
   nextTick(() => ensureFloatingPosition())
   window.addEventListener('resize', handleWindowResize)
+  window.addEventListener('auth-changed', handleAuthChanged)
+  window.addEventListener('storage', handleAuthChanged)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleWindowResize)
+  window.removeEventListener('auth-changed', handleAuthChanged)
+  window.removeEventListener('storage', handleAuthChanged)
 })
 </script>
 
@@ -463,91 +519,67 @@ onBeforeUnmount(() => {
         :class="[
           'overflow-hidden border border-[#d8e6ff] bg-white shadow-[0_30px_80px_rgba(27,61,139,0.20)]',
           isExpanded
-            ? 'absolute inset-0 flex h-screen w-screen rounded-none border-0'
-            : 'absolute bottom-[calc(100%+16px)] left-0 w-[380px] max-w-[calc(100vw-24px)] rounded-[30px]'
+            ? 'absolute inset-0 flex h-screen w-screen flex-col rounded-none border-0'
+            : 'fixed left-5 top-5 flex h-[calc(100vh-40px)] w-[min(680px,calc(100vw-40px))] flex-col rounded-[18px]'
         ]"
       >
-        <div v-if="isExpanded" class="hidden w-[320px] flex-col border-r border-[#e7eefc] bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_100%)] xl:flex">
-          <div class="border-b border-[#e3edff] px-6 py-6">
-            <div class="inline-flex items-center gap-2 rounded-full bg-[#17305f] px-3 py-1.5 text-xs font-semibold tracking-[0.08em] text-white">
-              <span class="h-2 w-2 rounded-full bg-emerald-300"></span>
-              CHAT MODE
-            </div>
-            <h3 class="mt-4 text-[26px] font-bold text-[#18233e]">{{ panelTitle }}</h3>
-            <p class="mt-2 text-sm leading-7 text-[#62718c]">{{ panelSubtitle }}</p>
+        <header class="relative flex h-16 shrink-0 items-center justify-center border-b border-[#e1e4f7] bg-white/75 px-6 backdrop-blur-xl">
+          <div class="flex items-center gap-2.5 text-[#20243a]">
+            <span class="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(135deg,#7e76ff_0%,#48cbd1_100%)] text-white shadow-[0_8px_22px_rgba(103,100,238,0.28)]">
+              <i class="fa fa-briefcase"></i>
+            </span>
+            <span class="text-base font-bold">招聘助手</span>
           </div>
+          <div class="absolute right-5 flex items-center gap-1">
+            <button type="button" class="flex h-9 w-9 items-center justify-center rounded-full text-[#5f6479] transition hover:bg-[#eceefe] hover:text-[#6d63ed]" :title="isExpanded ? '退出全屏' : '展开全屏'" @click="toggleExpanded">
+              <i :class="['fa', isExpanded ? 'fa-compress' : 'fa-expand']"></i>
+            </button>
+            <button type="button" class="flex h-9 w-9 items-center justify-center rounded-full text-[#5f6479] transition hover:bg-[#eceefe] hover:text-[#6d63ed]" title="关闭招聘助手" @click="closePanel">
+              <i class="fa fa-times text-lg"></i>
+            </button>
+          </div>
+        </header>
 
-          <div class="px-6 py-6">
-            <div class="text-sm font-semibold text-[#1d2941]">可以直接这样开聊</div>
-            <div class="mt-4 space-y-3">
-              <button
-                v-for="prompt in quickPrompts"
-                :key="prompt"
-                type="button"
-                class="w-full rounded-2xl border border-[#d8e5fb] bg-white px-4 py-3 text-left text-sm leading-6 text-[#56657f] transition hover:border-[#98b8ff] hover:bg-[#f8fbff]"
-                @click="input = prompt"
-              >
-                {{ prompt }}
-              </button>
-            </div>
-          </div>
-
-          <div class="mt-auto border-t border-[#e3edff] px-6 py-5">
-            <div class="rounded-2xl bg-white px-4 py-4 shadow-sm">
-              <div class="text-sm font-semibold text-[#1d2941]">聊天记录</div>
-              <p class="mt-2 text-sm leading-6 text-[#7785a0]">当前会按角色保存在本地，刷新页面不会立刻丢。后面我们也可以继续升级成服务端会话历史。</p>
-            </div>
-          </div>
-        </div>
-
-        <div :class="isExpanded ? 'flex min-w-0 flex-1 flex-col' : ''">
-        <div
-          :class="[
-            'bg-[linear-gradient(135deg,#17305f_0%,#2f6df6_100%)] px-5 py-5 text-white',
-            isExpanded ? '' : 'cursor-grab active:cursor-grabbing select-none'
-          ]"
-          @pointerdown="onDragPointerDown"
-          @pointermove="onDragPointerMove"
-          @pointerup="onDragPointerUp"
-          @pointercancel="onDragPointerUp"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="inline-flex items-center gap-2 rounded-full bg-white/14 px-3 py-1.5 text-xs font-semibold tracking-[0.08em] text-white/92">
-                <span class="h-2 w-2 rounded-full bg-emerald-300"></span>
-                AI ASSISTANT
-              </div>
-              <h3 class="mt-3 text-[22px] font-bold">{{ panelTitle }}</h3>
-              <p class="mt-1 text-sm leading-6 text-white/80">{{ panelSubtitle }}</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/12 text-white transition hover:bg-white/18"
-                :title="isExpanded ? '退出全屏' : '展开全屏'"
-                @click="toggleExpanded"
-              >
-                <i :class="['fa text-base', isExpanded ? 'fa-compress' : 'fa-expand']"></i>
-              </button>
-              <button class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/12 text-white transition hover:bg-white/18" title="收起助手" @click="closePanel">
-                <i :class="['fa', isExpanded ? 'fa-times' : 'fa-angle-down', isExpanded ? 'text-base' : 'text-lg']"></i>
-              </button>
-            </div>
-          </div>
-        </div>
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
 
         <div
           ref="scrollBox"
           :class="[
-            'overflow-y-auto bg-[#f7faff] px-4 py-4',
-            isExpanded ? 'flex-1 px-6 py-6' : 'h-[420px]'
+            'overflow-y-auto',
+            'flex-1 bg-[radial-gradient(circle_at_50%_22%,rgba(255,255,255,0.92),transparent_30%),linear-gradient(135deg,#f1f4ff_0%,#eeefff_52%,#f4efff_100%)]',
+            isExpanded ? 'px-6 py-8' : 'px-5 py-6'
           ]"
         >
-          <div class="space-y-4">
-            <div v-for="item in messages" :key="item.id" :class="['flex', item.role === 'user' ? 'justify-end' : 'justify-start']">
+          <div v-if="isWelcomeState && !loading" :class="['mx-auto flex min-h-full max-w-2xl flex-col items-center text-center', isExpanded ? 'pt-[7vh]' : 'pt-[5vh]']">
+            <div :class="['relative flex items-center justify-center rounded-full bg-[linear-gradient(145deg,#5ccbd4_0%,#7770f4_58%,#a891ff_100%)] text-white shadow-[0_20px_45px_rgba(105,98,231,0.25)]', isExpanded ? 'h-24 w-24' : 'h-20 w-20']">
+              <div class="absolute inset-2 rounded-full border border-white/35"></div>
+              <i :class="['fa fa-briefcase', isExpanded ? 'text-4xl' : 'text-3xl']"></i>
+              <span class="absolute -right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-white text-[#746bf0] shadow-md"><i class="fa fa-star text-xs"></i></span>
+            </div>
+            <h2 class="mt-5 text-[22px] font-bold text-[#756bf1]">Hi，欢迎使用招聘助手</h2>
+            <p class="mt-2 text-[14px] leading-7 text-[#555b70]">{{ welcomeDescription }}</p>
+            <div class="mt-5 flex flex-col items-center gap-3">
+              <button
+                v-for="prompt in quickPrompts"
+                :key="prompt"
+                type="button"
+                class="group inline-flex items-center gap-2 rounded-full bg-[#e3e5fb]/90 px-5 py-2.5 text-sm text-[#5a6077] transition hover:-translate-y-0.5 hover:bg-[#d9dcfa] hover:text-[#6259e7]"
+                @click="useQuickPrompt(prompt)"
+              >
+                {{ prompt }}
+                <i class="fa fa-arrow-down rotate-[-45deg] text-xs text-[#746bf0] transition group-hover:translate-x-0.5"></i>
+              </button>
+            </div>
+          </div>
+
+          <div v-else :class="['space-y-4', isExpanded ? 'mx-auto w-full max-w-4xl' : '']">
+            <template v-for="item in messages" :key="item.id">
+            <div v-if="item.content" :class="['flex', item.role === 'user' ? 'justify-end' : 'justify-start']">
               <div :class="[isExpanded ? 'max-w-[78%]' : 'max-w-[82%]', 'flex flex-col', item.role === 'user' ? 'items-end' : 'items-start']">
                 <div class="mb-1.5 flex items-center gap-2 px-1 text-[12px] font-medium text-[#8b98af]">
                   <span>{{ item.role === 'user' ? '你' : '助手' }} · {{ formatTime(item.timestamp) }}</span>
                   <button
+                    v-if="item.role === 'user'"
                     class="rounded-lg px-2 py-1 text-[11px] text-[#7b89a4] transition hover:bg-[#e9f0ff] hover:text-[#2f6df6]"
                     title="复制内容"
                     @click="copyMessage(item.content)"
@@ -557,24 +589,16 @@ onBeforeUnmount(() => {
                 </div>
                 <div
                   :class="[
-                    'group relative rounded-[22px] px-4 py-3 shadow-sm',
-                    isExpanded ? 'text-[15px] leading-8' : 'text-[14px] leading-7',
+                    'group relative rounded-[16px] px-4 py-2.5 shadow-[0_3px_12px_rgba(54,75,120,0.05)]',
+                    isExpanded ? 'text-[15px] leading-7' : 'text-[14px] leading-6',
                     item.role === 'user'
-                      ? 'rounded-tr-[8px] bg-[linear-gradient(135deg,#17305f_0%,#2f6df6_100%)] text-white'
-                      : 'rounded-tl-[8px] border border-[#dfe9fb] bg-white text-[#26324a]'
+                      ? 'rounded-tr-[6px] bg-[linear-gradient(135deg,#17305f_0%,#2f6df6_100%)] text-white'
+                      : 'rounded-tl-[6px] border border-[#e3e8f4] bg-white text-[#26324a]'
                   ]"
                 >
                   <button
                     class="absolute right-3 top-3 inline-flex h-8 items-center justify-center rounded-xl border border-white/20 bg-white/10 px-2 text-[11px] text-white opacity-0 transition group-hover:opacity-100"
                     v-if="item.role === 'user'"
-                    title="复制内容"
-                    @click="copyMessage(item.content)"
-                  >
-                    复制
-                  </button>
-                  <button
-                    class="absolute right-3 top-3 inline-flex h-8 items-center justify-center rounded-xl border border-[#d8e5fb] bg-white px-2 text-[11px] text-[#6481c3] opacity-0 transition group-hover:opacity-100"
-                    v-else
                     title="复制内容"
                     @click="copyMessage(item.content)"
                   >
@@ -587,11 +611,33 @@ onBeforeUnmount(() => {
                   ></div>
                   <div v-else class="whitespace-pre-wrap break-words">{{ item.content }}</div>
                 </div>
+                <div v-if="item.role === 'assistant'" class="mt-2 flex items-center gap-1 self-end border-t border-[#e7e8f2] pt-2 text-[#8b91a6]">
+                  <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs transition hover:bg-[#eceefe] hover:text-[#6259e7]" title="复制回复" @click="copyMessage(item.content)">
+                    <i class="fa fa-clone"></i><span>复制</span>
+                  </button>
+                  <button
+                    type="button"
+                    :class="['flex h-8 w-8 items-center justify-center rounded-lg transition hover:bg-[#e7f7f1] hover:text-[#14a97e]', messageFeedback[item.id] === 'like' ? 'bg-[#e7f7f1] text-[#14a97e]' : '']"
+                    title="这条回复有帮助"
+                    @click="toggleMessageFeedback(item.id, 'like')"
+                  >
+                    <i class="fa fa-thumbs-o-up"></i>
+                  </button>
+                  <button
+                    type="button"
+                    :class="['flex h-8 w-8 items-center justify-center rounded-lg transition hover:bg-[#f2edf9] hover:text-[#756bf1]', messageFeedback[item.id] === 'dislike' ? 'bg-[#f2edf9] text-[#756bf1]' : '']"
+                    title="这条回复需要改进"
+                    @click="toggleMessageFeedback(item.id, 'dislike')"
+                  >
+                    <i class="fa fa-thumbs-o-down"></i>
+                  </button>
+                </div>
               </div>
             </div>
+            </template>
 
             <div v-if="loading && !messages[messages.length - 1]?.content" class="flex justify-start">
-              <div class="rounded-[22px] rounded-tl-[8px] border border-[#dfe9fb] bg-white px-4 py-3 text-sm text-[#8b98af]">
+              <div class="rounded-[16px] rounded-tl-[6px] border border-[#e3e8f4] bg-white px-4 py-2.5 text-sm text-[#8b98af] shadow-[0_3px_12px_rgba(54,75,120,0.05)]">
                 <span class="inline-flex gap-1.5">
                   <span class="h-2 w-2 animate-bounce rounded-full bg-[#93a6c9]" style="animation-delay: 0ms"></span>
                   <span class="h-2 w-2 animate-bounce rounded-full bg-[#93a6c9]" style="animation-delay: 120ms"></span>
@@ -602,17 +648,22 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div :class="['border-t border-[#e6eefc] bg-white', isExpanded ? 'px-6 py-5' : 'px-4 py-4']">
-          <div :class="['rounded-[24px] border border-[#d8e5fb] bg-[#f8fbff] p-3', isExpanded ? 'shadow-sm' : '']">
-            <div class="flex items-end gap-3">
+        <div :class="['border-t', isExpanded ? 'border-[#dddff4] bg-[#f2f1ff]/90 px-4 pb-5 pt-3 backdrop-blur-xl' : 'border-[#e6eefc] bg-white px-4 py-4']">
+          <div class="mx-auto mb-2 flex w-full max-w-5xl gap-2 overflow-x-auto pb-1">
+            <button v-for="prompt in quickPrompts" :key="prompt" type="button" class="shrink-0 rounded-full bg-[#e2e4f8] px-4 py-2 text-sm text-[#51576c] transition hover:bg-[#d8dbf7] hover:text-[#665de9]" @click="input = prompt">
+              {{ prompt }} <i class="fa fa-arrow-down rotate-[-45deg] text-[10px]"></i>
+            </button>
+          </div>
+          <div :class="['border', isExpanded ? 'mx-auto max-w-5xl rounded-2xl border-[#776df4] bg-white p-2 shadow-[0_8px_24px_rgba(102,94,224,0.10)]' : 'rounded-[18px] border-[#d8e5fb] bg-white px-2 py-1.5 shadow-[0_4px_14px_rgba(77,103,160,0.06)]']">
+            <div class="flex items-center gap-2">
               <textarea
                 v-model="input"
                 rows="1"
                 :disabled="loading"
-                placeholder="跟 AI 助手聊点什么..."
+                :placeholder="inputPlaceholder"
                 :class="[
                   'flex-1 resize-none bg-transparent px-3 py-2 text-[#1d2941] placeholder:text-[#9aa7bc] focus:outline-none disabled:opacity-60',
-                  isExpanded ? 'min-h-[64px] text-[15px] leading-8' : 'min-h-[52px] text-[14px] leading-7'
+                  isExpanded ? 'min-h-[44px] text-[15px] leading-7' : 'min-h-[40px] py-1.5 text-[14px] leading-6'
                 ]"
                 @keydown="onKeydown"
                 @input="event => { event.target.style.height = 'auto'; event.target.style.height = `${Math.min(event.target.scrollHeight, 180)}px` }"
@@ -621,7 +672,7 @@ onBeforeUnmount(() => {
                 :disabled="!input.trim() || loading"
                 :class="[
                   'flex items-center justify-center rounded-2xl bg-[#2f6df6] text-white transition hover:bg-[#225ad2] disabled:opacity-45',
-                  isExpanded ? 'h-14 w-14' : 'h-12 w-12'
+                  isExpanded ? 'h-11 w-11 rounded-full bg-[#a9a3f8] hover:bg-[#8178ef]' : 'h-10 w-10 rounded-xl'
                 ]"
                 title="发送"
                 @click="sendMessage"
@@ -631,7 +682,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="mt-3 flex items-center justify-between">
+          <div :class="['mt-3 items-center justify-between', isExpanded ? 'mx-auto flex max-w-5xl' : 'flex']">
               <button class="text-sm font-medium text-[#7c89a2] transition hover:text-[#2f6df6]" @click="clearChat">清空聊天</button>
             <div class="text-[12px] text-[#9aa7bc]">{{ loading ? '流式生成中...' : 'Enter 发送' }}</div>
           </div>
@@ -654,7 +705,7 @@ onBeforeUnmount(() => {
         <i class="fa fa-commenting-o text-lg"></i>
       </span>
       <span class="flex flex-col items-start">
-        <span class="text-sm font-semibold text-[#1f2b45]">AI 助手</span>
+        <span class="text-sm font-semibold text-[#1f2b45]">{{ assistantName }}</span>
         <span class="text-xs text-[#8e9bb0]">{{ isOpen ? '收起聊天窗口' : '点我随便聊聊' }}</span>
       </span>
       <span class="ml-1 flex h-9 w-9 items-center justify-center rounded-full bg-[#f5f8ff] text-[#6d7fa2]">

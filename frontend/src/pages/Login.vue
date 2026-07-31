@@ -93,6 +93,7 @@ async function doLogin() {
     if (data.phone) localStorage.setItem('phone', data.phone)
     if (data.email) localStorage.setItem('email', data.email)
     localStorage.setItem('role', data.role || 'user')
+    window.dispatchEvent(new CustomEvent('auth-changed'))
     if (rememberPassword.value) {
       const prefix = isCandidateLogin.value ? 'candidate' : 'admin'
       localStorage.setItem(`${prefix}_remember_login`, '1')

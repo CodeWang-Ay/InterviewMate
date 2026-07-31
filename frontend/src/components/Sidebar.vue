@@ -21,6 +21,7 @@ async function doLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
   } catch (_) {}
   localStorage.clear()
+  window.dispatchEvent(new CustomEvent('auth-changed'))
   router.push('/admin/login')
 }
 

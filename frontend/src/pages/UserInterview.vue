@@ -614,6 +614,7 @@ async function logout() {
   try {
     ;['token', 'username', 'nickname', 'avatar', 'role', 'email', 'phone', 'company', 'bio'].forEach(key => localStorage.removeItem(key))
   } catch (_) {}
+  window.dispatchEvent(new CustomEvent('auth-changed'))
   router.push('/')
 }
 

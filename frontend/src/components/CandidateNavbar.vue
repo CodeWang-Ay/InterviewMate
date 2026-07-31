@@ -45,6 +45,7 @@ async function logout() {
   username.value = ''
   nickname.value = ''
   role.value = ''
+  window.dispatchEvent(new CustomEvent('auth-changed'))
   mobileOpen.value = false
   router.push('/')
 }
