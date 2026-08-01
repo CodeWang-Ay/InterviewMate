@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import NotificationCenter from './NotificationCenter.vue'
 
 const props = defineProps({
   active: { type: String, default: '' },
@@ -75,6 +76,7 @@ async function logout() {
       </nav>
 
       <div class="hidden items-center gap-3 text-sm font-semibold md:flex">
+        <NotificationCenter v-if="isLoggedIn && role === 'candidate'" />
         <button
           v-if="isLoggedIn"
           class="rounded-full px-3 py-2 text-white/90 transition hover:bg-white/10"

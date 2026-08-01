@@ -1424,8 +1424,8 @@ function jobSummary(job) {
       </div>
     </div>
 
-    <div v-if="showAccountSettings" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/45 p-4" @click.self="showAccountSettings = false">
-      <div class="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+    <div v-if="showAccountSettings" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/45 p-4">
+      <div class="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl" @click.stop>
         <div class="sticky top-0 z-10 flex items-center justify-between border-b border-[#edf1f7] bg-white px-6 py-5">
           <div><h3 class="text-xl font-black">账户设置</h3><p class="mt-1 text-sm text-[#667085]">维护个人资料、密码和账号数据</p></div>
           <button class="flex h-9 w-9 items-center justify-center rounded-full hover:bg-[#f2f4f7]" @click="showAccountSettings = false"><i class="fa fa-times"></i></button>

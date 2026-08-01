@@ -9,6 +9,7 @@ const loading = ref(false)
 const input = ref('')
 const messages = ref([])
 const messageFeedback = ref({})
+const activeConversationId = ref(null)
 const scrollBox = ref(null)
 const floatingShell = ref(null)
 const dragState = ref({
@@ -220,7 +221,25 @@ function ensureSeedMessage() {
   saveHistory()
 }
 
-function loadHistory() {
+async function loadHistory() {
+  if (currentUsername.value !== 'anonymous' && currentRole.value !== 'guest') {
+    try {
+      const conversationsRes = await fetch('/api/assistant/conversations', { cache: 'no-store' })
+      if (conversationsRes.ok) {
+        const conversations = await conversationsRes.json()
+        if (conversations.length) {
+          activeConversationId.value = conversations[0].id
+          const messagesRes = await fetch(`/api/assistant/conversations/${activeConversationId.value}/messages`, { cache: 'no-store' })
+          if (messagesRes.ok) {
+            const serverMessages = await messagesRes.json()
+            messages.value = serverMessages.map(item => ({ id: item.id, role: item.role, content: item.content, timestamp: item.created_at }))
+            messageFeedback.value = Object.fromEntries(serverMessages.filter(item => item.feedback).map(item => [item.id, item.feedback]))
+            if (messages.value.length) { saveHistory(); return }
+          }
+        }
+      }
+    } catch (_) { /* 使用本地缓存兜底 */ }
+  }
   messages.value = safeReadHistory()
   ensureSeedMessage()
 }
@@ -236,7 +255,7 @@ async function sendMessage() {
   await scrollToBottom()
 
   try {
-    const historyPayload = messages.value.slice(-12).map(item => ({
+    const historyPayload = messages.value.slice(0, -1).slice(-10).map(item => ({
       role: item.role === 'user' ? 'user' : 'assistant',
       content: item.content,
     }))
@@ -247,7 +266,7 @@ async function sendMessage() {
     const res = await fetch('/api/assistant/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, history: historyPayload }),
+      body: JSON.stringify({ message: text, history: historyPayload, conversation_id: activeConversationId.value }),
     })
     if (!res.ok) {
       let errText = '助手暂时没接上'
@@ -259,6 +278,8 @@ async function sendMessage() {
       }
       throw new Error(errText)
     }
+    activeConversationId.value = Number(res.headers.get('X-Conversation-Id') || activeConversationId.value || 0) || null
+    assistantMessage.id = Number(res.headers.get('X-Assistant-Message-Id') || 0) || assistantMessage.id
 
     const reader = res.body?.getReader()
     if (!reader) throw new Error('当前浏览器不支持流式响应')
@@ -289,16 +310,30 @@ async function sendMessage() {
   }
 }
 
-function clearChat() {
+async function clearChat() {
+  if (activeConversationId.value) {
+    try { await fetch(`/api/assistant/conversations/${activeConversationId.value}`, { method: 'DELETE' }) } catch (_) {}
+  }
+  activeConversationId.value = null
   messages.value = []
   messageFeedback.value = {}
   ensureSeedMessage()
 }
 
-function toggleMessageFeedback(messageId, value) {
+async function toggleMessageFeedback(messageId, value) {
+  const nextValue = messageFeedback.value[messageId] === value ? '' : value
   messageFeedback.value = {
     ...messageFeedback.value,
-    [messageId]: messageFeedback.value[messageId] === value ? '' : value,
+    [messageId]: nextValue,
+  }
+  if (activeConversationId.value && Number.isInteger(Number(messageId))) {
+    try {
+      const res = await fetch(`/api/assistant/messages/${messageId}/feedback`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: activeConversationId.value, feedback: nextValue }),
+      })
+      if (!res.ok) throw new Error('反馈保存失败')
+    } catch (_) { window.appNotify?.('反馈暂未保存，请稍后重试', 'warning') }
   }
 }
 
@@ -453,6 +488,7 @@ function handleAuthChanged() {
   isOpen.value = false
   isExpanded.value = false
   messages.value = []
+  activeConversationId.value = null
   authIdentity.value = nextIdentity
   floatingPosition.value = { x: 0, y: 0, ready: false }
   loadHistory()

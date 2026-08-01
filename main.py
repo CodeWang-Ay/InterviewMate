@@ -19,6 +19,7 @@ from backend.controllers.ai_tools_controller import router as ai_tools_router
 from backend.controllers.task_controller import router as task_router
 from backend.controllers.archive_controller import router as archive_router
 from backend.controllers.voice_controller import router as voice_router
+from backend.controllers.notification_controller import router as notification_router
 from backend.services.voice_service import preload_voice_models
 from backend.repositories.admin_repo import init_db as init_admin_db
 from backend.repositories.candidate_repo import init_db as init_candidate_db
@@ -30,6 +31,8 @@ from backend.repositories.task_repo import init_db as init_task_db
 from backend.repositories.application_repo import init_db as init_application_db
 from backend.repositories.favorite_repo import init_db as init_favorite_db
 from backend.repositories.auth_session_repo import init_db as init_auth_session_db
+from backend.repositories.notification_repo import init_db as init_notification_db
+from backend.repositories.assistant_conversation_repo import init_db as init_assistant_conversation_db
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -47,6 +50,8 @@ init_plan_db()
 init_application_db()
 init_favorite_db()
 init_task_db()
+init_notification_db()
+init_assistant_conversation_db()
 
 app = FastAPI(title="InterviewMate")
 
@@ -64,6 +69,7 @@ app.include_router(ai_tools_router)
 app.include_router(task_router)
 app.include_router(archive_router)
 app.include_router(voice_router)
+app.include_router(notification_router)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 FRONTEND_DIST_DIR = os.path.join(BASE_DIR, "frontend", "dist")

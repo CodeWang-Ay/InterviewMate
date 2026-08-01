@@ -16,8 +16,16 @@ const selectedLocation = ref('')
 const jobs = ref([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = 20
+const pageSize = 10
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const paginationItems = computed(() => {
+  const last = totalPages.value
+  const current = page.value
+  if (last <= 7) return Array.from({ length: last }, (_, index) => index + 1)
+  if (current <= 4) return [1, 2, 3, 4, 5, 'ellipsis', last]
+  if (current >= last - 3) return [1, 'ellipsis', last - 4, last - 3, last - 2, last - 1, last]
+  return [1, 'ellipsis', current - 1, current, current + 1, 'ellipsis-end', last]
+})
 const username = ref('')
 const nickname = ref('')
 const role = ref('')
@@ -399,10 +407,17 @@ function jobSummary(job) {
             暂无匹配职位，换个关键词试试。
           </div>
 
-          <div v-if="total > pageSize" class="mt-7 flex flex-wrap items-center justify-center gap-3 rounded-xl bg-white px-5 py-4 shadow-sm">
-            <button class="rounded-lg border border-[#dce5f2] px-4 py-2 font-semibold text-[#475467] disabled:cursor-not-allowed disabled:opacity-40" :disabled="page <= 1 || loading" @click="goPage(page - 1)">上一页</button>
-            <span class="px-3 text-sm text-[#667085]">第 <strong class="text-[#202838]">{{ page }}</strong> / {{ totalPages }} 页 · 共 {{ total }} 个职位</span>
-            <button class="rounded-lg border border-[#dce5f2] px-4 py-2 font-semibold text-[#475467] disabled:cursor-not-allowed disabled:opacity-40" :disabled="page >= totalPages || loading" @click="goPage(page + 1)">下一页</button>
+          <div v-if="total > pageSize" class="mt-7 flex items-center justify-center gap-1 rounded-xl bg-white px-5 py-4 shadow-sm">
+            <button class="flex h-9 w-9 items-center justify-center rounded-md border border-[#d9dee8] text-[#98a2b3] transition hover:border-[#4b6cff] hover:text-[#4b6cff] disabled:cursor-not-allowed disabled:opacity-45" :disabled="page <= 1 || loading" aria-label="上一页" @click="goPage(page - 1)">
+              <i class="fa fa-angle-left"></i>
+            </button>
+            <template v-for="(item, index) in paginationItems" :key="`${item}-${index}`">
+              <span v-if="typeof item === 'string'" class="flex h-9 w-9 items-center justify-center text-sm text-[#98a2b3]">…</span>
+              <button v-else :class="['h-9 min-w-9 rounded-md border px-2 text-sm transition', item === page ? 'border-[#4b6cff] bg-[#f4f6ff] text-[#4b6cff]' : 'border-[#d9dee8] text-[#344054] hover:border-[#4b6cff] hover:text-[#4b6cff]']" :disabled="loading" @click="goPage(item)">{{ item }}</button>
+            </template>
+            <button class="flex h-9 w-9 items-center justify-center rounded-md border border-[#d9dee8] text-[#344054] transition hover:border-[#4b6cff] hover:text-[#4b6cff] disabled:cursor-not-allowed disabled:opacity-45" :disabled="page >= totalPages || loading" aria-label="下一页" @click="goPage(page + 1)">
+              <i class="fa fa-angle-right"></i>
+            </button>
           </div>
         </div>
       </main>

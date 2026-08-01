@@ -45,6 +45,16 @@ class AssistantHistoryItem(BaseModel):
 class AssistantChatBody(BaseModel):
     message: str
     history: list[AssistantHistoryItem] = []
+    conversation_id: int | None = None
+
+
+class AssistantConversationCreate(BaseModel):
+    title: str = "新对话"
+
+
+class AssistantFeedbackBody(BaseModel):
+    conversation_id: int
+    feedback: str = ""
 
 
 class ResumeAssistBody(BaseModel):
