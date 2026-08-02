@@ -40,6 +40,7 @@ async def list_resumes(
     experience_years: str = "",
     candidate_status: str = "",
     source: str = "",
+    archived: str = "",
     page: int | None = None,
     page_size: int | None = None,
     admin: dict = Depends(require_admin),
@@ -53,6 +54,7 @@ async def list_resumes(
             experience_years,
             candidate_status,
             source,
+            archived,
             current_page,
             current_page_size,
         )
@@ -114,11 +116,21 @@ async def update_resume(
     admin: dict = Depends(require_admin),
 ):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
+    current_resume = resume_repo.get_by_id(rid)
+    if not current_resume:
+        raise HTTPException(status_code=404, detail="简历不存在")
+    content_fields = {"name", "target_position", "education", "experience_years", "skills", "structured_data"}
+    if str(current_resume.get("source") or "").lower() in {"candidate", "user"} and content_fields.intersection(data):
+        raise HTTPException(status_code=403, detail="用户上传简历由候选人本人维护，后台不可编辑正文")
     if application_id and "candidate_status" in data:
         application = application_repo.get_by_id(application_id)
         if not application or int(application.get("resume_id") or 0) != rid:
             raise HTTPException(status_code=404, detail="投递记录不存在或未关联当前简历")
         screening_status = data.pop("candidate_status")
+        current_screening = application.get("screening_status") or "待筛选"
+        current_app_status = application.get("status") or "active"
+        if current_app_status not in ("active", "rejected") or (current_screening != "待筛选" and screening_status != current_screening):
+            raise HTTPException(status_code=409, detail="该投递已进入后续流程或已结束，初筛状态不可修改")
         try:
             updated_application = application_repo.update_screening(application_id, screening_status)
             audit_repo.record(admin, "update_screening", "application", application_id,
@@ -188,6 +200,13 @@ async def delete_resume(rid: int, admin: dict = Depends(require_admin)):
     audit_repo.record(admin, "archive", "resume", rid, reason="后台归档简历")
     return {"status": "ok"}
 
+@router.post("/{rid}/restore")
+async def restore_resume(rid: int, admin: dict = Depends(require_admin)):
+    if not resume_repo.restore(rid):
+        raise HTTPException(status_code=404, detail="归档简历不存在")
+    audit_repo.record(admin, "restore", "resume", rid, reason="恢复归档简历")
+    return resume_repo.get_by_id(rid)
+
 
 @router.post("/{rid}/parse")
 async def parse_resume_api(rid: int, force: bool = Query(False), _: dict = Depends(require_admin)):
@@ -198,7 +217,7 @@ async def parse_resume_api(rid: int, force: bool = Query(False), _: dict = Depen
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as e:
-        resume_repo.update(rid, {"parse_status": "fail"})
+        resume_repo.update(rid, {"parse_status": "fail", "parse_error": str(e)[:500]})
         raise HTTPException(status_code=500, detail=f"解析失败: {e}") from e
 
 
@@ -210,7 +229,11 @@ async def parse_resume_task(rid: int, force: bool = Query(False), admin: dict = 
     title = f"解析简历：{r.get('original_name') or r.get('name') or rid}"
 
     async def runner():
-        return await _parse_resume_record(rid, force)
+        try:
+            return await _parse_resume_record(rid, force)
+        except Exception as exc:
+            resume_repo.update(rid, {"parse_status": "fail", "parse_error": str(exc)[:500]})
+            raise
 
     return create_task("resume_parse", title, {"kind": "admin", "username": admin.get("username", "")}, runner)
 
@@ -237,6 +260,7 @@ async def _parse_resume_record(rid: int, force: bool = False) -> dict:
                 "education": cached.get("education") or "",
                 "skills": cached.get("skills") or "",
                 "parse_status": "success",
+                "parse_error": "",
                 "parsed_at": datetime.now().isoformat(timespec='seconds'),
                 "structured_data": cached.get("structured_data") or "{}",
             })
@@ -246,6 +270,7 @@ async def _parse_resume_record(rid: int, force: bool = False) -> dict:
     structured = result["structured"]
     update_data = _build_resume_parse_update(r, structured, result["raw"])
     update_data["parsed_at"] = datetime.now().isoformat(timespec='seconds')
+    update_data["parse_error"] = ""
     resume_repo.update(rid, update_data)
     resume_parse_cache_repo.upsert({
         "file_md5": file_md5,

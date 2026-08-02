@@ -84,6 +84,8 @@ def _ensure_columns(conn) -> None:
         conn.execute("ALTER TABLE resumes ADD COLUMN delete_reason TEXT DEFAULT ''")
     if "parsed_at" not in cols:
         conn.execute("ALTER TABLE resumes ADD COLUMN parsed_at TEXT DEFAULT ''")
+    if "parse_error" not in cols:
+        conn.execute("ALTER TABLE resumes ADD COLUMN parse_error TEXT DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_resumes_candidate ON resumes(candidate_username)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_resumes_file_md5 ON resumes(file_md5)")
 
@@ -141,7 +143,7 @@ def list_all(search: str = "", parse_status: str = "", experience_years: str = "
 
 def list_paged(search: str = "", parse_status: str = "", experience_years: str = "", candidate_status: str = "", source: str = "", page: int = 1, page_size: int = 10) -> tuple[list[dict], int]:
     page = max(1, int(page or 1))
-    page_size = min(max(1, int(page_size or 10)), 100)
+    page_size = min(max(1, int(page_size or 10)), 10000)
     where, params = _build_where(search, parse_status, experience_years, candidate_status, source)
     where = (" WHERE IFNULL(deleted_at, '')=''" + (" AND " + where[7:] if where.startswith(" WHERE ") else where)) if where else " WHERE IFNULL(deleted_at, '')=''"
     offset = (page - 1) * page_size
@@ -160,15 +162,19 @@ def _management_where(
     experience_years: str = "",
     candidate_status: str = "",
     source: str = "",
+    archived: str = "",
 ) -> tuple[str, list]:
-    sql = " WHERE 1=1"
+    sql = " WHERE IFNULL(r.deleted_at, '')" + ("<>''" if archived == "archived" else "=''")
     params = []
     if candidate_status:
         sql += " AND r.candidate_status=?"
         params.append(candidate_status)
     if source:
-        sql += " AND COALESCE(a.source, r.source)=?"
-        params.append(source)
+        if source == "admin":
+            sql += " AND COALESCE(a.source, r.source) IN ('admin', 'import')"
+        else:
+            sql += " AND COALESCE(a.source, r.source)=?"
+            params.append(source)
     if parse_status:
         sql += " AND r.parse_status=?"
         params.append(parse_status)
@@ -196,12 +202,16 @@ def _management_row(row: sqlite3.Row) -> dict:
     application_source = item.pop("application_source", "")
     application_status = item.pop("joined_application_status", "")
     application_current_stage = item.pop("application_current_stage", "")
+    application_workflow_id = item.pop("application_workflow_id", "")
+    application_plan_count = item.pop("application_plan_count", 0)
     application_screening_status = item.pop("application_screening_status", "")
     application_created_at = item.pop("application_created_at", "")
     if application_id:
         item["application_id"] = application_id
         item["application_status"] = application_status
         item["application_current_stage"] = application_current_stage
+        item["application_workflow_id"] = application_workflow_id
+        item["application_plan_count"] = int(application_plan_count or 0)
         item["jd_id"] = application_jd_id
         item["jd_name"] = application_jd_name or ""
         item["source"] = application_source or item.get("source") or "candidate"
@@ -224,13 +234,14 @@ def list_management_paged(
     experience_years: str = "",
     candidate_status: str = "",
     source: str = "",
+    archived: str = "",
     page: int = 1,
     page_size: int = 10,
 ) -> tuple[list[dict], int]:
     """后台按投递展开简历；同一份物理简历可对应多条岗位投递记录。"""
     page = max(1, int(page or 1))
     page_size = min(max(1, int(page_size or 10)), 100)
-    where, params = _management_where(search, parse_status, experience_years, candidate_status, source)
+    where, params = _management_where(search, parse_status, experience_years, candidate_status, source, archived)
     offset = (page - 1) * page_size
     join_sql = """
         FROM resumes r
@@ -246,6 +257,8 @@ def list_management_paged(
                a.source AS application_source,
                a.status AS joined_application_status,
                a.current_stage AS application_current_stage,
+               a.workflow_id AS application_workflow_id,
+               (SELECT COUNT(*) FROM plans p WHERE p.application_id=a.id AND IFNULL(p.workflow_id, '') NOT LIKE 'apply_%') AS application_plan_count,
                a.screening_status AS application_screening_status,
                a.created_at AS application_created_at,
                (SELECT COUNT(*) FROM applications ax WHERE ax.resume_id=r.id AND IFNULL(ax.deleted_at, '')='') AS application_count,
@@ -327,7 +340,7 @@ def update(rid: int, data: dict) -> dict | None:
         return None
     if "candidate_status" in data:
         data["candidate_status"] = normalize_candidate_status(data.get("candidate_status"))
-    allowed = ["name", "target_position", "education", "experience_years", "skills", "file_path", "file_type", "parse_status", "candidate_status", "structured_data", "jd_id", "jd_name", "original_name", "file_md5", "candidate_username", "source"]
+    allowed = ["name", "target_position", "education", "experience_years", "skills", "file_path", "file_type", "parse_status", "parse_error", "parsed_at", "candidate_status", "structured_data", "jd_id", "jd_name", "original_name", "file_md5", "candidate_username", "source"]
     sets = [f"{f}=?" for f in allowed if f in data]
     vals = [data[f] for f in allowed if f in data]
     if not sets:
@@ -358,6 +371,10 @@ def sync_jd_name(jd_id: int, jd_name: str) -> None:
 def delete(rid: int) -> bool:
     with _conn() as conn:
         return conn.execute("UPDATE resumes SET deleted_at=datetime('now') WHERE id=? AND IFNULL(deleted_at, '')=''", (rid,)).rowcount > 0
+
+def restore(rid: int) -> bool:
+    with _conn() as conn:
+        return conn.execute("UPDATE resumes SET deleted_at=NULL WHERE id=? AND IFNULL(deleted_at, '')<>''", (rid,)).rowcount > 0
 
 
 def _enrich_jd_fields(resume: dict) -> dict:
