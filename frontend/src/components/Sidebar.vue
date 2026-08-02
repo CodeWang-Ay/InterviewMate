@@ -27,12 +27,12 @@ async function doLogout() {
 
 const navItems = [
   { icon: 'fa-home', label: '首页', path: '/admin' },
-  { icon: 'fa-comments-o', label: '面试官训练台', path: '/admin/interviewer' },
   { icon: 'fa-file-text', label: '岗位 JD 管理', path: '/admin/jd-manager' },
   { icon: 'fa-id-card-o', label: '简历管理', path: '/admin/resume-manager' },
-  { icon: 'fa-magic', label: 'AI 辅助中心', path: '/admin/ai-tools' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/admin/plan-manager' },
   { icon: 'fa-archive', label: '面试档案', path: '/admin/interview-archive', activePaths: ['/admin/interview-archive', '/admin/report', '/admin/interview-record', '/admin/record-list', '/admin/report-list'], adminOnly: true },
+  { icon: 'fa-comments-o', label: '面试官训练台', path: '/admin/interviewer' },
+  { icon: 'fa-magic', label: 'AI 辅助中心', path: '/admin/ai-tools' },
   { icon: 'fa-tasks', label: '任务状态中心', path: '/admin/tasks', adminOnly: true },
   { icon: 'fa-cog', label: '设置', path: '/admin/settings' },
 ]
