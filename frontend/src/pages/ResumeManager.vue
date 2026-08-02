@@ -17,6 +17,7 @@ const searchText = ref('')
 const filterStatus = ref('')
 const filterYears = ref('')
 const filterCandidateStatus = ref('')
+const filterRecruitmentType = ref('')
 const filterSource = ref('')
 const filterArchive = ref('')
 const showJdPicker = ref(false)
@@ -305,6 +306,7 @@ async function selectAllResults() {
   if (filterStatus.value) params.set('parse_status', filterStatus.value)
   if (filterYears.value) params.set('experience_years', filterYears.value)
   if (filterCandidateStatus.value) params.set('candidate_status', filterCandidateStatus.value)
+  if (filterRecruitmentType.value) params.set('recruitment_type', filterRecruitmentType.value)
   if (filterSource.value) params.set('source', filterSource.value)
   if (filterArchive.value) params.set('archived', filterArchive.value)
   const res = await fetch(`/api/resumes?${params.toString()}`, { cache: 'no-store' })
@@ -363,6 +365,7 @@ async function fetchList(silent = false) {
     if (filterStatus.value) params.set('parse_status', filterStatus.value)
     if (filterYears.value) params.set('experience_years', filterYears.value)
     if (filterCandidateStatus.value) params.set('candidate_status', filterCandidateStatus.value)
+    if (filterRecruitmentType.value) params.set('recruitment_type', filterRecruitmentType.value)
     if (filterSource.value) params.set('source', filterSource.value)
     if (filterArchive.value) params.set('archived', filterArchive.value)
     params.set('page', String(page.value))
@@ -658,6 +661,8 @@ async function restoreResume(rid) {
 }
 
 const viewingResume = ref(null)
+const detailTab = ref('overview')
+const applicationPlans = ref([])
 const editingResume = ref(false)
 const savingResume = ref(false)
 const editResumeData = ref({})
@@ -682,11 +687,22 @@ const projectRows = computed(() => buildExperienceRows(activeResumeData.value?.�
 
 async function viewResume(r) {
   viewingResume.value = null
+  detailTab.value = 'overview'
+  applicationPlans.value = []
   editingResume.value = false
   editResumeData.value = {}
   try {
     const res = await fetch(`/api/resumes/${r.id}`)
-    if (res.ok) viewingResume.value = { ...r, ...(await res.json()) }
+    if (res.ok) {
+      const detail = await res.json()
+      // 详情接口返回的是物理简历；投递列表中的 JD 才是当前 application 实际绑定的 JD。
+      // 合并时让列表投递字段覆盖空的简历级字段，避免已关联 JD 显示为“未关联”。
+      viewingResume.value = { ...detail, ...r }
+      if (viewingResume.value.application_id) {
+        const plansRes = await fetch(`/api/plans/applications/${viewingResume.value.application_id}`)
+        if (plansRes.ok) applicationPlans.value = await plansRes.json()
+      }
+    }
   } catch (_) {}
 }
 async function openResumeEditor(r) {
@@ -1162,7 +1178,10 @@ function resumePreviewUrl(resume) {
   return `${path}#zoom=page-width&view=FitH`
 }
 
-const statusBadge = (s) => ({ success: 'bg-green-100 text-green-600', wait: 'bg-orange-100 text-orange-600', fail: 'bg-red-100 text-red-600' }[s] || 'bg-gray-100 text-gray-500')
+function recruitmentBadge(type) {
+  return { 实习生: 'bg-green-100 text-green-600', 校招: 'bg-blue-100 text-blue-600', 社招: 'bg-purple-100 text-purple-600' }[type] || 'bg-gray-100 text-gray-500'
+}
+const statusBadge = (s) => ({ success: 'bg-green-100 text-green-600', wait: 'bg-orange-100 text-orange-600', fail: 'bg-gray-100 text-gray-500' }[s] || 'bg-gray-100 text-gray-500')
 const statusLabel = (s) => ({ success: '解析成功', wait: '待解析', fail: '解析失败' }[s] || s)
 const candidateStatusBadge = (s) => ({
   待筛选: 'bg-slate-100 text-slate-600 border-slate-200',
@@ -1170,7 +1189,7 @@ const candidateStatusBadge = (s) => ({
   不合适: 'bg-amber-50 text-amber-700 border-amber-100',
 }[s] || 'bg-slate-100 text-slate-600 border-slate-200')
 
-function resetFilters() { searchText.value = ''; filterStatus.value = ''; filterYears.value = ''; filterCandidateStatus.value = ''; filterSource.value = ''; page.value = 1; fetchList() }
+function resetFilters() { searchText.value = ''; filterStatus.value = ''; filterYears.value = ''; filterCandidateStatus.value = ''; filterRecruitmentType.value = ''; filterSource.value = ''; page.value = 1; fetchList() }
 
 function sourceLabel(source) {
   return source === 'candidate' ? '用户上传' : '后台上传'
@@ -1275,8 +1294,9 @@ function sourceBadge(source) {
           </div>
           <div class="w-[150px]"><FixedSelect v-model="filterStatus" :options="[{ value: '', label: '全部解析状态' }, { value: 'wait', label: '待解析' }, { value: 'success', label: '解析成功' }, { value: 'fail', label: '解析失败' }]" @change="page = 1; fetchList()" /></div>
           <div class="w-[150px]"><FixedSelect v-model="filterCandidateStatus" :options="[{ value: '', label: '全部初筛状态' }, ...candidateStatusOptions.map(status => ({ value: status, label: status }))]" @change="page = 1; fetchList()" /></div>
+          <div class="w-[140px]"><FixedSelect v-model="filterRecruitmentType" :options="[{ value: '', label: '全部招聘类型' }, '社招', '校招', '实习生']" @change="page = 1; fetchList()" /></div>
           <div class="w-[130px]"><FixedSelect v-model="filterArchive" :options="[{ value: '', label: '正常简历' }, { value: 'archived', label: '已归档' }]" @change="page = 1; fetchList()" /></div>
-          <div class="w-[150px]"><FixedSelect v-model="filterYears" :options="[{ value: '', label: '全部工作年限' }, '应届生', '1-3年', '3-5年', '5年以上']" @change="page = 1; fetchList()" /></div>
+          <div class="w-[170px]"><FixedSelect v-model="filterYears" :options="[{ value: '', label: '候选人工作年限' }, '应届生', '1-3年', '3-5年', '5年以上']" @change="page = 1; fetchList()" /></div>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置筛选</button>
           <div class="ml-auto inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-gray-100 p-1">
             <button
@@ -1304,14 +1324,13 @@ function sourceBadge(source) {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm w-8">#</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">候选人</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">简历来源</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">招聘类型</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">学历</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">经验</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">关联 JD</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">文件</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">绑定投递</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">投递/上传时间</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">解析状态</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">初筛状态</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">面试流程</th>
               <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-64">操作</th>
             </tr>
           </thead>
@@ -1335,16 +1354,10 @@ function sourceBadge(source) {
               <td class="px-4 py-3 text-sm">
                 <span :class="['inline-flex rounded border px-2 py-1 text-xs font-medium', sourceBadge(r.source)]">{{ sourceLabel(r.source) }}</span>
               </td>
+              <td class="px-4 py-3 text-sm"><span :class="['inline-flex rounded-lg px-2.5 py-1 text-xs font-medium', recruitmentBadge(r.recruitment_type)]">{{ r.recruitment_type || '未设置' }}</span></td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ formatEducationCell(r.education) || '-' }}</td>
-              <td class="px-4 py-3 text-sm text-gray-600">{{ r.experience_years || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.jd_name || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-400 max-w-[140px] truncate">{{ r.original_name || r.file_path || '-' }}</td>
-              <td class="px-4 py-3 text-sm text-gray-500">{{ Number(r.application_count || 0) }} 条投递</td>
-              <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
-                <div>{{ formatDateTime(r.record_created_at || r.created_at) }}</div>
-                <div class="mt-1 text-[11px] text-gray-400">上传 {{ formatDateTime(r.created_at) }}</div>
-                <div v-if="r.parsed_at" class="text-[11px] text-gray-400">解析 {{ formatDateTime(r.parsed_at) }}</div>
-              </td>
               <td class="px-4 py-3">
                 <div class="min-w-[180px]">
                   <span :class="['px-2 py-1 text-xs rounded', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
@@ -1374,6 +1387,11 @@ function sourceBadge(source) {
                   @change="updateCandidateStatus(r, $event)"
                 />
                 <span v-else class="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500">未投递</span>
+              </td>
+              <td class="px-4 py-3 text-sm">
+                <span v-if="hasInterviewWorkflow(r)" class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700"><i class="fa fa-check-circle"></i>已创建</span>
+                <span v-else-if="r.application_id" class="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500"><i class="fa fa-clock-o"></i>未创建</span>
+                <span v-else class="inline-flex rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-400">未投递</span>
               </td>
               <td class="px-4 py-3 text-center">
                 <div class="flex items-center justify-center gap-2">
@@ -1416,6 +1434,7 @@ function sourceBadge(source) {
                     <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', candidateStatusBadge(r.candidate_status || '待筛选')]">{{ r.candidate_status || '待筛选' }}</span>
                     <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', sourceBadge(r.source)]">{{ sourceLabel(r.source) }}</span>
                     <span v-if="!r.application_id" class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">未投递</span>
+                    <span v-else :class="['rounded-full px-2.5 py-1 text-xs font-medium', hasInterviewWorkflow(r) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500']">面试流程：{{ hasInterviewWorkflow(r) ? '已创建' : '未创建' }}</span>
                   </div>
                   <div class="mt-2 text-xs text-[#7c89a2]">{{ getResumeSummary(r) }}</div>
                 </div>
@@ -1448,16 +1467,11 @@ function sourceBadge(source) {
                 <div class="text-xs text-[#8a97b0]">学历背景</div>
                 <div class="mt-1 text-sm font-medium text-[#22304c]">{{ formatEducationCell(r.education) || '待补充' }}</div>
               </div>
-              <div class="rounded-xl border border-[#edf2fb] bg-[#fbfcff] px-3 py-3">
-                <div class="text-xs text-[#8a97b0]">工作年限</div>
-                <div class="mt-1 text-sm font-medium text-[#22304c]">{{ r.experience_years || '待识别' }}</div>
-              </div>
             </div>
 
             <div class="mt-4 flex flex-wrap gap-2">
               <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1 text-xs text-[#5f708f]">{{ r.jd_name || '未关联 JD' }}</span>
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ r.original_name || r.file_path || '无文件名' }}</span>
-              <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ formatDateTime(r.record_created_at || r.created_at) }}</span>
               <FixedSelect
                 v-if="r.application_id"
                 :model-value="r.candidate_status || '待筛选'"
@@ -1543,7 +1557,7 @@ function sourceBadge(source) {
               <i class="fa fa-download mr-1"></i>下载简历
             </button>
             <button v-if="!['candidate', 'user'].includes(String(viewingResume.source || '').toLowerCase())" class="h-8 px-3 border border-purple-100 bg-purple-50 rounded text-xs text-purple-700 hover:bg-purple-100" @click="parseResume(viewingResume.id, true, viewingResume.parse_status === 'success')"><i class="fa fa-magic mr-1"></i>重新解析</button>
-            <button v-if="viewingResume.parse_status === 'success' && viewingResume.jd_id" class="h-8 px-3 border border-green-100 bg-green-50 rounded text-xs text-green-700 hover:bg-green-100 disabled:opacity-50" :disabled="hasInterviewWorkflow(viewingResume)" @click="openWorkflowPicker(viewingResume)"><i class="fa fa-sitemap mr-1"></i>{{ hasInterviewWorkflow(viewingResume) ? '已创建面试流程' : '创建面试流程' }}</button>
+            <button v-if="viewingResume.parse_status === 'success' && (viewingResume.jd_id || viewingResume.application_id || viewingResume.jd_name)" class="h-8 px-3 border border-green-100 bg-green-50 rounded text-xs text-green-700 hover:bg-green-100 disabled:opacity-50" :disabled="hasInterviewWorkflow(viewingResume)" @click="openWorkflowPicker(viewingResume)"><i class="fa fa-sitemap mr-1"></i>{{ hasInterviewWorkflow(viewingResume) ? '已创建面试流程' : '创建面试流程' }}</button>
             <button
               v-if="!editingResume && canEditResumeContent"
               class="h-8 px-3 bg-[#1677ff] text-white rounded text-xs hover:bg-blue-600"
@@ -1575,8 +1589,13 @@ function sourceBadge(source) {
           </div>
         </div>
 
-        <!-- Body - 左右分栏 -->
-        <div class="flex-1 flex overflow-hidden bg-white">
+        <!-- 详情页导航 -->
+        <div class="flex-shrink-0 flex items-center gap-1 border-b bg-[#fbfcff] px-6 py-2">
+          <button v-for="tab in [{ key: 'overview', label: '候选人概览' }, { key: 'resume', label: '简历解析' }, { key: 'application', label: '投递与流程' }]" :key="tab.key" class="rounded-lg px-4 py-2 text-sm font-medium transition" :class="detailTab === tab.key ? 'bg-white text-[#1677ff] shadow-sm' : 'text-gray-500 hover:bg-white hover:text-gray-700'" @click="detailTab = tab.key">{{ tab.label }}</button>
+        </div>
+
+        <!-- 简历解析：左右分栏 -->
+        <div v-if="detailTab === 'resume'" class="flex-1 flex overflow-hidden bg-white">
           <!-- 左侧：PDF 原文 -->
           <div class="basis-1/2 min-w-[560px] border-r border-gray-200 overflow-hidden bg-[#2f2f2f] flex flex-col">
             <h4 class="flex-shrink-0 text-center text-xs font-semibold text-gray-400 px-4 py-3 bg-white border-b truncate">{{ viewingResume.original_name || viewingResume.file_path || '简历原文' }}</h4>
@@ -1748,6 +1767,73 @@ function sourceBadge(source) {
             <div v-else class="text-center py-12 text-gray-400">
               <i class="fa fa-file-text-o text-3xl mb-2 block"></i>
               <p class="text-sm">尚未解析，请先上传文件并点击解析按钮</p>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="flex-1 overflow-auto bg-[#f8fbff] p-6">
+          <div v-if="detailTab === 'overview'" class="mx-auto max-w-5xl space-y-5">
+            <div class="rounded-2xl border border-[#e5ecf8] bg-white p-5 shadow-sm">
+              <div class="flex items-start gap-4">
+                <div class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#eaf2ff] text-xl font-bold text-[#2f6df6]">
+                  <img v-if="viewingResume.avatar" :src="viewingResume.avatar" class="h-full w-full object-cover" alt="候选人头像">
+                  <span v-else>{{ (viewingResume.name || '候').slice(0, 1) }}</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-2"><h3 class="text-xl font-bold text-[#18233e]">{{ viewingResume.name || '未命名候选人' }}</h3><span class="rounded-full bg-[#eefbf7] px-2.5 py-1 text-xs font-medium text-[#0f9f8f]">{{ sourceLabel(viewingResume.source) }}</span><span :class="['rounded-full px-2.5 py-1 text-xs', statusBadge(viewingResume.parse_status)]">{{ statusLabel(viewingResume.parse_status) }}</span></div>
+                  <div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                    <span class="rounded-lg bg-[#f3f6fb] px-2.5 py-1 text-gray-600">意向岗位：{{ viewingResume.target_position || '未填写' }}</span>
+                    <span class="rounded-lg bg-[#eefbf7] px-2.5 py-1 text-[#0f9f8f]">关联 JD：{{ viewingResume.jd_name || viewingResume.application_jd_name || (viewingResume.application_id ? '已关联' : '未关联') }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="mt-5 grid gap-4 lg:grid-cols-2">
+                <div class="rounded-2xl border border-[#e5ecf8] bg-[#f8fbff] p-4">
+                  <h4 class="text-sm font-semibold text-[#25304a]">招聘流程状态</h4>
+                  <div class="mt-3 grid grid-cols-2 gap-3">
+                    <div class="rounded-xl bg-white p-3"><div class="text-xs text-gray-400">初筛状态</div><div class="mt-1 text-sm font-semibold" :class="viewingResume.candidate_status === '初筛通过' ? 'text-emerald-600' : viewingResume.candidate_status === '不合适' ? 'text-rose-600' : 'text-gray-700'">{{ viewingResume.candidate_status || (viewingResume.application_id ? '待筛选' : '未投递') }}</div></div>
+                    <div class="rounded-xl bg-white p-3"><div class="text-xs text-gray-400">面试流程</div><div class="mt-1 text-sm font-semibold" :class="hasInterviewWorkflow(viewingResume) ? 'text-emerald-600' : 'text-gray-700'">{{ viewingResume.application_id ? (hasInterviewWorkflow(viewingResume) ? '已创建' : '未创建') : '未投递' }}</div></div>
+                  </div>
+                </div>
+                <div class="rounded-2xl border border-[#e5ecf8] bg-[#f8fbff] p-4">
+                  <h4 class="text-sm font-semibold text-[#25304a]">记录信息</h4>
+                  <div class="mt-3 grid grid-cols-2 gap-3">
+                    <div class="rounded-xl bg-white p-3"><div class="text-xs text-gray-400">上传时间</div><div class="mt-1 text-sm font-medium text-gray-700">{{ formatDateTime(viewingResume.created_at) }}</div></div>
+                    <div class="rounded-xl bg-white p-3"><div class="text-xs text-gray-400">投递时间</div><div class="mt-1 text-sm font-medium text-gray-700">{{ viewingResume.application_created_at ? formatDateTime(viewingResume.application_created_at) : (viewingResume.record_created_at ? formatDateTime(viewingResume.record_created_at) : '未投递') }}</div></div>
+                    <div class="rounded-xl bg-white p-3"><div class="text-xs text-gray-400">解析时间</div><div class="mt-1 text-sm font-medium text-gray-700">{{ viewingResume.parsed_at ? formatDateTime(viewingResume.parsed_at) : '未解析' }}</div></div>
+                    <div class="rounded-xl bg-white p-3"><div class="text-xs text-gray-400">投递数量</div><div class="mt-1 text-sm font-medium text-gray-700">{{ viewingResume.application_count ?? (viewingResume.application_id ? 1 : 0) }} 份</div></div>
+                  </div>
+                </div>
+              </div>
+              <div class="mt-4 rounded-2xl border border-[#e5ecf8] bg-[#f8fbff] p-4"><div class="text-xs text-gray-400">简历文件</div><div class="mt-1 truncate text-sm font-medium text-gray-700" :title="viewingResume.original_name">{{ viewingResume.original_name || viewingResume.file_path || '暂无' }}</div></div>
+              <div class="mt-4 rounded-2xl border border-[#e5ecf8] bg-white p-5 shadow-sm">
+                <h4 class="text-sm font-semibold text-[#25304a]">投递详情</h4>
+                <div class="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div class="rounded-xl bg-[#f8fbff] p-3"><div class="text-xs text-gray-400">候选人账号</div><div class="mt-1 truncate text-sm font-medium text-gray-700">{{ viewingResume.candidate_username || '后台录入' }}</div></div>
+                  <div class="rounded-xl bg-[#f8fbff] p-3"><div class="text-xs text-gray-400">岗位匹配</div><div class="mt-1 text-sm font-semibold text-[#0f9f8f]">{{ viewingResume.match_score !== null && viewingResume.match_score !== undefined ? `${viewingResume.match_score}%` : '待评估' }}</div></div>
+                  <div class="rounded-xl bg-[#f8fbff] p-3"><div class="text-xs text-gray-400">投递状态</div><div class="mt-1 text-sm font-medium text-gray-700">{{ viewingResume.application_status || (viewingResume.application_id ? '处理中' : '未投递') }}</div></div>
+                  <div class="rounded-xl bg-[#f8fbff] p-3"><div class="text-xs text-gray-400">当前阶段</div><div class="mt-1 text-sm font-medium text-gray-700">{{ viewingResume.application_current_stage || '简历筛选' }}</div></div>
+                </div>
+                <div v-if="viewingResume.parse_status === 'fail' && viewingResume.parse_error" class="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-500">解析失败原因：{{ viewingResume.parse_error }}</div>
+              </div>
+            </div>
+            <div class="rounded-2xl border border-[#e5ecf8] bg-white p-5 shadow-sm"><h4 class="font-semibold text-[#25304a]">候选人信息</h4><div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2"><div class="rounded-xl bg-[#f8fbff] p-3 text-sm"><span class="text-gray-400">邮箱：</span>{{ fieldValue(basicInfo, ['邮箱', '电子邮箱'], '未填写') }}</div><div class="rounded-xl bg-[#f8fbff] p-3 text-sm"><span class="text-gray-400">电话：</span>{{ fieldValue(basicInfo, ['电话', '手机', '手机号'], '未填写') }}</div><div class="rounded-xl bg-[#f8fbff] p-3 text-sm"><span class="text-gray-400">学历：</span>{{ formatEducationSummary(educationList) || '待补充' }}</div><div class="rounded-xl bg-[#f8fbff] p-3 text-sm"><span class="text-gray-400">工作经验：</span>{{ viewingResume.experience_years || fieldValue(basicInfo, ['工作年限', '工作经验', '经验'], '待补充') }}</div><div class="rounded-xl bg-[#f8fbff] p-3 text-sm"><span class="text-gray-400">来源：</span>{{ sourceLabel(viewingResume.source) }}</div></div></div>
+          </div>
+          <div v-else class="mx-auto max-w-5xl">
+            <div class="rounded-2xl border border-[#e5ecf8] bg-white p-6 shadow-sm">
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div><h3 class="text-lg font-semibold text-[#25304a]">投递与流程</h3><p class="mt-1 text-sm text-gray-500">{{ viewingResume.jd_name || viewingResume.application_jd_name || '未关联 JD' }}</p></div>
+                <span v-if="viewingResume.application_id" class="rounded-full bg-[#eef4ff] px-3 py-1 text-xs font-medium text-[#1677ff]">{{ viewingResume.application_status || '处理中' }}</span>
+              </div>
+              <div v-if="!viewingResume.application_id" class="mt-8 rounded-xl bg-slate-50 p-6 text-center text-sm text-gray-500">当前简历尚未关联投递岗位。</div>
+              <div v-else class="mt-5 grid gap-4 md:grid-cols-3">
+                <div class="rounded-xl bg-[#f8fbff] p-4"><div class="text-xs text-gray-400">初筛状态</div><div class="mt-2 text-sm font-semibold" :class="viewingResume.candidate_status === '初筛通过' ? 'text-emerald-600' : viewingResume.candidate_status === '不合适' ? 'text-gray-500' : 'text-amber-600'">{{ viewingResume.candidate_status || '待筛选' }}</div></div>
+                <div class="rounded-xl bg-[#f8fbff] p-4"><div class="text-xs text-gray-400">岗位匹配</div><div class="mt-2 text-sm font-semibold text-[#0f9f8f]">{{ viewingResume.match_score !== null && viewingResume.match_score !== undefined ? `${viewingResume.match_score}%` : '待评估' }}</div></div>
+                <div class="rounded-xl bg-[#f8fbff] p-4"><div class="text-xs text-gray-400">当前阶段</div><div class="mt-2 text-sm font-semibold text-gray-700">{{ viewingResume.application_current_stage || '简历筛选' }}</div></div>
+              </div>
+              <div v-if="viewingResume.application_id" class="mt-5 rounded-xl border border-[#e5ecf8] bg-[#fbfcff] p-5">
+                <div class="flex flex-wrap items-center justify-between gap-3"><div class="min-w-0 flex-1"><div class="text-sm font-semibold text-[#25304a]">面试流程</div><div v-if="hasInterviewWorkflow(viewingResume)" class="mt-3"><div class="flex flex-wrap items-center gap-2"><span v-for="(plan, index) in applicationPlans" :key="plan.id || index" class="inline-flex items-center gap-2"><span :class="['rounded-xl border px-3 py-2 text-sm font-medium', plan.interview_result === 'pass' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : plan.status === 'completed' ? 'border-gray-200 bg-gray-100 text-gray-600' : 'border-blue-200 bg-blue-50 text-blue-700']"><span class="mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-current/10 text-xs">{{ index + 1 }}</span>{{ plan.interview_round || `第 ${index + 1} 面` }}</span><i v-if="index < applicationPlans.length - 1" class="fa fa-long-arrow-right text-gray-300"></i></span><span v-if="!applicationPlans.length" class="text-sm text-gray-500">已创建流程，正在加载面试阶段…</span></div><div class="mt-2 text-xs text-gray-500">当前：{{ viewingResume.application_current_stage || '待进入下一面' }}</div></div><div v-else class="mt-1 text-sm text-gray-500">{{ viewingResume.parse_status !== 'success' ? '简历解析完成后才能创建流程。' : viewingResume.candidate_status === '不合适' ? '初筛未通过，流程已终止。' : viewingResume.candidate_status !== '初筛通过' ? '等待初筛通过后再创建面试流程。' : '已通过初筛，可以开始安排面试。' }}</div></div><button v-if="hasInterviewWorkflow(viewingResume)" class="rounded-xl bg-[#eef4ff] px-4 py-2 text-sm font-medium text-[#1677ff] hover:bg-[#e2ecff]" @click="goCandidatePlans(viewingResume)">查看流程</button><button v-else-if="viewingResume.parse_status === 'success' && viewingResume.candidate_status === '初筛通过'" class="rounded-xl bg-[#10b89f] px-4 py-2 text-sm font-medium text-white hover:bg-[#0f9f8f]" @click="openWorkflowPicker(viewingResume)">创建面试流程</button></div>
+              </div>
             </div>
           </div>
         </div>

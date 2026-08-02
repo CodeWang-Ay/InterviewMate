@@ -161,14 +161,19 @@ def _management_where(
     parse_status: str = "",
     experience_years: str = "",
     candidate_status: str = "",
+    recruitment_type: str = "",
     source: str = "",
     archived: str = "",
 ) -> tuple[str, list]:
     sql = " WHERE IFNULL(r.deleted_at, '')" + ("<>''" if archived == "archived" else "=''")
     params = []
     if candidate_status:
-        sql += " AND r.candidate_status=?"
+        # 已投递简历的页面状态来自 application；未投递简历才使用简历自身状态。
+        sql += " AND CASE WHEN a.id IS NOT NULL THEN COALESCE(a.screening_status, '待筛选') ELSE COALESCE(r.candidate_status, '待筛选') END=?"
         params.append(candidate_status)
+    if recruitment_type:
+        sql += " AND COALESCE(a.recruitment_type, '')=?"
+        params.append(recruitment_type)
     if source:
         if source == "admin":
             sql += " AND COALESCE(a.source, r.source) IN ('admin', 'import')"
@@ -196,9 +201,11 @@ def _management_where(
 
 def _management_row(row: sqlite3.Row) -> dict:
     item = dict(row)
+    item["avatar"] = item.pop("candidate_avatar", "") or item.get("avatar", "") or ""
     application_id = item.pop("joined_application_id", None)
     application_jd_id = item.pop("application_jd_id", None)
     application_jd_name = item.pop("application_jd_name", "")
+    application_recruitment_type = item.pop("application_recruitment_type", "")
     application_source = item.pop("application_source", "")
     application_status = item.pop("joined_application_status", "")
     application_current_stage = item.pop("application_current_stage", "")
@@ -214,6 +221,7 @@ def _management_row(row: sqlite3.Row) -> dict:
         item["application_plan_count"] = int(application_plan_count or 0)
         item["jd_id"] = application_jd_id
         item["jd_name"] = application_jd_name or ""
+        item["recruitment_type"] = application_recruitment_type or item.get("recruitment_type") or ""
         item["source"] = application_source or item.get("source") or "candidate"
         item["candidate_status"] = application_screening_status or item.get("candidate_status") or "待筛选"
         item["record_created_at"] = application_created_at or item.get("created_at") or ""
@@ -233,6 +241,7 @@ def list_management_paged(
     parse_status: str = "",
     experience_years: str = "",
     candidate_status: str = "",
+    recruitment_type: str = "",
     source: str = "",
     archived: str = "",
     page: int = 1,
@@ -241,7 +250,7 @@ def list_management_paged(
     """后台按投递展开简历；同一份物理简历可对应多条岗位投递记录。"""
     page = max(1, int(page or 1))
     page_size = min(max(1, int(page_size or 10)), 100)
-    where, params = _management_where(search, parse_status, experience_years, candidate_status, source, archived)
+    where, params = _management_where(search, parse_status, experience_years, candidate_status, recruitment_type, source, archived)
     offset = (page - 1) * page_size
     join_sql = """
         FROM resumes r
@@ -254,6 +263,7 @@ def list_management_paged(
                a.id AS joined_application_id,
                a.jd_id AS application_jd_id,
                a.jd_name AS application_jd_name,
+               a.recruitment_type AS application_recruitment_type,
                a.source AS application_source,
                a.status AS joined_application_status,
                a.current_stage AS application_current_stage,
@@ -262,7 +272,8 @@ def list_management_paged(
                a.screening_status AS application_screening_status,
                a.created_at AS application_created_at,
                (SELECT COUNT(*) FROM applications ax WHERE ax.resume_id=r.id AND IFNULL(ax.deleted_at, '')='') AS application_count,
-               CASE WHEN c.resume_filename = r.file_path THEN 1 ELSE 0 END AS is_current_resume
+               CASE WHEN c.resume_filename = r.file_path THEN 1 ELSE 0 END AS is_current_resume,
+               c.avatar AS candidate_avatar
     
     """
     with _conn() as conn:
@@ -296,8 +307,17 @@ def find_duplicates(file_md5: str = "", exclude_id: int | None = None) -> list[d
 
 def get_by_id(rid: int) -> dict | None:
     with _conn() as conn:
-        row = conn.execute("SELECT * FROM resumes WHERE id=?", (rid,)).fetchone()
-        return _enrich_jd_fields(dict(row)) if row else None
+        row = conn.execute(
+            """SELECT r.*, c.avatar AS candidate_avatar
+               FROM resumes r LEFT JOIN candidates c ON c.username=r.candidate_username
+               WHERE r.id=?""",
+            (rid,),
+        ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["avatar"] = item.pop("candidate_avatar", "") or item.get("avatar", "") or ""
+        return _enrich_jd_fields(item)
 
 
 def get_by_file_path(file_path: str) -> dict | None:

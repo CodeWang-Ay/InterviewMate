@@ -156,6 +156,15 @@ async def list_workflow_templates(_: dict = Depends(require_admin)):
     return plan_repo.list_workflow_templates()
 
 
+@router.get("/applications/{application_id}")
+async def list_application_plans(application_id: int, _: dict = Depends(require_admin)):
+    """返回某条投递实际创建的面试阶段，供候选人详情页展示真实流程。"""
+    application = application_repo.get_by_id(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="投递记录不存在")
+    return _mask_plans(plan_repo.list_by_application_id(application_id))
+
+
 @router.post("/workflow-templates")
 async def create_workflow_template(body: WorkflowTemplateSave, _: dict = Depends(require_admin)):
     if not body.stages:
