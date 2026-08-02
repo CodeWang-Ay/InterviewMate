@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Query
 from fastapi.responses import FileResponse
@@ -9,7 +10,7 @@ from pydantic import BaseModel
 
 from backend.controllers.auth_controller import require_admin
 from backend.config import UPLOAD_DIR
-from backend.repositories import application_repo, candidate_repo, plan_repo, resume_parse_cache_repo, resume_repo, upload_repo
+from backend.repositories import application_repo, candidate_repo, plan_repo, resume_parse_cache_repo, resume_repo, upload_repo, audit_repo
 from backend.services.file_service import parse_resume
 from backend.services.resume_copilot_service import polish_resume, score_resume
 from backend.services.task_service import create_task
@@ -41,7 +42,7 @@ async def list_resumes(
     source: str = "",
     page: int | None = None,
     page_size: int | None = None,
-    _: dict = Depends(require_admin),
+    admin: dict = Depends(require_admin),
 ):
     if page is not None or page_size is not None:
         current_page = page or 1
@@ -110,7 +111,7 @@ async def update_resume(
     rid: int,
     body: ResumeUpdate,
     application_id: int = Query(0),
-    _: dict = Depends(require_admin),
+    admin: dict = Depends(require_admin),
 ):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     if application_id and "candidate_status" in data:
@@ -120,6 +121,8 @@ async def update_resume(
         screening_status = data.pop("candidate_status")
         try:
             updated_application = application_repo.update_screening(application_id, screening_status)
+            audit_repo.record(admin, "update_screening", "application", application_id,
+                              after_data=screening_status)
         except sqlite3.OperationalError as exc:
             if "locked" in str(exc).lower():
                 raise HTTPException(status_code=503, detail="数据库正在处理其他操作，请稍后重试") from exc
@@ -176,25 +179,13 @@ async def download_resume_file(rid: int, _: dict = Depends(require_admin)):
 
 
 @router.delete("/{rid}")
-async def delete_resume(rid: int, _: dict = Depends(require_admin)):
+async def delete_resume(rid: int, admin: dict = Depends(require_admin)):
     r = resume_repo.get_by_id(rid)
     if not r:
         raise HTTPException(status_code=404, detail="简历不存在")
-    applications = application_repo.list_by_resume_id(rid)
-    if applications:
-        raise HTTPException(status_code=409, detail=f"该简历已关联 {len(applications)} 条投递记录，不能直接删除")
-    if r:
-        fp = r.get("file_path")
-        if fp:
-            fpath = os.path.join(UPLOAD_DIR, "resume", fp)
-            if os.path.exists(fpath):
-                os.remove(fpath)
-        username = r.get("candidate_username") or ""
-        candidate = candidate_repo.get_candidate_info(username) if username else None
-        if candidate and candidate.get("resume_filename") == fp:
-            candidate_repo.update_profile(username, {"resume_filename": ""})
     if not resume_repo.delete(rid):
         raise HTTPException(status_code=404, detail="简历不存在")
+    audit_repo.record(admin, "archive", "resume", rid, reason="后台归档简历")
     return {"status": "ok"}
 
 
@@ -246,6 +237,7 @@ async def _parse_resume_record(rid: int, force: bool = False) -> dict:
                 "education": cached.get("education") or "",
                 "skills": cached.get("skills") or "",
                 "parse_status": "success",
+                "parsed_at": datetime.now().isoformat(timespec='seconds'),
                 "structured_data": cached.get("structured_data") or "{}",
             })
             return {"status": "ok", "structured": structured, "cache_hit": True, "resume": resume_repo.get_by_id(rid)}
@@ -253,6 +245,7 @@ async def _parse_resume_record(rid: int, force: bool = False) -> dict:
     result = await parse_resume(file_path)
     structured = result["structured"]
     update_data = _build_resume_parse_update(r, structured, result["raw"])
+    update_data["parsed_at"] = datetime.now().isoformat(timespec='seconds')
     resume_repo.update(rid, update_data)
     resume_parse_cache_repo.upsert({
         "file_md5": file_md5,

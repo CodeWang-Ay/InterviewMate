@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.controllers.auth_controller import get_current_candidate, require_admin
-from backend.repositories import favorite_repo, jd_repo
+from backend.repositories import favorite_repo, jd_repo, audit_repo
 from backend.services.jd_copilot_service import generate_jd_draft, optimize_jd_draft
 from backend.services.task_service import create_task
 
@@ -181,7 +181,8 @@ async def update_jd(jd_id: int, body: JdUpdate, source: str = "manual", _: dict 
 
 
 @router.delete("/{jd_id}")
-async def delete_jd(jd_id: int, _: dict = Depends(require_admin)):
+async def delete_jd(jd_id: int, admin: dict = Depends(require_admin)):
     if not jd_repo.delete(jd_id):
         raise HTTPException(status_code=404, detail="JD 不存在")
+    audit_repo.record(admin, "archive", "jd", jd_id, reason="后台归档职位")
     return {"status": "ok"}

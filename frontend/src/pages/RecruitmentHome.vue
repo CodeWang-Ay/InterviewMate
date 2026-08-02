@@ -30,7 +30,7 @@ const username = ref('')
 const nickname = ref('')
 const role = ref('')
 
-const categories = ['技术', '产品', '算法', '数据', '运营', '综合']
+const categories = ['技术', '产品', '政企', '销售', '综合']
 const locations = ['北京', '上海', '深圳', '广州', '杭州', '成都']
 const heroTags = ['大模型', 'AI 面试', 'RAG', '语音交互', '招聘流程', '候选人体验']
 

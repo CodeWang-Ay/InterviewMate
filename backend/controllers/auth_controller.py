@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.config import UPLOAD_DIR
-from backend.repositories import admin_repo, application_repo, candidate_repo, favorite_repo, plan_repo, resume_repo
+from backend.repositories import admin_repo, application_repo, candidate_repo, favorite_repo, plan_repo, resume_repo, audit_repo
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -68,7 +68,39 @@ def get_current_admin_info(username: str = Depends(get_current_admin)) -> dict:
 
 
 def require_admin(user: dict = Depends(get_current_admin_info)) -> dict:
+    if user.get("role") == "readonly":
+        raise HTTPException(status_code=403, detail="只读账号无权执行此操作")
     return user
+
+
+def require_super_admin(user: dict = Depends(get_current_admin_info)) -> dict:
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="需要超级管理员权限")
+    return user
+
+
+@router.get("/admin-operation-logs")
+async def admin_operation_logs(_: dict = Depends(require_super_admin)):
+    return {"items": audit_repo.list_logs()}
+
+
+class AdminRoleUpdate(BaseModel):
+    role: str
+
+
+@router.get("/admins")
+async def list_admin_accounts(_: dict = Depends(require_super_admin)):
+    return {"items": admin_repo.list_admins()}
+
+
+@router.put("/admins/{username}/role")
+async def update_admin_role(username: str, body: AdminRoleUpdate, admin: dict = Depends(require_super_admin)):
+    if username == admin.get("username") and body.role != "super_admin":
+        raise HTTPException(status_code=400, detail="不能降级当前登录的超级管理员")
+    if not admin_repo.update_role(username, body.role):
+        raise HTTPException(status_code=404, detail="管理员不存在或角色无效")
+    audit_repo.record(admin, "update_role", "admin", username, after_data=body.role)
+    return {"status": "ok", "username": username, "role": body.role}
 
 
 class LoginBody(BaseModel):

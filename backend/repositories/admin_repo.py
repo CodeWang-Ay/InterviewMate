@@ -56,6 +56,7 @@ def init_db():
                 phone TEXT DEFAULT '',
                 company TEXT DEFAULT '',
                 bio TEXT DEFAULT '',
+                role TEXT DEFAULT 'super_admin',
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
@@ -63,6 +64,8 @@ def init_db():
         for col in ["avatar", "email", "phone", "company", "bio"]:
             if col not in cols:
                 conn.execute(f"ALTER TABLE admins ADD COLUMN {col} TEXT DEFAULT ''")
+        if "role" not in cols:
+            conn.execute("ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'super_admin'")
 
         _migrate_legacy_admins(conn)
 
@@ -159,7 +162,7 @@ def login(username: str, password: str, remember_me: bool = False) -> dict | Non
         "phone": row["phone"] or "",
         "company": row["company"] or "",
         "bio": row["bio"] or "",
-        "role": "admin",
+        "role": row["role"] or "super_admin",
     }
 
 
@@ -208,6 +211,18 @@ def update_avatar(username: str, avatar_url: str) -> bool:
     with _conn() as conn:
         cur = conn.execute("UPDATE admins SET avatar=? WHERE username=?", (avatar_url, username))
         return cur.rowcount > 0
+
+
+def list_admins() -> list[dict]:
+    with _conn() as conn:
+        return [dict(row) for row in conn.execute("SELECT id, username, nickname, role, email, phone, created_at FROM admins ORDER BY id").fetchall()]
+
+
+def update_role(username: str, role: str) -> bool:
+    if role not in {"super_admin", "hr", "interviewer", "readonly"}:
+        return False
+    with _conn() as conn:
+        return conn.execute("UPDATE admins SET role=? WHERE username=?", (role, username)).rowcount > 0
 
 
 def logout(token: str):

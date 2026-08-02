@@ -33,6 +33,7 @@ from backend.repositories.favorite_repo import init_db as init_favorite_db
 from backend.repositories.auth_session_repo import init_db as init_auth_session_db
 from backend.repositories.notification_repo import init_db as init_notification_db
 from backend.repositories.assistant_conversation_repo import init_db as init_assistant_conversation_db
+from backend.repositories.audit_repo import init_db as init_audit_db
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -52,6 +53,7 @@ init_favorite_db()
 init_task_db()
 init_notification_db()
 init_assistant_conversation_db()
+init_audit_db()
 
 app = FastAPI(title="InterviewMate")
 

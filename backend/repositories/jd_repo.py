@@ -53,6 +53,10 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(jds)").fetchall()}
+        for col, definition in [("deleted_at", "TEXT DEFAULT NULL"), ("deleted_by", "TEXT DEFAULT ''"), ("delete_reason", "TEXT DEFAULT ''"), ("published_at", "TEXT DEFAULT ''")]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE jds ADD COLUMN {col} {definition}")
         rows = conn.execute("SELECT id, experience_required FROM jds").fetchall()
         for row in rows:
             normalized = normalize_experience(row["experience_required"])
@@ -78,10 +82,73 @@ def init_db():
                 "INSERT INTO jds (name, category, location, responsibilities, requirements, status) VALUES (?,?,?,?,?,?)",
                 samples,
             )
+        # 保证职位首页的六个方向都有可展示的岗位；已有同名岗位时不重复插入。
+        category_samples = [
+            ("全栈开发工程师", "技术", "深圳", "负责前后端功能开发、接口联调和系统性能优化。", "熟悉Java或Python、Vue/React、MySQL，具备完整项目交付经验。"),
+            ("B端产品经理", "产品", "上海", "负责业务调研、需求分析、原型设计和产品迭代。", "3年以上产品经验，熟悉B端产品方法和项目协作流程。"),
+            ("机器学习算法工程师", "算法", "北京", "负责模型训练、评估、调优和算法服务落地。", "熟悉Python、PyTorch和常见机器学习算法，有项目经验。"),
+            ("数据分析师", "数据", "杭州", "负责业务数据分析、指标体系建设和数据可视化。", "熟悉SQL、Python和至少一种BI工具，具备良好的业务理解能力。"),
+            ("招聘运营专员", "运营", "广州", "负责招聘活动运营、候选人沟通和招聘数据跟踪。", "沟通能力良好，熟悉招聘流程和运营工具，有相关经验优先。"),
+            ("业务管理培训生", "综合", "成都", "参与业务轮岗、项目协作和跨部门流程优化。", "本科及以上学历，学习能力强，具备良好的沟通和执行能力。"),
+            ("政企客户解决方案顾问", "政企", "北京", "负责政企客户需求调研、解决方案设计和项目推进。", "具备政企项目经验，熟悉招投标和客户沟通流程，文字表达能力良好。"),
+            ("大客户销售经理", "销售", "深圳", "负责重点客户开拓、商机跟进和商务谈判，完成销售目标。", "具备B端销售经验，沟通和谈判能力强，能够适应出差。"),
+            ("政企项目交付经理", "政企", "广州", "负责政企项目计划、交付协调、风险跟踪和客户汇报。", "具备项目管理经验，熟悉政企客户交付流程，沟通协调能力强。"),
+            ("政企售前顾问", "政企", "杭州", "负责政企客户技术交流、方案编写和投标支持。", "熟悉解决方案售前流程，具备较强的方案表达和文档编写能力。"),
+            ("企业客户销售顾问", "销售", "上海", "负责企业客户开发、需求挖掘、报价谈判和客户维护。", "有B端或软件销售经验，目标感强，善于建立客户关系。"),
+            ("销售运营专员", "销售", "成都", "负责销售线索管理、数据分析、合同流程和销售团队支持。", "熟悉Excel或数据分析工具，细致负责，具备良好的跨部门协作能力。"),
+        ]
+        existing_names = {row[0] for row in conn.execute("SELECT name FROM jds").fetchall()}
+        missing = [item for item in category_samples if item[0] not in existing_names]
+        if missing:
+            conn.executemany(
+                "INSERT INTO jds (name, category, location, responsibilities, requirements, status, recruitment_type, experience_required) VALUES (?,?,?,?,?,?,?,?)",
+                [(name, category, location, responsibilities, requirements, "enable", "社招", "不限经验") for name, category, location, responsibilities, requirements in missing],
+            )
+        campus_intern_samples = [
+            ("校招-软件开发工程师", "技术", "深圳", "参与业务系统开发、测试和技术文档编写，在导师指导下完成项目任务。", "计算机相关专业本科及以上，熟悉Java、Python或前端开发，有课程或项目实践。", "校招"),
+            ("校招-产品助理", "产品", "上海", "协助产品调研、需求整理、原型绘制和版本跟进。", "本科及以上学历，逻辑清晰，具备良好的沟通和文档能力。", "校招"),
+            ("校招-政企项目助理", "政企", "北京", "协助政企项目资料整理、进度跟踪和客户会议准备。", "本科及以上学历，责任心强，熟悉Office，能适应项目协作。", "校招"),
+            ("实习-数据分析实习生", "技术", "杭州", "协助完成数据清洗、指标统计、报表制作和业务分析。", "在校本科或硕士，熟悉SQL或Python，每周可实习4天以上。", "实习生"),
+            ("实习-销售支持实习生", "销售", "广州", "协助销售线索整理、客户资料维护、合同流程和数据统计。", "在校生，细致耐心，熟悉Excel，具备良好的沟通能力。", "实习生"),
+            ("实习-综合运营实习生", "综合", "成都", "协助招聘运营、活动执行、内容整理和跨部门沟通。", "在校生，执行力强，学习能力好，每周可实习3天以上。", "实习生"),
+            ("实习-前端开发实习生", "技术", "深圳", "协助开发招聘平台页面、组件和接口交互，参与兼容性测试。", "熟悉HTML、CSS、JavaScript和Vue，能保证每周实习4天以上。", "实习生"),
+            ("实习-产品运营实习生", "产品", "上海", "协助用户调研、需求整理、竞品分析和产品内容运营。", "产品或市场相关专业优先，逻辑清晰，具备较好的文字表达能力。", "实习生"),
+            ("实习-政企客户支持实习生", "政企", "北京", "协助政企客户资料整理、项目会议记录和交付事项跟进。", "在校生，熟悉Office，认真细致，具备良好的沟通协调能力。", "实习生"),
+        ]
+        existing_names = {row[0] for row in conn.execute("SELECT name FROM jds").fetchall()}
+        special_missing = [item for item in campus_intern_samples if item[0] not in existing_names]
+        if special_missing:
+            conn.executemany(
+                "INSERT INTO jds (name, category, location, responsibilities, requirements, status, recruitment_type, experience_required) VALUES (?,?,?,?,?,?,?,?)",
+                [(name, category, location, responsibilities, requirements, "enable", recruitment_type, "应届生") for name, category, location, responsibilities, requirements, recruitment_type in special_missing],
+            )
+        # 统一历史 JD 的分类，前台只暴露五个业务方向。
+        category_rules = [
+            ("技术", "%工程师%"), ("技术", "%开发%"), ("技术", "%算法%"),
+            ("技术", "%数据%"), ("技术", "%测试%"), ("技术", "%运维%"),
+            ("技术", "%安全%"), ("技术", "%标注%"), ("技术", "%NLP%"),
+            ("产品", "%产品%"), ("销售", "%销售%"), ("政企", "%政企%"),
+        ]
+        for category, pattern in category_rules:
+            conn.execute("UPDATE jds SET category=? WHERE name LIKE ? AND IFNULL(deleted_at, '')=''", (category, pattern))
+        conn.execute("UPDATE jds SET category='综合' WHERE category NOT IN ('技术', '产品', '政企', '销售', '综合') AND IFNULL(deleted_at, '')=''")
+        conn.execute("UPDATE jds SET experience_required='不限经验' WHERE recruitment_type='实习生' AND IFNULL(deleted_at, '')=''")
+        # 清理同一招聘类型下的重复岗位名称，保留最早创建的一条，避免列表出现重复 JD。
+        duplicate_rows = conn.execute("""
+            SELECT recruitment_type, name, GROUP_CONCAT(id) AS ids
+            FROM jds
+            WHERE IFNULL(deleted_at, '')=''
+            GROUP BY recruitment_type, name
+            HAVING COUNT(*) > 1
+        """).fetchall()
+        for row in duplicate_rows:
+            ids = sorted(int(value) for value in str(row["ids"]).split(","))
+            for duplicate_id in ids[1:]:
+                conn.execute("UPDATE jds SET deleted_at=datetime('now'), delete_reason='重复岗位自动归档' WHERE id=?", (duplicate_id,))
 
 
 def list_all_paged(category="", status="", location="", search="", recruitment_type="", page=1, page_size=10):
-    where = "WHERE 1=1"
+    where = "WHERE IFNULL(deleted_at, '')=''"
     params = []
     if category:
         where += " AND category=?"
@@ -199,6 +266,8 @@ def update(jd_id, data, source="manual"):
         data["experience_required"] = normalize_experience(data.get("experience_required"))
     sets = [f"{f}=?" for f in fields if f in data]
     vals = [data[f] for f in fields if f in data]
+    if data.get("status") in {"enable", "published"} and not existing.get("published_at"):
+        sets.append("published_at=datetime('now')")
     if not sets:
         return existing
     vals.append(jd_id)
@@ -266,4 +335,4 @@ def normalize_experience(value):
 
 def delete(jd_id):
     with _conn() as conn:
-        return conn.execute("DELETE FROM jds WHERE id=?", (jd_id,)).rowcount > 0
+        return conn.execute("UPDATE jds SET deleted_at=datetime('now') WHERE id=? AND IFNULL(deleted_at, '')=''", (jd_id,)).rowcount > 0

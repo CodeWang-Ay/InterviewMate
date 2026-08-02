@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from backend.controllers.auth_controller import get_current_candidate, require_admin
 from backend.repositories import candidate_repo
-from backend.repositories import application_repo, plan_repo, resume_repo
+from backend.repositories import application_repo, plan_repo, resume_repo, audit_repo
 from backend.repositories import upload_repo
 from backend.services.file_service import parse_resume
 from backend.services.job_match_service import evaluate_resume_match
@@ -755,9 +755,10 @@ def _apply_plan_action(pid: int, body: PlanAction):
 
 
 @router.delete("/{pid}")
-async def delete_plan(pid: int, _: dict = Depends(require_admin)):
+async def delete_plan(pid: int, admin: dict = Depends(require_admin)):
     if not plan_repo.delete(pid):
         raise HTTPException(status_code=404, detail="计划不存在")
+    audit_repo.record(admin, "archive", "plan", pid, reason="后台归档面试计划")
     return {"status": "ok"}
 
 

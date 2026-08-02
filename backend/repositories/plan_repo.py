@@ -57,6 +57,10 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(plans)").fetchall()}
+        for col, definition in [("deleted_at", "TEXT DEFAULT NULL"), ("deleted_by", "TEXT DEFAULT ''"), ("delete_reason", "TEXT DEFAULT ''")]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE plans ADD COLUMN {col} {definition}")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS workflow_templates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -577,7 +581,7 @@ def _reconcile_workflow_status(workflow_id: str) -> None:
 
 def delete(pid: int) -> bool:
     with _conn() as conn:
-        return conn.execute("DELETE FROM plans WHERE id=?", (pid,)).rowcount > 0
+        return conn.execute("UPDATE plans SET deleted_at=datetime('now') WHERE id=? AND IFNULL(deleted_at, '')=''", (pid,)).rowcount > 0
 
 
 def _resolve_recruitment_type(data: dict) -> str:

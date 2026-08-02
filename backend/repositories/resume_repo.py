@@ -76,6 +76,14 @@ def _ensure_columns(conn) -> None:
         conn.execute("ALTER TABLE resumes ADD COLUMN candidate_username TEXT DEFAULT ''")
     if "source" not in cols:
         conn.execute("ALTER TABLE resumes ADD COLUMN source TEXT DEFAULT 'admin'")
+    if "deleted_at" not in cols:
+        conn.execute("ALTER TABLE resumes ADD COLUMN deleted_at TEXT DEFAULT NULL")
+    if "deleted_by" not in cols:
+        conn.execute("ALTER TABLE resumes ADD COLUMN deleted_by TEXT DEFAULT ''")
+    if "delete_reason" not in cols:
+        conn.execute("ALTER TABLE resumes ADD COLUMN delete_reason TEXT DEFAULT ''")
+    if "parsed_at" not in cols:
+        conn.execute("ALTER TABLE resumes ADD COLUMN parsed_at TEXT DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_resumes_candidate ON resumes(candidate_username)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_resumes_file_md5 ON resumes(file_md5)")
 
@@ -124,6 +132,7 @@ def _build_where(search: str = "", parse_status: str = "", experience_years: str
 
 def list_all(search: str = "", parse_status: str = "", experience_years: str = "", candidate_status: str = "", source: str = "") -> list[dict]:
     where, params = _build_where(search, parse_status, experience_years, candidate_status, source)
+    where = (" WHERE IFNULL(deleted_at, '')=''" + (" AND " + where[7:] if where.startswith(" WHERE ") else where)) if where else " WHERE IFNULL(deleted_at, '')=''"
     sql = f"SELECT * FROM resumes{where} ORDER BY id DESC"
     with _conn() as conn:
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
@@ -134,6 +143,7 @@ def list_paged(search: str = "", parse_status: str = "", experience_years: str =
     page = max(1, int(page or 1))
     page_size = min(max(1, int(page_size or 10)), 100)
     where, params = _build_where(search, parse_status, experience_years, candidate_status, source)
+    where = (" WHERE IFNULL(deleted_at, '')=''" + (" AND " + where[7:] if where.startswith(" WHERE ") else where)) if where else " WHERE IFNULL(deleted_at, '')=''"
     offset = (page - 1) * page_size
     with _conn() as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM resumes{where}", params).fetchone()[0]
@@ -224,6 +234,7 @@ def list_management_paged(
     offset = (page - 1) * page_size
     join_sql = """
         FROM resumes r
+        LEFT JOIN candidates c ON c.username=r.candidate_username
         LEFT JOIN applications a
           ON a.resume_id=r.id AND a.status NOT IN ('withdrawn', 'cancel')
     """
@@ -236,7 +247,10 @@ def list_management_paged(
                a.status AS joined_application_status,
                a.current_stage AS application_current_stage,
                a.screening_status AS application_screening_status,
-               a.created_at AS application_created_at
+               a.created_at AS application_created_at,
+               (SELECT COUNT(*) FROM applications ax WHERE ax.resume_id=r.id AND IFNULL(ax.deleted_at, '')='') AS application_count,
+               CASE WHEN c.resume_filename = r.file_path THEN 1 ELSE 0 END AS is_current_resume
+    
     """
     with _conn() as conn:
         total = conn.execute(f"SELECT COUNT(*) {join_sql}{where}", params).fetchone()[0]
@@ -343,7 +357,7 @@ def sync_jd_name(jd_id: int, jd_name: str) -> None:
 
 def delete(rid: int) -> bool:
     with _conn() as conn:
-        return conn.execute("DELETE FROM resumes WHERE id=?", (rid,)).rowcount > 0
+        return conn.execute("UPDATE resumes SET deleted_at=datetime('now') WHERE id=? AND IFNULL(deleted_at, '')=''", (rid,)).rowcount > 0
 
 
 def _enrich_jd_fields(resume: dict) -> dict:

@@ -1230,6 +1230,7 @@ function sourceBadge(source) {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">关联 JD</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">技能</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">文件</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">绑定投递</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">投递/上传时间</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">解析状态</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">初筛状态</th>
@@ -1249,6 +1250,7 @@ function sourceBadge(source) {
                 <div class="mt-1 flex flex-wrap items-center gap-1">
                   <span :class="['rounded border px-1.5 py-0.5 text-[10px] font-medium', sourceBadge(r.source)]">{{ sourceLabel(r.source) }}</span>
                   <span v-if="r.candidate_username" class="max-w-[140px] truncate text-[10px] text-gray-400">{{ r.candidate_username }}</span>
+                  <span v-if="r.is_current_resume" class="rounded border border-emerald-100 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">当前使用</span>
                 </div>
               </td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.target_position || '-' }}</td>
@@ -1257,7 +1259,12 @@ function sourceBadge(source) {
               <td class="px-4 py-3 text-sm text-gray-600">{{ r.jd_name || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate">{{ r.skills || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-400 max-w-[140px] truncate">{{ r.original_name || r.file_path || '-' }}</td>
-              <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">{{ formatDateTime(r.record_created_at || r.created_at) }}</td>
+              <td class="px-4 py-3 text-sm text-gray-500">{{ Number(r.application_count || 0) }} 条投递</td>
+              <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
+                <div>{{ formatDateTime(r.record_created_at || r.created_at) }}</div>
+                <div class="mt-1 text-[11px] text-gray-400">上传 {{ formatDateTime(r.created_at) }}</div>
+                <div v-if="r.parsed_at" class="text-[11px] text-gray-400">解析 {{ formatDateTime(r.parsed_at) }}</div>
+              </td>
               <td class="px-4 py-3">
                 <div class="min-w-[180px]">
                   <span :class="['px-2 py-1 text-xs rounded', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>

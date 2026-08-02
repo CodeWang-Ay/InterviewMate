@@ -8,6 +8,8 @@ const router = useRouter()
 const job = ref(null)
 const loading = ref(true)
 const error = ref('')
+const isFavorite = ref(false)
+const favoriteWorking = ref(false)
 
 onMounted(async () => {
   try {
@@ -15,12 +17,42 @@ onMounted(async () => {
     const res = await fetch(`/api/jds/public/${id}`)
     if (!res.ok) throw new Error('职位不存在或已下线')
     job.value = await res.json()
+    await loadFavoriteState()
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
 })
+
+async function loadFavoriteState() {
+  if (!localStorage.getItem('token') || localStorage.getItem('role') !== 'candidate' || !job.value?.id) return
+  try {
+    const res = await fetch('/api/jds/favorites', { cache: 'no-store' })
+    if (res.ok) isFavorite.value = (await res.json()).some(item => Number(item.id) === Number(job.value.id))
+  } catch (_) {}
+}
+
+async function toggleFavorite() {
+  if (!localStorage.getItem('token')) {
+    router.push(`/user/login?redirect=${encodeURIComponent(route.fullPath)}`)
+    return
+  }
+  if (localStorage.getItem('role') !== 'candidate' || favoriteWorking.value || !job.value?.id) return
+  favoriteWorking.value = true
+  try {
+    const method = isFavorite.value ? 'DELETE' : 'POST'
+    const res = await fetch(`/api/jds/favorites/${job.value.id}`, { method })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.detail || '收藏操作失败')
+    isFavorite.value = !isFavorite.value
+    window.appNotify?.(isFavorite.value ? '已收藏该职位' : '已取消收藏', 'success')
+  } catch (e) {
+    window.appNotify?.(e.message || '收藏操作失败', 'error')
+  } finally {
+    favoriteWorking.value = false
+  }
+}
 
 function goLogin(jobId) {
   const token = localStorage.getItem('token')
@@ -72,7 +104,10 @@ function goList() {
                 <span><i class="fa fa-calendar mr-1.5"></i>发布于 {{ String(job.updated_at || job.created_at || '').slice(0, 10) || '近期' }}</span>
               </div>
             </div>
-            <button class="shrink-0 rounded-xl bg-[#11b89f] px-8 py-3.5 text-base font-black text-white hover:bg-[#0d9488] shadow-lg shadow-teal-500/20" @click="goLogin(job?.id)">立即投递</button>
+            <div class="flex shrink-0 gap-3">
+              <button class="rounded-xl border border-white/30 px-5 py-3.5 text-base font-black text-white transition hover:bg-white/10 disabled:opacity-60" :disabled="favoriteWorking" @click="toggleFavorite"><i :class="['fa mr-2', isFavorite ? 'fa-star' : 'fa-star-o']"></i>{{ isFavorite ? '已收藏' : '收藏' }}</button>
+              <button class="rounded-xl bg-[#11b89f] px-8 py-3.5 text-base font-black text-white hover:bg-[#0d9488] shadow-lg shadow-teal-500/20" @click="goLogin(job?.id)">立即投递</button>
+            </div>
           </div>
         </section>
 
@@ -120,6 +155,7 @@ function goList() {
         <div class="sticky bottom-0 border-t border-slate-100 bg-white/95 backdrop-blur px-8 py-5 sm:px-12 flex items-center justify-between gap-4">
           <button class="text-sm font-semibold text-[#667085] hover:text-[#4776ff]" @click="goList"><i class="fa fa-arrow-left mr-1.5"></i>返回职位列表</button>
           <div class="flex gap-3">
+            <button class="rounded-lg border border-amber-200 px-5 py-2.5 text-sm font-bold text-amber-600 hover:bg-amber-50 disabled:opacity-60" :disabled="favoriteWorking" @click="toggleFavorite"><i :class="['fa mr-1.5', isFavorite ? 'fa-star' : 'fa-star-o']"></i>{{ isFavorite ? '已收藏' : '收藏' }}</button>
             <button class="rounded-lg border border-[#dce5f2] px-5 py-2.5 text-sm font-bold text-[#475467] hover:bg-[#f5f7fa]"><i class="fa fa-share-alt mr-1.5"></i>分享</button>
             <button class="rounded-xl bg-[#11b89f] px-8 py-2.5 text-base font-black text-white hover:bg-[#0d9488]" @click="goLogin(job?.id)">立即投递</button>
           </div>

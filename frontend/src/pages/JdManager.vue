@@ -122,7 +122,16 @@ function getRecruitmentBadgeClass(type) {
 }
 
 function getStatusBadgeClass(status) {
-  return status === 'enable' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'
+  return ({ draft: 'bg-slate-100 text-slate-600', published: 'bg-green-100 text-green-600', enable: 'bg-green-100 text-green-600', paused: 'bg-amber-100 text-amber-700', disable: 'bg-amber-100 text-amber-700', expired: 'bg-gray-100 text-gray-500', closed: 'bg-red-100 text-red-600' }[status] || 'bg-gray-100 text-gray-500')
+}
+
+function statusLabel(status) {
+  return ({ draft: '草稿', published: '已发布', enable: '已发布', paused: '已暂停', disable: '已暂停', expired: '已过期', closed: '已关闭' }[status] || status || '草稿')
+}
+
+function formatPublishTime(jd) {
+  const value = jd?.published_at || jd?.created_at || jd?.updated_at || ''
+  return value ? String(value).replace('T', ' ').slice(0, 16) : '-'
 }
 
 function getResponsibilityPreview(jd) {
@@ -321,6 +330,7 @@ async function acceptOptimizedJd() {
     viewingJd.value = null
     await fetchStats()
     await fetchJds()
+    alert('JD 优化内容已保存并写入数据库')
   } catch (e) {
     alert('采纳优化失败: ' + e.message)
   } finally {
@@ -540,8 +550,11 @@ function changePageSize(size) {
           </select>
           <select v-model="filterStatus" class="border rounded-lg px-3 py-2 min-w-[140px]" @change="fetchJds">
             <option value="">全部状态</option>
-            <option value="enable">启用</option>
-            <option value="disable">停用</option>
+            <option value="draft">草稿</option>
+            <option value="enable">已发布</option>
+            <option value="disable">已暂停</option>
+            <option value="expired">已过期</option>
+            <option value="closed">已关闭</option>
           </select>
           <div class="relative w-64">
             <i class="fa fa-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
@@ -577,13 +590,19 @@ function changePageSize(size) {
               <p class="mt-2 px-1 text-xs text-[#9aa7b8]">也可以直接输入更细位置</p>
             </div>
           </div>
-          <select v-model="filterRecruitment" class="border rounded-lg px-3 py-2 min-w-[120px]" @change="fetchJds">
-            <option value="">全部招聘类型</option>
-            <option value="实习生">实习生</option>
-            <option value="校招">校招</option>
-            <option value="社招">社招</option>
-          </select>
-          <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置</button>
+          <div class="ml-auto flex items-center gap-2">
+            <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置</button>
+            <div class="inline-flex items-center gap-1 rounded-xl bg-[#eef2f7] p-1">
+              <button
+                v-for="item in [{ value: '', label: '全部' }, { value: '社招', label: '社招' }, { value: '校招', label: '校招' }, { value: '实习生', label: '实习' }]"
+                :key="item.value || 'all'"
+                type="button"
+                :class="filterRecruitment === item.value ? 'bg-white text-[#4b6cff] shadow-sm' : 'text-[#667085] hover:text-[#344054]'"
+                class="rounded-lg px-3 py-2 text-sm font-semibold transition"
+                @click="filterRecruitment = item.value; page = 1; fetchJds()"
+              >{{ item.label }}</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -602,6 +621,7 @@ function changePageSize(size) {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">招聘类型</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">经验要求</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">工作地点</th>
+              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">JD 发布时间</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">状态</th>
               <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-56">操作</th>
             </tr>
@@ -619,8 +639,9 @@ function changePageSize(size) {
               </td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ jd.experience_required || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ jd.location }}</td>
+              <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">{{ formatPublishTime(jd) }}</td>
               <td class="px-4 py-3">
-                <span :class="getStatusBadgeClass(jd.status)" class="px-2 py-1 text-xs rounded">{{ jd.status === 'enable' ? '启用' : '停用' }}</span>
+                <span :class="getStatusBadgeClass(jd.status)" class="px-2 py-1 text-xs rounded">{{ statusLabel(jd.status) }}</span>
               </td>
               <td class="px-4 py-3 text-center">
                 <div class="flex items-center justify-center gap-1">
@@ -654,7 +675,7 @@ function changePageSize(size) {
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
                     <h3 class="text-lg font-semibold text-[#18233e] break-all">{{ jd.name }}</h3>
-                    <span :class="getStatusBadgeClass(jd.status)" class="px-2.5 py-1 text-xs rounded-full font-medium">{{ jd.status === 'enable' ? '启用中' : '已停用' }}</span>
+                    <span :class="getStatusBadgeClass(jd.status)" class="px-2.5 py-1 text-xs rounded-full font-medium">{{ statusLabel(jd.status) }}</span>
                   </div>
                   <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#70809c]">
                     <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1">{{ jd.category || '未分类' }}</span>
@@ -781,8 +802,11 @@ function changePageSize(size) {
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
               <select v-model="form.status" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
-                <option value="enable">启用</option>
-                <option value="disable">停用</option>
+                <option value="draft">草稿</option>
+                <option value="enable">已发布</option>
+                <option value="disable">已暂停</option>
+                <option value="expired">已过期</option>
+                <option value="closed">已关闭</option>
               </select>
             </div>
           </div>
@@ -1003,7 +1027,7 @@ function changePageSize(size) {
       <div class="bg-white rounded-2xl w-[640px] max-h-[80vh] overflow-auto p-6 shadow-xl">
         <div class="flex items-center justify-between mb-5">
           <h3 class="text-lg font-bold">{{ viewingJd.name }}</h3>
-          <span :class="viewingJd.status === 'enable' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'" class="px-2 py-1 text-xs rounded">{{ viewingJd.status === 'enable' ? '启用' : '停用' }}</span>
+          <span :class="getStatusBadgeClass(viewingJd.status)" class="px-2 py-1 text-xs rounded">{{ statusLabel(viewingJd.status) }}</span>
         </div>
         <div class="space-y-4">
           <div class="grid gap-3 rounded-xl border border-[#e6edf7] bg-[#f8fbff] p-3 sm:grid-cols-2">

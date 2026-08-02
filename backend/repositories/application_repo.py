@@ -76,6 +76,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE applications ADD COLUMN offer_updated_at TEXT DEFAULT ''")
         if "current_stage" not in cols:
             conn.execute("ALTER TABLE applications ADD COLUMN current_stage TEXT DEFAULT 'screening'")
+        if "deleted_at" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN deleted_at TEXT DEFAULT NULL")
+        if "deleted_by" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN deleted_by TEXT DEFAULT ''")
+        if "delete_reason" not in cols:
+            conn.execute("ALTER TABLE applications ADD COLUMN delete_reason TEXT DEFAULT ''")
         conn.execute("""
             UPDATE applications
             SET status=CASE status
@@ -445,10 +451,10 @@ def list_by_candidate_username(candidate_username: str) -> list[dict]:
         return []
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM applications WHERE candidate_username=? ORDER BY id DESC",
+            "SELECT * FROM applications WHERE candidate_username=? AND IFNULL(deleted_at, '')='' ORDER BY id DESC",
             (candidate_username,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [_with_status_label(dict(row)) for row in rows]
 
 
 def find_by_candidate_and_jd(candidate_username: str, jd_id: int) -> dict | None:
@@ -537,7 +543,23 @@ def list_by_resume_id(resume_id: int) -> list[dict]:
         return []
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM applications WHERE resume_id=? ORDER BY id DESC",
+            "SELECT * FROM applications WHERE resume_id=? AND IFNULL(deleted_at, '')='' ORDER BY id DESC",
             (resume_id,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [_with_status_label(dict(row)) for row in rows]
+
+
+def _with_status_label(item: dict) -> dict:
+    status = item.get("status")
+    screening = item.get("screening_status")
+    stage = item.get("current_stage")
+    if status == "withdrawn": label = "已取消"
+    elif status == "rejected" and screening == "不合适": label = "初筛不通过"
+    elif status == "rejected": label = "面试不通过"
+    elif status == "hired": label = "已录用"
+    elif item.get("offer_status") in {"pending", "offered"}: label = "Offer 待处理"
+    elif stage == "interview": label = "面试中"
+    elif screening == "初筛通过": label = "初筛通过"
+    else: label = "待初筛"
+    item["status_label"] = label
+    return item

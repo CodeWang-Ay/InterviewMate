@@ -280,6 +280,22 @@ async function loadFavoriteJobs(withAnimation = false) {
   }
 }
 
+async function removeFavoriteJob(job) {
+  if (!job?.id) return
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch(`/api/jds/favorites/${job.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '取消收藏失败')
+    favoriteJobs.value = favoriteJobs.value.filter(item => Number(item.id) !== Number(job.id))
+    showToast('已取消收藏', 'success')
+  } catch (e) {
+    showToast(e.message || '取消收藏失败', 'error')
+  }
+}
+
 watch(activeTab, loadRecommendedJobs)
 
 const avatar = ref('')
@@ -326,6 +342,7 @@ async function saveCandidateProfile() {
     localStorage.setItem('email', email.value)
     window.dispatchEvent(new CustomEvent('auth-changed'))
     showToast('个人资料已更新', 'success')
+    showAccountSettings.value = false
   } catch (e) {
     showToast(e.message || '资料保存失败', 'error')
   } finally {
@@ -349,6 +366,7 @@ async function changeCandidatePassword() {
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.detail || '密码修改失败')
     showToast(data.message || '密码修改成功，请重新登录', 'success')
+    showAccountSettings.value = false
     window.setTimeout(logout, 900)
   } catch (e) {
     showToast(e.message || '密码修改失败', 'error')
@@ -395,6 +413,7 @@ async function deleteCandidateAccount() {
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.detail || '账号注销失败')
     showToast('账号已注销', 'success')
+    showAccountSettings.value = false
     window.setTimeout(logout, 600)
   } catch (e) {
     showToast(e.message || '账号注销失败', 'error')
@@ -1374,6 +1393,7 @@ function jobSummary(job) {
               <div class="mt-2 flex flex-wrap gap-2">
                 <span class="rounded border border-[#11b89f] px-2 py-0.5 text-sm text-[#0f9f8f]">{{ job.category || '技术' }}</span>
                 <span class="rounded border border-[#d8dce8] px-2 py-0.5 text-sm text-[#667085]">{{ job.location || '深圳' }}</span>
+                <span class="rounded border border-[#d8dce8] px-2 py-0.5 text-sm text-[#667085]">{{ job.recruitment_type === '实习生' ? '实习' : (job.recruitment_type || '社招') }}</span>
               </div>
               <div class="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded bg-[#edf3f8] text-center text-xs text-[#4f5a6d]">
                 <span class="bg-[#f8fbff] py-2">岗位匹配</span>
@@ -1405,7 +1425,10 @@ function jobSummary(job) {
                 <div class="text-sm font-bold truncate">{{ job.name }}</div>
                 <div class="text-xs text-[#98a2b3] mt-0.5">{{ job.location || '' }} ｜ {{ job.category || '' }}</div>
               </div>
-              <i class="fa fa-chevron-right text-[#98a2b3] text-sm shrink-0 ml-2"></i>
+              <div class="ml-2 flex shrink-0 items-center gap-2">
+                <button class="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-500 transition hover:bg-red-50" title="取消收藏" @click.stop="removeFavoriteJob(job)"><i class="fa fa-star-o mr-1"></i>取消收藏</button>
+                <i class="fa fa-chevron-right text-[#98a2b3] text-sm"></i>
+              </div>
             </div>
           </div>
           <p v-else class="mt-2 text-[#667085] text-sm">还是空的，快去看看岗位吧</p>
