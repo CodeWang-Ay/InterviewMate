@@ -2,6 +2,7 @@ import sqlite3
 from backend.config import DB_PATH
 
 EXPERIENCE_OPTIONS = ["不限经验", "应届生", "1-3年", "3-5年", "5-10年", "10年以上"]
+CATEGORY_OPTIONS = {"技术", "产品", "政企", "销售", "综合"}
 
 
 class _ClosingConnection(sqlite3.Connection):
@@ -113,7 +114,6 @@ def init_db():
             ("实习-综合运营实习生", "综合", "成都", "协助招聘运营、活动执行、内容整理和跨部门沟通。", "在校生，执行力强，学习能力好，每周可实习3天以上。", "实习生"),
             ("实习-前端开发实习生", "技术", "深圳", "协助开发招聘平台页面、组件和接口交互，参与兼容性测试。", "熟悉HTML、CSS、JavaScript和Vue，能保证每周实习4天以上。", "实习生"),
             ("实习-产品运营实习生", "产品", "上海", "协助用户调研、需求整理、竞品分析和产品内容运营。", "产品或市场相关专业优先，逻辑清晰，具备较好的文字表达能力。", "实习生"),
-            ("实习-政企客户支持实习生", "政企", "北京", "协助政企客户资料整理、项目会议记录和交付事项跟进。", "在校生，熟悉Office，认真细致，具备良好的沟通协调能力。", "实习生"),
         ]
         existing_names = {row[0] for row in conn.execute("SELECT name FROM jds").fetchall()}
         special_missing = [item for item in campus_intern_samples if item[0] not in existing_names]
@@ -191,7 +191,7 @@ def get_stats():
 
 def get_by_id(jd_id):
     with _conn() as conn:
-        row = conn.execute("SELECT * FROM jds WHERE id=?", (jd_id,)).fetchone()
+        row = conn.execute("SELECT j.*, (SELECT COUNT(*) FROM applications a WHERE a.jd_id=j.id AND IFNULL(a.deleted_at, '')='' AND a.status NOT IN ('withdrawn','cancel')) AS application_count FROM jds j WHERE j.id=?", (jd_id,)).fetchone()
         return dict(row) if row else None
 
 
@@ -208,6 +208,8 @@ def get_by_name(name):
 
 
 def create(data):
+    if data.get("category") not in CATEGORY_OPTIONS:
+        data["category"] = "综合"
     with _conn() as conn:
         cur = conn.execute(
             "INSERT INTO jds (name, category, location, responsibilities, requirements, status, recruitment_type, experience_required) VALUES (?,?,?,?,?,?,?,?)",
@@ -264,6 +266,8 @@ def update(jd_id, data, source="manual"):
     fields = ["name", "category", "location", "responsibilities", "requirements", "status", "recruitment_type", "experience_required"]
     if "experience_required" in data:
         data["experience_required"] = normalize_experience(data.get("experience_required"))
+    if "category" in data and data.get("category") not in CATEGORY_OPTIONS:
+        data["category"] = existing.get("category") if existing.get("category") in CATEGORY_OPTIONS else "综合"
     sets = [f"{f}=?" for f in fields if f in data]
     vals = [data[f] for f in fields if f in data]
     if data.get("status") in {"enable", "published"} and not existing.get("published_at"):

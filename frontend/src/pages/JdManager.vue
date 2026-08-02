@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import Sidebar from '../components/Sidebar.vue'
+import FixedSelect from '../components/FixedSelect.vue'
 
 const searchText = ref('')
 const filterCategory = ref('')
@@ -23,15 +24,22 @@ const showGenerator = ref(false)
 const generatingDraft = ref(false)
 const optimizingDraft = ref(false)
 const savingOptimized = ref(false)
+const editingOptimized = ref(false)
 const optimizeSource = ref(null)
 const optimizedDraft = ref(null)
 const versionJd = ref(null)
+const versionDetail = ref(null)
 const jdVersions = ref([])
 const loadingVersions = ref(false)
 const restoringVersion = ref(false)
 const activeLocationPicker = ref('')
+const activeActionMenu = ref(null)
 const generatorForm = ref({ name: '', summary: '', category: '', location: '', recruitment_type: '社招' })
+const copySource = ref(null)
+const copyForm = ref({ name: '', recruitment_type: '社招', experience_required: '不限经验', status: 'draft' })
 
+const jobCategoryOptions = ['技术', '产品', '政企', '销售', '综合']
+const recruitmentTypeLocked = computed(() => Boolean(editingJd.value && (Number(editingJd.value.application_count || 0) > 0 || editingJd.value.status !== 'draft')))
 const experienceOptions = ['不限经验', '应届生', '1-3年', '3-5年', '5-10年', '10年以上']
 const form = ref({ name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '不限经验' })
 const popularCities = ['深圳', '上海', '北京', '广州', '杭州', '成都', '苏州', '南京', '武汉', '西安']
@@ -73,7 +81,9 @@ onMounted(() => { fetchStats(); fetchJds() })
 let searchTimer = null
 function onSearchChange() { clearTimeout(searchTimer); searchTimer = setTimeout(fetchJds, 300) }
 
-const categories = computed(() => [...new Set(jdList.value.map(j => j.category))].filter(Boolean))
+// 筛选项不能从当前分页数据推导，否则某个类别只出现在其他页时会被漏掉。
+// 使用统一类别字典，筛选请求仍由后端对全部 JD 执行。
+const categories = computed(() => jobCategoryOptions)
 const locations = computed(() => [...new Set(jdList.value.map(j => j.location))].filter(Boolean))
 const selectedJds = computed(() => jdList.value.filter(jd => selectedJdIds.value.has(jd.id)))
 const allSelected = computed(() => jdList.value.length > 0 && jdList.value.every(jd => selectedJdIds.value.has(jd.id)))
@@ -156,6 +166,21 @@ function toggleLocationPicker(name) {
   activeLocationPicker.value = activeLocationPicker.value === name ? '' : name
 }
 
+function toggleActionMenu(id) {
+  activeActionMenu.value = activeActionMenu.value === id ? null : id
+}
+
+function closeActionMenu() {
+  activeActionMenu.value = null
+}
+
+function handleActionMenuOutside(event) {
+  if (!event.target.closest?.('[data-jd-action-menu]')) closeActionMenu()
+}
+
+onMounted(() => document.addEventListener('click', handleActionMenuOutside))
+onBeforeUnmount(() => document.removeEventListener('click', handleActionMenuOutside))
+
 function pickLocation(target, city) {
   if (target === 'filter') setFilterLocation(city)
   if (target === 'form') setFormLocation(city)
@@ -190,7 +215,7 @@ function toggleSelectAll() {
 
 function openCreate() {
   editingJd.value = null
-  form.value = { name: '', category: '', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '不限经验' }
+  form.value = { name: '', category: '综合', location: '', responsibilities: '', requirements: '', status: 'enable', recruitment_type: '社招', experience_required: '不限经验' }
   showModal.value = true
 }
 
@@ -201,7 +226,7 @@ function openGenerator() {
 
 function openEdit(jd) {
   editingJd.value = jd
-  form.value = { ...jd, experience_required: experienceOptions.includes(jd.experience_required) ? jd.experience_required : '不限经验' }
+  form.value = { ...jd, category: jobCategoryOptions.includes(jd.category) ? jd.category : '综合', experience_required: experienceOptions.includes(jd.experience_required) ? jd.experience_required : '不限经验' }
   showModal.value = true
 }
 
@@ -211,6 +236,7 @@ function closeOptimize(force = false) {
   if (!force && (optimizingDraft.value || savingOptimized.value)) return
   optimizeSource.value = null
   optimizedDraft.value = null
+  editingOptimized.value = false
 }
 
 async function saveJd() {
@@ -227,22 +253,56 @@ async function saveJd() {
   } catch (_) {}
 }
 
-async function duplicateJd(jd) {
-  const jdId = Number(jd?.id)
-  if (!Number.isInteger(jdId) || jdId <= 0) {
-    alert('当前 JD 数据缺少有效 ID，请刷新页面后再试')
-    return
+function openCopy(jd) {
+  copySource.value = jd
+  copyForm.value = { name: jd?.name || '', recruitment_type: jd?.recruitment_type || '社招', experience_required: jd?.experience_required || '不限经验', status: 'draft' }
+}
+
+async function copyJdInfo(jd) {
+  if (!jd) return
+  const text = [
+    `岗位名称：${jd.name || '-'}`,
+    `岗位类别：${jd.category || '-'}`,
+    `工作地点：${jd.location || '-'}`,
+    `招聘类型：${jd.recruitment_type || '-'}`,
+    `经验要求：${jd.experience_required || '-'}`,
+    '',
+    '岗位职责：',
+    jd.responsibilities || '暂无',
+    '',
+    '任职要求：',
+    jd.requirements || '暂无',
+  ].join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    alert('JD 信息已复制')
+  } catch (_) {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    textarea.remove()
+    alert('JD 信息已复制')
   }
-  const res = await fetch(`/api/jds/${jdId}/duplicate`, { method: 'POST' })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    alert(data.detail || '复制 JD 失败')
-    return
+}
+
+async function confirmCopy() {
+  if (!copySource.value || !copyForm.value.name.trim()) return
+  const source = copySource.value
+  try {
+    const res = await fetch(`/api/jds/${source.id}/duplicate`, { method: 'POST' })
+    const created = await res.json().catch(() => ({}))
+    if (!res.ok || !created?.id) throw new Error(created.detail || '复制 JD 失败')
+    const updateRes = await fetch(`/api/jds/${created.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: copyForm.value.name.trim(), recruitment_type: copyForm.value.recruitment_type, experience_required: copyForm.value.experience_required, status: copyForm.value.status }) })
+    if (!updateRes.ok) throw new Error('复制后的 JD 保存失败')
+    copySource.value = null
+    await fetchStats(); page.value = 1; await fetchJds()
+  } catch (error) {
+    alert(error?.message || '复制 JD 失败')
   }
-  await fetchStats()
-  page.value = 1
-  viewingJd.value = null
-  await fetchJds()
 }
 
 async function generateDraft() {
@@ -302,12 +362,17 @@ async function openOptimize(jd) {
   }
 }
 
+function toggleOptimizedEdit() {
+  if (!optimizedDraft.value) return
+  editingOptimized.value = !editingOptimized.value
+}
+
 async function acceptOptimizedJd() {
   if (!optimizeSource.value || !optimizedDraft.value) return
   savingOptimized.value = true
   const payload = {
     name: optimizedDraft.value.name || optimizeSource.value.name,
-    category: optimizedDraft.value.category || '',
+    category: jobCategoryOptions.includes(optimizedDraft.value.category) ? optimizedDraft.value.category : (jobCategoryOptions.includes(optimizeSource.value.category) ? optimizeSource.value.category : '综合'),
     location: optimizedDraft.value.location || '',
     responsibilities: optimizedDraft.value.responsibilities || '',
     requirements: optimizedDraft.value.requirements || '',
@@ -544,18 +609,8 @@ function changePageSize(size) {
             <input v-model="searchText" type="text" placeholder="搜索岗位名称" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-[#1677ff]" @input="onSearchChange">
             <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
           </div>
-          <select v-model="filterCategory" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="fetchJds">
-            <option value="">全部岗位类别</option>
-            <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
-          </select>
-          <select v-model="filterStatus" class="border rounded-lg px-3 py-2 min-w-[140px]" @change="fetchJds">
-            <option value="">全部状态</option>
-            <option value="draft">草稿</option>
-            <option value="enable">已发布</option>
-            <option value="disable">已暂停</option>
-            <option value="expired">已过期</option>
-            <option value="closed">已关闭</option>
-          </select>
+          <div class="w-[150px]"><FixedSelect v-model="filterCategory" :options="[{ value: '', label: '全部岗位类别' }, ...categories.map(c => ({ value: c, label: c }))]" @change="fetchJds" /></div>
+          <div class="w-[140px]"><FixedSelect v-model="filterStatus" :options="[{ value: '', label: '全部状态' }, { value: 'draft', label: '草稿' }, { value: 'enable', label: '已发布' }, { value: 'disable', label: '已暂停' }, { value: 'expired', label: '已过期' }, { value: 'closed', label: '已关闭' }]" @change="fetchJds" /></div>
           <div class="relative w-64">
             <i class="fa fa-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
             <input
@@ -644,13 +699,16 @@ function changePageSize(size) {
                 <span :class="getStatusBadgeClass(jd.status)" class="px-2 py-1 text-xs rounded">{{ statusLabel(jd.status) }}</span>
               </td>
               <td class="px-4 py-3 text-center">
-                <div class="flex items-center justify-center gap-1">
+                <div class="relative flex items-center justify-center gap-1" data-jd-action-menu>
                   <button class="w-8 h-8 rounded-lg text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewJd(jd)"><i class="fa fa-eye"></i></button>
                   <button class="w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 transition flex items-center justify-center" title="编辑" @click="openEdit(jd)"><i class="fa fa-pencil"></i></button>
-                  <button class="w-8 h-8 rounded-lg text-[#7c3aed] hover:bg-violet-50 transition flex items-center justify-center" title="AI 优化" @click="openOptimize(jd)"><i class="fa fa-magic"></i></button>
-                  <button class="w-8 h-8 rounded-lg text-[#0ea5e9] hover:bg-sky-50 transition flex items-center justify-center" title="版本记录" @click="openVersions(jd)"><i class="fa fa-history"></i></button>
-                  <button class="w-8 h-8 rounded-lg text-[#f59e0b] hover:bg-amber-50 transition flex items-center justify-center" title="复制 JD" @click="duplicateJd(jd)"><i class="fa fa-copy"></i></button>
-                  <button class="w-8 h-8 rounded-lg text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeJd(jd)"><i class="fa fa-trash-o"></i></button>
+                  <button class="h-8 rounded-lg px-2 text-gray-500 hover:bg-gray-100 transition" title="更多操作" @click="toggleActionMenu(jd.id)"><i class="fa fa-ellipsis-h"></i></button>
+                  <div v-if="activeActionMenu === jd.id" class="absolute right-0 top-10 z-30 w-32 rounded-xl border border-gray-100 bg-white p-1.5 text-left shadow-xl" @click.stop>
+                    <button class="menu-action text-violet-600" @click="closeActionMenu(); openOptimize(jd)"><i class="fa fa-magic"></i>AI 优化</button>
+                    <button class="menu-action text-sky-600" @click="closeActionMenu(); openVersions(jd)"><i class="fa fa-history"></i>版本记录</button>
+                    <button class="menu-action text-amber-600" @click="closeActionMenu(); openCopy(jd)"><i class="fa fa-clone"></i>创建 JD 副本</button>
+                    <button class="menu-action text-red-500" @click="closeActionMenu(); removeJd(jd)"><i class="fa fa-trash-o"></i>归档 JD</button>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -684,13 +742,16 @@ function changePageSize(size) {
                   </div>
                 </div>
               </div>
-              <div class="flex items-center gap-1 shrink-0">
+              <div class="relative flex items-center gap-1 shrink-0" data-jd-action-menu>
                 <button class="w-9 h-9 rounded-xl text-[#1677ff] hover:bg-blue-50 transition flex items-center justify-center" title="查看" @click="viewJd(jd)"><i class="fa fa-eye"></i></button>
                 <button class="w-9 h-9 rounded-xl text-gray-500 hover:bg-gray-100 transition flex items-center justify-center" title="编辑" @click="openEdit(jd)"><i class="fa fa-pencil"></i></button>
-                <button class="w-9 h-9 rounded-xl text-[#7c3aed] hover:bg-violet-50 transition flex items-center justify-center" title="AI 优化" @click="openOptimize(jd)"><i class="fa fa-magic"></i></button>
-                <button class="w-9 h-9 rounded-xl text-[#0ea5e9] hover:bg-sky-50 transition flex items-center justify-center" title="版本记录" @click="openVersions(jd)"><i class="fa fa-history"></i></button>
-                <button class="w-9 h-9 rounded-xl text-[#f59e0b] hover:bg-amber-50 transition flex items-center justify-center" title="复制 JD" @click="duplicateJd(jd)"><i class="fa fa-copy"></i></button>
-                <button class="w-9 h-9 rounded-xl text-red-400 hover:bg-red-50 transition flex items-center justify-center" title="删除" @click="removeJd(jd)"><i class="fa fa-trash-o"></i></button>
+                <button class="h-9 rounded-xl px-2 text-gray-500 hover:bg-gray-100 transition" title="更多操作" @click="toggleActionMenu(jd.id)"><i class="fa fa-ellipsis-h"></i></button>
+                <div v-if="activeActionMenu === jd.id" class="absolute right-0 top-11 z-30 w-32 rounded-xl border border-gray-100 bg-white p-1.5 text-left shadow-xl" @click.stop>
+                  <button class="menu-action text-violet-600" @click="closeActionMenu(); openOptimize(jd)"><i class="fa fa-magic"></i>AI 优化</button>
+                  <button class="menu-action text-sky-600" @click="closeActionMenu(); openVersions(jd)"><i class="fa fa-history"></i>版本记录</button>
+                  <button class="menu-action text-amber-600" @click="closeActionMenu(); openCopy(jd)"><i class="fa fa-clone"></i>创建 JD 副本</button>
+                  <button class="menu-action text-red-500" @click="closeActionMenu(); removeJd(jd)"><i class="fa fa-trash-o"></i>归档 JD</button>
+                </div>
               </div>
             </div>
 
@@ -741,11 +802,28 @@ function changePageSize(size) {
     </main>
 
     <!-- 新增/编辑弹窗 -->
+    <div v-if="copySource" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-5" @click.self="copySource = null">
+      <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <h3 class="text-lg font-bold text-gray-900">创建 JD 副本</h3>
+        <p class="mt-1 text-sm text-gray-500">基于“{{ copySource.name }}”创建一条新的 JD 草稿，可调整招聘类型和经验要求。</p>
+        <label class="mt-5 block text-sm font-medium text-gray-700">岗位名称<input v-model="copyForm.name" class="mt-1 h-10 w-full rounded-lg border px-3" /></label>
+        <label class="mt-4 block text-sm font-medium text-gray-700">招聘类型<FixedSelect v-model="copyForm.recruitment_type" :options="['实习生','校招','社招']" /></label>
+        <label class="mt-4 block text-sm font-medium text-gray-700">经验要求<FixedSelect v-model="copyForm.experience_required" :options="experienceOptions" /></label>
+        <div class="mt-5 flex justify-end gap-2"><button class="rounded-lg bg-gray-100 px-4 py-2 text-sm" @click="copySource = null">取消</button><button class="rounded-lg bg-[#1677ff] px-4 py-2 text-sm font-semibold text-white" @click="confirmCopy">创建草稿</button></div>
+      </div>
+    </div>
+
     <div v-if="showModal" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-5" @click.self="showModal = false">
       <div class="flex max-h-[88vh] w-[960px] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div class="shrink-0 border-b px-6 py-5">
-          <h3 class="text-xl font-bold text-gray-900">{{ editingJd ? '编辑岗位JD' : '新增岗位JD' }}</h3>
-          <p class="mt-1 text-sm text-gray-500">维护岗位基础信息、职责与任职要求。</p>
+        <div class="flex shrink-0 items-start justify-between gap-4 border-b px-6 py-5">
+          <div>
+            <h3 class="text-xl font-bold text-gray-900">{{ editingJd ? '编辑岗位JD' : '新增岗位JD' }}</h3>
+            <p class="mt-1 text-sm text-gray-500">维护岗位基础信息、职责与任职要求。</p>
+          </div>
+          <div v-if="editingJd" class="flex shrink-0 gap-2">
+            <button class="rounded-lg border border-amber-200 px-3 py-2 text-sm font-semibold text-amber-600 hover:bg-amber-50" @click="showModal = false; openCopy(editingJd)"><i class="fa fa-clone mr-1"></i>创建 JD 副本</button>
+            <button class="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-600 hover:bg-violet-50" @click="showModal = false; openOptimize(editingJd)"><i class="fa fa-magic mr-1"></i>AI 优化</button>
+          </div>
         </div>
         <div class="min-h-0 flex-1 overflow-auto p-6">
           <div class="grid grid-cols-4 gap-4">
@@ -755,7 +833,7 @@ function changePageSize(size) {
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">岗位类别</label>
-              <input v-model="form.category" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]" placeholder="如：技术开发">
+              <FixedSelect v-model="form.category" :options="jobCategoryOptions" />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">工作地点</label>
@@ -787,27 +865,16 @@ function changePageSize(size) {
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">招聘类型</label>
-              <select v-model="form.recruitment_type" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
-                <option value="实习生">实习生</option>
-                <option value="校招">校招</option>
-                <option value="社招">社招</option>
-              </select>
+              <FixedSelect v-model="form.recruitment_type" :options="['实习生', '校招', '社招']" :disabled="recruitmentTypeLocked" />
+              <p v-if="recruitmentTypeLocked" class="mt-1 text-xs text-[#98a2b3]">已有投递或已发布，招聘类型不可修改；如需调整请复制 JD。</p>
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">经验要求</label>
-              <select v-model="form.experience_required" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
-                <option v-for="item in experienceOptions" :key="item" :value="item">{{ item }}</option>
-              </select>
+              <FixedSelect v-model="form.experience_required" :options="experienceOptions" />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
-              <select v-model="form.status" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-[#1677ff]">
-                <option value="draft">草稿</option>
-                <option value="enable">已发布</option>
-                <option value="disable">已暂停</option>
-                <option value="expired">已过期</option>
-                <option value="closed">已关闭</option>
-              </select>
+              <FixedSelect v-model="form.status" :options="[{ value: 'draft', label: '草稿' }, { value: 'enable', label: '已发布' }, { value: 'disable', label: '已暂停' }, { value: 'expired', label: '已过期' }, { value: 'closed', label: '已关闭' }]" />
             </div>
           </div>
 
@@ -943,10 +1010,28 @@ function changePageSize(size) {
             </section>
 
             <section class="rounded-2xl border border-[#d8c8ff] bg-white shadow-sm">
-              <div class="border-b border-violet-100 px-4 py-3">
-                <div class="text-sm font-semibold text-[#7c3aed]">优化后</div>
+              <div class="flex items-center justify-between border-b border-violet-100 px-4 py-3">
+                <div class="text-sm font-semibold text-[#7c3aed]">优化后{{ editingOptimized ? '（编辑中）' : '' }}</div>
+                <button v-if="!editingOptimized" class="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-600 hover:bg-violet-50" @click="toggleOptimizedEdit"><i class="fa fa-pencil mr-1"></i>编辑优化结果</button>
+                <button v-else class="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700" @click="toggleOptimizedEdit"><i class="fa fa-check mr-1"></i>保存修改</button>
               </div>
-              <div class="divide-y divide-[#eef2f7]">
+              <div v-if="editingOptimized" class="space-y-3 p-4">
+                <label v-for="field in compareFields" :key="'edit-' + field.key" class="block">
+                  <span class="text-xs font-semibold text-[#8a96aa]">{{ field.label }}</span>
+                  <textarea
+                    v-if="field.key === 'responsibilities' || field.key === 'requirements'"
+                    v-model="optimizedDraft[field.key]"
+                    rows="8"
+                    class="mt-1 w-full resize-y rounded-lg border border-violet-100 px-3 py-2 text-sm leading-6 text-[#202a43] focus:border-violet-400 focus:outline-none"
+                  />
+                  <input
+                    v-else
+                    v-model="optimizedDraft[field.key]"
+                    class="mt-1 h-10 w-full rounded-lg border border-violet-100 px-3 text-sm text-[#202a43] focus:border-violet-400 focus:outline-none"
+                  />
+                </label>
+              </div>
+              <div v-else class="divide-y divide-[#eef2f7]">
                 <div v-for="field in compareFields" :key="'new-' + field.key" class="px-4 py-3">
                   <div class="text-xs font-semibold text-[#8a96aa]">{{ field.label }}</div>
                   <p class="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#202a43]">{{ optimizedDraft?.[field.key] || '-' }}</p>
@@ -957,7 +1042,7 @@ function changePageSize(size) {
         </div>
 
         <div class="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t bg-white px-6 py-4 shadow-[0_-10px_24px_rgba(15,23,42,0.06)]">
-          <div class="text-xs text-gray-500">采纳后会覆盖当前 JD，可继续在编辑中微调。</div>
+          <div class="text-xs text-gray-500">可先编辑优化结果，确认无误后再采纳。</div>
           <div class="flex items-center gap-3">
             <button class="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50" :disabled="optimizingDraft || savingOptimized" @click="closeOptimize()">暂不采纳</button>
             <button class="px-4 py-2 rounded-lg bg-[#7c3aed] text-white text-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-violet-300" :disabled="optimizingDraft || savingOptimized || !optimizedDraft" @click="acceptOptimizedJd">
@@ -1006,9 +1091,12 @@ function changePageSize(size) {
                   </div>
                   <p class="mt-1 text-xs text-[#8a97ad]">{{ version.created_at }}</p>
                 </div>
-                <button class="shrink-0 rounded-lg border border-sky-200 px-3 py-1.5 text-sm text-sky-600 hover:bg-sky-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="restoringVersion" @click="restoreVersion(version)">
-                  恢复此版
-                </button>
+                <div class="flex shrink-0 items-center gap-2">
+                  <button class="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50" @click="versionDetail = version">查看详情</button>
+                  <button class="rounded-lg border border-sky-200 px-3 py-1.5 text-sm text-sky-600 hover:bg-sky-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="restoringVersion" @click="restoreVersion(version)">
+                    恢复此版
+                  </button>
+                </div>
               </div>
               <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-[#65748d]">
                 <span class="rounded-lg bg-[#f8fbff] px-2 py-1">{{ version.category || '未分类' }}</span>
@@ -1018,6 +1106,39 @@ function changePageSize(size) {
               <p class="mt-3 line-clamp-2 text-sm leading-6 text-[#52627d]">{{ version.responsibilities || version.requirements || '暂无职责与要求' }}</p>
             </article>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 版本详情弹窗 -->
+    <div v-if="versionDetail" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-5" @click.self="versionDetail = null">
+      <div class="flex max-h-[86vh] w-[760px] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="flex shrink-0 items-start justify-between gap-4 border-b px-6 py-5">
+          <div>
+            <h3 class="text-lg font-bold text-gray-900">{{ versionDetail.name }}</h3>
+            <p class="mt-1 text-xs text-[#8a97ad]">{{ versionDetail.created_at }} · {{ versionDetail.source === 'ai_optimize' ? 'AI采纳前' : versionDetail.source === 'restore' ? '恢复前' : '编辑前' }}</p>
+          </div>
+          <button class="h-9 w-9 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" @click="versionDetail = null"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="min-h-0 flex-1 space-y-5 overflow-auto p-6">
+          <div class="grid gap-3 rounded-xl border border-[#e6edf7] bg-[#f8fbff] p-3 sm:grid-cols-2">
+            <div class="rounded-lg bg-white px-3 py-2"><div class="text-xs text-[#8a97ad]">岗位类别</div><div class="mt-1 text-sm font-medium text-[#25304a]">{{ versionDetail.category || '-' }}</div></div>
+            <div class="rounded-lg bg-white px-3 py-2"><div class="text-xs text-[#8a97ad]">工作地点</div><div class="mt-1 text-sm font-medium text-[#25304a]">{{ versionDetail.location || '-' }}</div></div>
+            <div class="rounded-lg bg-white px-3 py-2"><div class="text-xs text-[#8a97ad]">招聘类型</div><div class="mt-1 text-sm font-medium text-[#25304a]">{{ versionDetail.recruitment_type || '-' }}</div></div>
+            <div class="rounded-lg bg-white px-3 py-2"><div class="text-xs text-[#8a97ad]">经验要求</div><div class="mt-1 text-sm font-medium text-[#25304a]">{{ versionDetail.experience_required || '-' }}</div></div>
+          </div>
+          <section>
+            <h4 class="text-sm font-semibold text-gray-700">岗位职责</h4>
+            <p class="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-600">{{ versionDetail.responsibilities || '暂无' }}</p>
+          </section>
+          <section>
+            <h4 class="text-sm font-semibold text-gray-700">任职要求</h4>
+            <p class="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-600">{{ versionDetail.requirements || '暂无' }}</p>
+          </section>
+        </div>
+        <div class="flex shrink-0 justify-end gap-3 border-t bg-gray-50 px-6 py-4">
+          <button class="rounded-lg bg-gray-100 px-4 py-2 text-sm hover:bg-gray-200" @click="versionDetail = null">关闭</button>
+          <button class="rounded-lg bg-[#1677ff] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50" :disabled="restoringVersion" @click="restoreVersion(versionDetail); versionDetail = null">恢复此版本</button>
         </div>
       </div>
     </div>
@@ -1070,12 +1191,32 @@ function changePageSize(size) {
           </div>
         </div>
         <div class="flex justify-end gap-3 mt-6">
+          <button class="px-4 py-2 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50 text-sm" @click="copyJdInfo(viewingJd)"><i class="fa fa-clipboard mr-1"></i>复制 JD 文本</button>
           <button class="px-4 py-2 rounded-lg border border-sky-200 text-sky-600 hover:bg-sky-50 text-sm" @click="openVersions(viewingJd)">版本记录</button>
-          <button class="px-4 py-2 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50 text-sm" @click="duplicateJd(viewingJd)">复制 JD</button>
-          <button class="px-4 py-2 rounded-lg border border-violet-200 text-[#7c3aed] hover:bg-violet-50 text-sm" @click="openOptimize(viewingJd)">AI 优化</button>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="viewingJd = null">关闭</button>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.menu-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: background-color .15s ease;
+}
+.menu-action:hover { background: #f5f7fb; }
+select {
+  appearance: auto;
+  -webkit-appearance: menulist;
+  cursor: pointer;
+  background-color: #fff;
+}
+</style>
