@@ -28,7 +28,8 @@ async function doLogout() {
 const navItems = [
   { icon: 'fa-home', label: '首页', path: '/admin' },
   { icon: 'fa-file-text', label: '岗位 JD 管理', path: '/admin/jd-manager' },
-  { icon: 'fa-id-card-o', label: '简历管理', path: '/admin/resume-manager' },
+  { icon: 'fa-id-card-o', label: '简历库', path: '/admin/resume-manager' },
+  { icon: 'fa-users', label: '候选人投递管理', path: '/admin/candidate-applications' },
   { icon: 'fa-list-alt', label: '面试计划管理', path: '/admin/plan-manager' },
   { icon: 'fa-archive', label: '面试档案', path: '/admin/interview-archive', activePaths: ['/admin/interview-archive', '/admin/report', '/admin/interview-record', '/admin/record-list', '/admin/report-list'], adminOnly: true },
   { icon: 'fa-comments-o', label: '面试官训练台', path: '/admin/interviewer' },

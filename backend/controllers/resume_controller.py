@@ -42,6 +42,7 @@ async def list_resumes(
     recruitment_type: str = "",
     source: str = "",
     archived: str = "",
+    scope: str = "applications",
     page: int | None = None,
     page_size: int | None = None,
     admin: dict = Depends(require_admin),
@@ -57,6 +58,7 @@ async def list_resumes(
             recruitment_type,
             source,
             archived,
+            scope,
             current_page,
             current_page_size,
         )

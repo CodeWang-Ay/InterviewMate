@@ -42,6 +42,7 @@ const routes = [
   { path: '/admin/interview-record', component: InterviewRecord },
   { path: '/admin/jd-manager', component: JdManager },
   { path: '/admin/resume-manager', component: ResumeManager },
+  { path: '/admin/candidate-applications', component: ResumeManager },
   { path: '/admin/ai-tools', component: AITools },
   { path: '/admin/plan-manager', component: PlanManager },
   { path: '/admin/interview-archive', component: InterviewArchive },
@@ -159,7 +160,7 @@ router.beforeEach(async (to, from) => {
   if (candidatePages.includes(to.path) && role && role !== 'candidate') {
     return { path: '/admin' }
   }
-  const adminPages = ['/admin', '/admin/interviewer', '/admin/interviewer/chat', '/admin/jd-manager', '/admin/resume-manager', '/admin/ai-tools', '/admin/plan-manager', '/admin/report', '/admin/interview-record', '/admin/record-list', '/admin/report-list', '/admin/interview-archive', '/admin/settings', '/admin/tasks', '/admin/user-center']
+  const adminPages = ['/admin', '/admin/interviewer', '/admin/interviewer/chat', '/admin/jd-manager', '/admin/resume-manager', '/admin/candidate-applications', '/admin/ai-tools', '/admin/plan-manager', '/admin/report', '/admin/interview-record', '/admin/record-list', '/admin/report-list', '/admin/interview-archive', '/admin/settings', '/admin/tasks', '/admin/user-center']
   if (adminPages.includes(to.path)) {
     if (role !== 'admin') {
       try { window.alert('仅管理员可查看面试记录和面试报告') } catch (_) {}

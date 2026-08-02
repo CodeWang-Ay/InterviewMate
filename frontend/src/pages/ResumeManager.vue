@@ -1,10 +1,11 @@
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
 import FixedSelect from '../components/FixedSelect.vue'
 
 const router = useRouter()
+const route = useRoute()
 const resumeList = ref([])
 const loading = ref(true)
 const uploading = ref(false)
@@ -20,6 +21,7 @@ const filterCandidateStatus = ref('')
 const filterRecruitmentType = ref('')
 const filterSource = ref('')
 const filterArchive = ref('')
+const resumeScope = ref(route.path === '/admin/candidate-applications' ? 'applications' : 'library')
 const showJdPicker = ref(false)
 const pendingFile = ref(null)
 const selectedJdId = ref(0)
@@ -135,6 +137,20 @@ const visiblePages = computed(() => {
   const end = Math.min(total, start + 4)
   return Array.from({ length: end - start + 1 }, (_, i) => start + i)
 })
+
+watch(
+  () => route.path,
+  (path) => {
+    const nextScope = path === '/admin/candidate-applications' ? 'applications' : 'library'
+    if (resumeScope.value === nextScope) return
+    resumeScope.value = nextScope
+    page.value = 1
+    selectedResumeIds.value = new Set()
+    selectedAllResults.value = false
+    allResultResumes.value = []
+    fetchList()
+  },
+)
 
 function matchesCurrentFilters(resume) {
   const search = String(searchText.value || '').trim().toLowerCase()
@@ -309,6 +325,7 @@ async function selectAllResults() {
   if (filterRecruitmentType.value) params.set('recruitment_type', filterRecruitmentType.value)
   if (filterSource.value) params.set('source', filterSource.value)
   if (filterArchive.value) params.set('archived', filterArchive.value)
+  params.set('scope', resumeScope.value)
   const res = await fetch(`/api/resumes?${params.toString()}`, { cache: 'no-store' })
   if (!res.ok) return
   const data = await res.json()
@@ -368,6 +385,7 @@ async function fetchList(silent = false) {
     if (filterRecruitmentType.value) params.set('recruitment_type', filterRecruitmentType.value)
     if (filterSource.value) params.set('source', filterSource.value)
     if (filterArchive.value) params.set('archived', filterArchive.value)
+    params.set('scope', resumeScope.value)
     params.set('page', String(page.value))
     params.set('page_size', String(pageSize.value))
     params.set('_t', String(Date.now()))
@@ -1208,7 +1226,7 @@ function sourceBadge(source) {
 
     <main class="flex-1 overflow-auto p-6">
       <div class="flex justify-between items-center mb-6">
-        <h2 class="text-2xl font-bold text-gray-900">简历管理</h2>
+        <div><h2 class="text-2xl font-bold text-gray-900">{{ resumeScope === 'applications' ? '候选人投递管理' : '简历库' }}</h2><p class="mt-1 text-sm text-gray-500">{{ resumeScope === 'applications' ? '以候选人投递记录为主，管理 JD 绑定、初筛和面试流程' : '以候选人简历版本为主，管理上传、解析、版本和归档' }}</p></div>
         <div class="flex items-center gap-3">
           <div class="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
             <button
@@ -1293,8 +1311,8 @@ function sourceBadge(source) {
             <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
           </div>
           <div class="w-[150px]"><FixedSelect v-model="filterStatus" :options="[{ value: '', label: '全部解析状态' }, { value: 'wait', label: '待解析' }, { value: 'success', label: '解析成功' }, { value: 'fail', label: '解析失败' }]" @change="page = 1; fetchList()" /></div>
-          <div class="w-[150px]"><FixedSelect v-model="filterCandidateStatus" :options="[{ value: '', label: '全部初筛状态' }, ...candidateStatusOptions.map(status => ({ value: status, label: status }))]" @change="page = 1; fetchList()" /></div>
-          <div class="w-[140px]"><FixedSelect v-model="filterRecruitmentType" :options="[{ value: '', label: '全部招聘类型' }, '社招', '校招', '实习生']" @change="page = 1; fetchList()" /></div>
+          <div v-if="resumeScope === 'applications'" class="w-[150px]"><FixedSelect v-model="filterCandidateStatus" :options="[{ value: '', label: '全部初筛状态' }, ...candidateStatusOptions.map(status => ({ value: status, label: status }))]" @change="page = 1; fetchList()" /></div>
+          <div v-if="resumeScope === 'applications'" class="w-[140px]"><FixedSelect v-model="filterRecruitmentType" :options="[{ value: '', label: '全部招聘类型' }, '社招', '校招', '实习生']" @change="page = 1; fetchList()" /></div>
           <div class="w-[130px]"><FixedSelect v-model="filterArchive" :options="[{ value: '', label: '正常简历' }, { value: 'archived', label: '已归档' }]" @change="page = 1; fetchList()" /></div>
           <div class="w-[170px]"><FixedSelect v-model="filterYears" :options="[{ value: '', label: '候选人工作年限' }, '应届生', '1-3年', '3-5年', '5年以上']" @change="page = 1; fetchList()" /></div>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置筛选</button>
@@ -1324,13 +1342,13 @@ function sourceBadge(source) {
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm w-8">#</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">候选人</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">简历来源</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">招聘类型</th>
+              <th v-if="resumeScope === 'applications'" class="text-left px-4 py-3 text-gray-600 font-medium text-sm">招聘类型</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">学历</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">关联 JD</th>
+              <th v-if="resumeScope === 'applications'" class="text-left px-4 py-3 text-gray-600 font-medium text-sm">关联 JD</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">文件</th>
               <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">解析状态</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">初筛状态</th>
-              <th class="text-left px-4 py-3 text-gray-600 font-medium text-sm">面试流程</th>
+              <th v-if="resumeScope === 'applications'" class="text-left px-4 py-3 text-gray-600 font-medium text-sm">初筛状态</th>
+              <th v-if="resumeScope === 'applications'" class="text-left px-4 py-3 text-gray-600 font-medium text-sm">面试流程</th>
               <th class="text-center px-4 py-3 text-gray-600 font-medium text-sm w-64">操作</th>
             </tr>
           </thead>
@@ -1354,11 +1372,11 @@ function sourceBadge(source) {
               <td class="px-4 py-3 text-sm">
                 <span :class="['inline-flex rounded border px-2 py-1 text-xs font-medium', sourceBadge(r.source)]">{{ sourceLabel(r.source) }}</span>
               </td>
-              <td class="px-4 py-3 text-sm"><span :class="['inline-flex rounded-lg px-2.5 py-1 text-xs font-medium', recruitmentBadge(r.recruitment_type)]">{{ r.recruitment_type || '未设置' }}</span></td>
+              <td v-if="resumeScope === 'applications'" class="px-4 py-3 text-sm"><span :class="['inline-flex rounded-lg px-2.5 py-1 text-xs font-medium', recruitmentBadge(r.recruitment_type)]">{{ r.recruitment_type || '未设置' }}</span></td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ formatEducationCell(r.education) || '-' }}</td>
-              <td class="px-4 py-3 text-sm text-gray-600">{{ r.jd_name || '-' }}</td>
+              <td v-if="resumeScope === 'applications'" class="px-4 py-3 text-sm text-gray-600">{{ r.jd_name || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-400 max-w-[140px] truncate">{{ r.original_name || r.file_path || '-' }}</td>
-              <td class="px-4 py-3">
+              <td v-if="resumeScope === 'applications'" class="px-4 py-3">
                 <div class="min-w-[180px]">
                   <span :class="['px-2 py-1 text-xs rounded', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
                   <div v-if="r.parse_status === 'fail' && r.parse_error" class="mt-1 max-w-[220px] truncate text-[11px] text-red-500" :title="r.parse_error">失败：{{ r.parse_error }}</div>
@@ -1388,7 +1406,7 @@ function sourceBadge(source) {
                 />
                 <span v-else class="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500">未投递</span>
               </td>
-              <td class="px-4 py-3 text-sm">
+              <td v-if="resumeScope === 'applications'" class="px-4 py-3 text-sm">
                 <span v-if="hasInterviewWorkflow(r)" class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700"><i class="fa fa-check-circle"></i>已创建</span>
                 <span v-else-if="r.application_id" class="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500"><i class="fa fa-clock-o"></i>未创建</span>
                 <span v-else class="inline-flex rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-400">未投递</span>
@@ -1431,10 +1449,10 @@ function sourceBadge(source) {
                 <div class="flex flex-wrap items-center gap-2">
                     <h3 class="text-lg font-semibold text-[#18233e] break-all">{{ r.name || '未命名候选人' }}</h3>
                     <span :class="['px-2.5 py-1 text-xs rounded-full font-medium', statusBadge(r.parse_status)]">{{ statusLabel(r.parse_status) }}</span>
-                    <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', candidateStatusBadge(r.candidate_status || '待筛选')]">{{ r.candidate_status || '待筛选' }}</span>
+                    <span v-if="resumeScope === 'applications'" :class="['px-2.5 py-1 text-xs rounded-full border font-medium', candidateStatusBadge(r.candidate_status || '待筛选')]">{{ r.candidate_status || '待筛选' }}</span>
                     <span :class="['px-2.5 py-1 text-xs rounded-full border font-medium', sourceBadge(r.source)]">{{ sourceLabel(r.source) }}</span>
                     <span v-if="!r.application_id" class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">未投递</span>
-                    <span v-else :class="['rounded-full px-2.5 py-1 text-xs font-medium', hasInterviewWorkflow(r) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500']">面试流程：{{ hasInterviewWorkflow(r) ? '已创建' : '未创建' }}</span>
+                    <span v-else-if="resumeScope === 'applications'" :class="['rounded-full px-2.5 py-1 text-xs font-medium', hasInterviewWorkflow(r) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500']">面试流程：{{ hasInterviewWorkflow(r) ? '已创建' : '未创建' }}</span>
                   </div>
                   <div class="mt-2 text-xs text-[#7c89a2]">{{ getResumeSummary(r) }}</div>
                 </div>
@@ -1470,17 +1488,17 @@ function sourceBadge(source) {
             </div>
 
             <div class="mt-4 flex flex-wrap gap-2">
-              <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1 text-xs text-[#5f708f]">{{ r.jd_name || '未关联 JD' }}</span>
+              <span v-if="resumeScope === 'applications'" class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1 text-xs text-[#5f708f]">{{ r.jd_name || '未关联 JD' }}</span>
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ r.original_name || r.file_path || '无文件名' }}</span>
               <FixedSelect
-                v-if="r.application_id"
+                v-if="resumeScope === 'applications' && r.application_id"
                 :model-value="r.candidate_status || '待筛选'"
                 :options="candidateStatusOptions"
                 :disabled="screeningLocked(r)"
                 class="w-[118px]"
                 @change="updateCandidateStatus(r, $event)"
               />
-              <span v-else class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-500">未投递岗位</span>
+              <span v-else-if="resumeScope === 'applications'" class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-500">未投递岗位</span>
             </div>
 
             <div v-if="getParseProgress(r.id)" class="mt-4 rounded-2xl border border-[#e7edfb] bg-[#f9fbff] px-4 py-3">
@@ -1500,7 +1518,7 @@ function sourceBadge(source) {
             <div class="mt-4 flex items-center justify-between gap-3">
               <div class="text-xs text-[#8b98af]">简历 ID：{{ r.id }}</div>
               <button
-                v-if="r.parse_status === 'success' && r.jd_id"
+                v-if="resumeScope === 'applications' && r.parse_status === 'success' && r.jd_id"
                 :class="hasInterviewWorkflow(r) ? 'border-gray-200 bg-gray-100 text-gray-400' : 'border-green-100 bg-green-50 text-green-700 hover:bg-green-100'"
                 class="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
                 :disabled="creatingWorkflow || hasInterviewWorkflow(r)"

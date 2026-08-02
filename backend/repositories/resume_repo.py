@@ -164,6 +164,7 @@ def _management_where(
     recruitment_type: str = "",
     source: str = "",
     archived: str = "",
+    scope: str = "applications",
 ) -> tuple[str, list]:
     sql = " WHERE IFNULL(r.deleted_at, '')" + ("<>''" if archived == "archived" else "=''")
     params = []
@@ -244,6 +245,7 @@ def list_management_paged(
     recruitment_type: str = "",
     source: str = "",
     archived: str = "",
+    scope: str = "applications",
     page: int = 1,
     page_size: int = 10,
 ) -> tuple[list[dict], int]:
@@ -252,11 +254,10 @@ def list_management_paged(
     page_size = min(max(1, int(page_size or 10)), 100)
     where, params = _management_where(search, parse_status, experience_years, candidate_status, recruitment_type, source, archived)
     offset = (page - 1) * page_size
-    join_sql = """
+    join_sql = f"""
         FROM resumes r
         LEFT JOIN candidates c ON c.username=r.candidate_username
-        LEFT JOIN applications a
-          ON a.resume_id=r.id AND a.status NOT IN ('withdrawn', 'cancel')
+        {"JOIN applications a ON a.resume_id=r.id AND a.status NOT IN ('withdrawn', 'cancel')" if scope == "applications" else "LEFT JOIN applications a ON 1=0"}
     """
     select_sql = """
         SELECT r.*,
