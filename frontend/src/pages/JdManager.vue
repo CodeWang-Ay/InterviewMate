@@ -6,6 +6,7 @@ import FixedSelect from '../components/FixedSelect.vue'
 const searchText = ref('')
 const filterCategory = ref('')
 const filterStatus = ref('')
+const filterArchive = ref('')
 const filterLocation = ref('')
 const filterRecruitment = ref('')
 const showModal = ref(false)
@@ -18,7 +19,11 @@ const total = ref(0)
 const pageSize = ref(10)
 const batchMode = ref(false)
 const selectedJdIds = ref(new Set())
+const selectedAllResults = ref(false)
+const allResultJds = ref([])
 const batchWorking = ref(false)
+const exportFormat = ref('csv')
+const showExportPicker = ref(false)
 const viewMode = ref('list')
 const showGenerator = ref(false)
 const generatingDraft = ref(false)
@@ -45,7 +50,7 @@ const form = ref({ name: '', category: '', location: '', responsibilities: '', r
 const popularCities = ['深圳', '上海', '北京', '广州', '杭州', '成都', '苏州', '南京', '武汉', '西安']
 
 // 统计数据
-const stats = ref({ total: 0, enabled: 0, disabled: 0, categories: 0, interns: 0, campus: 0, social: 0 })
+const stats = ref({ total: 0, archived: 0, enabled: 0, disabled: 0, categories: 0, interns: 0, campus: 0, social: 0 })
 
 async function fetchStats() {
   try {
@@ -56,11 +61,14 @@ async function fetchStats() {
 
 async function fetchJds() {
   loading.value = true
+  selectedAllResults.value = false
+  allResultJds.value = []
   try {
     const params = new URLSearchParams()
     if (searchText.value) params.set('search', searchText.value)
     if (filterCategory.value) params.set('category', filterCategory.value)
     if (filterStatus.value) params.set('status', filterStatus.value)
+    if (filterArchive.value) params.set('archived', filterArchive.value)
     if (filterLocation.value) params.set('location', filterLocation.value)
     if (filterRecruitment.value) params.set('recruitment_type', filterRecruitment.value)
     params.set('page', page.value)
@@ -85,7 +93,7 @@ function onSearchChange() { clearTimeout(searchTimer); searchTimer = setTimeout(
 // 使用统一类别字典，筛选请求仍由后端对全部 JD 执行。
 const categories = computed(() => jobCategoryOptions)
 const locations = computed(() => [...new Set(jdList.value.map(j => j.location))].filter(Boolean))
-const selectedJds = computed(() => jdList.value.filter(jd => selectedJdIds.value.has(jd.id)))
+const selectedJds = computed(() => selectedAllResults.value ? allResultJds.value : jdList.value.filter(jd => selectedJdIds.value.has(jd.id)))
 const allSelected = computed(() => jdList.value.length > 0 && jdList.value.every(jd => selectedJdIds.value.has(jd.id)))
 const statCards = computed(() => [
   {
@@ -111,6 +119,14 @@ const statCards = computed(() => [
     accent: 'from-[#8b5cf6] to-[#c4a7ff]',
     soft: 'bg-violet-50 text-[#7c3aed]',
     note: '覆盖不同招聘方向',
+  },
+  {
+    label: '已归档',
+    value: stats.value.archived,
+    icon: 'fa-archive',
+    accent: 'from-[#94a3b8] to-[#cbd5e1]',
+    soft: 'bg-slate-100 text-slate-500',
+    note: '历史岗位，不计入正常 JD',
   },
 ])
 const compareFields = [
@@ -198,6 +214,7 @@ function locationOptionClass(current, city) {
 }
 
 function setSelectedJd(jdId, value) {
+  selectedAllResults.value = false
   const next = new Set(selectedJdIds.value)
   if (value) next.add(jdId)
   else next.delete(jdId)
@@ -207,10 +224,31 @@ function setSelectedJd(jdId, value) {
 function toggleBatchMode() {
   batchMode.value = !batchMode.value
   selectedJdIds.value = new Set()
+  selectedAllResults.value = false
+  allResultJds.value = []
 }
 
 function toggleSelectAll() {
+  selectedAllResults.value = false
   selectedJdIds.value = allSelected.value ? new Set() : new Set(jdList.value.map(jd => jd.id))
+}
+
+async function selectAllResults() {
+  if (selectedAllResults.value) {
+    selectedAllResults.value = false; selectedJdIds.value = new Set(); allResultJds.value = []; return
+  }
+  const params = new URLSearchParams({ page: '1', page_size: '10000' })
+  if (searchText.value) params.set('search', searchText.value)
+  if (filterCategory.value) params.set('category', filterCategory.value)
+  if (filterStatus.value) params.set('status', filterStatus.value)
+  if (filterLocation.value) params.set('location', filterLocation.value)
+  if (filterRecruitment.value) params.set('recruitment_type', filterRecruitment.value)
+  const res = await fetch(`/api/jds?${params.toString()}`)
+  if (!res.ok) return
+  const data = await res.json()
+  allResultJds.value = data.items || []
+  selectedJdIds.value = new Set(allResultJds.value.map(jd => jd.id))
+  selectedAllResults.value = true
 }
 
 function openCreate() {
@@ -230,7 +268,13 @@ function openEdit(jd) {
   showModal.value = true
 }
 
-function viewJd(jd) { viewingJd.value = jd }
+async function viewJd(jd) {
+  viewingJd.value = jd
+  try {
+    const res = await fetch(`/api/jds/${jd.id}`)
+    if (res.ok) viewingJd.value = await res.json()
+  } catch (_) {}
+}
 
 function closeOptimize(force = false) {
   if (!force && (optimizingDraft.value || savingOptimized.value)) return
@@ -243,14 +287,20 @@ async function saveJd() {
   if (!form.value.name.trim()) return
   const payload = { ...form.value }
   try {
+    if (payload.status !== 'draft' && (!payload.responsibilities.trim() || !payload.requirements.trim())) {
+      alert('发布前请先填写岗位职责和任职要求')
+      return
+    }
     if (editingJd.value) {
-      await fetch(`/api/jds/${editingJd.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const res = await fetch(`/api/jds/${editingJd.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.detail || '保存失败') }
     } else {
-      await fetch('/api/jds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const res = await fetch('/api/jds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.detail || '保存失败') }
     }
     showModal.value = false
     await fetchJds()
-  } catch (_) {}
+  } catch (error) { alert(error?.message || '保存失败') }
 }
 
 function openCopy(jd) {
@@ -444,7 +494,11 @@ async function restoreVersion(version) {
 }
 
 async function removeJd(jd) {
-  if (!(await window.appConfirm(`确认删除「${jd.name}」？`))) return
+  const activeCount = Number(jd.active_application_count || 0)
+  const message = activeCount > 0
+    ? `「${jd.name}」仍有 ${activeCount} 条进行中投递，归档后候选人将无法继续投递，确认继续？`
+    : `确认归档「${jd.name}」？`
+  if (!(await window.appConfirm(message, { title: activeCount > 0 ? '确认归档并结束岗位' : '确认归档' }))) return
   await fetch(`/api/jds/${jd.id}`, { method: 'DELETE' })
   await fetchJds()
 }
@@ -453,17 +507,20 @@ async function updateSelectedStatus(status) {
   const targets = selectedJds.value
   if (!targets.length) return
   batchWorking.value = true
+  const errors = []
   for (const jd of targets) {
-    await fetch(`/api/jds/${jd.id}`, {
+    const res = await fetch(`/api/jds/${jd.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
-    }).catch(() => {})
+    }).catch(() => null)
+    if (!res?.ok) { const data = await res?.json?.().catch(() => ({})); errors.push(`${jd.name}：${data.detail || '操作失败'}`) }
   }
   selectedJdIds.value = new Set()
   batchWorking.value = false
   await fetchStats()
   await fetchJds()
+  if (errors.length) alert(errors.join('\n'))
 }
 
 async function deleteSelectedJds() {
@@ -480,8 +537,36 @@ async function deleteSelectedJds() {
   await fetchJds()
 }
 
+function exportSelectedJds() {
+  const targets = selectedJds.value
+  if (!targets.length) return
+  const records = targets.map(jd => ({
+    name: jd.name || '', category: jd.category || '', location: jd.location || '', recruitment_type: jd.recruitment_type || '',
+    experience_required: jd.experience_required || '', status: statusLabel(jd.status), responsibilities: jd.responsibilities || '',
+    requirements: jd.requirements || '', published_at: jd.published_at || '', updated_at: jd.updated_at || jd.created_at || '',
+  }))
+  let content; let mime; let extension
+  if (exportFormat.value === 'json') {
+    content = JSON.stringify(records, null, 2)
+    mime = 'application/json;charset=utf-8'; extension = 'json'
+  } else {
+    const headers = ['岗位名称', '岗位类别', '地点', '招聘类型', '经验要求', '状态', '岗位职责', '任职要求', '发布时间', '更新时间']
+    const rows = records.map(item => [item.name, item.category, item.location, item.recruitment_type, item.experience_required, item.status, item.responsibilities, item.requirements, item.published_at, item.updated_at])
+    content = '\ufeff' + [headers, ...rows].map(row => row.map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\n')
+    mime = 'text/csv;charset=utf-8'; extension = 'csv'
+  }
+  const url = URL.createObjectURL(new Blob([content], { type: mime }))
+  const link = document.createElement('a'); link.href = url; link.download = `jd导出-${new Date().toISOString().slice(0,10)}.${extension}`; link.click(); URL.revokeObjectURL(url)
+  showExportPicker.value = false
+}
+
+function chooseExportFormat(format) {
+  exportFormat.value = format
+  exportSelectedJds()
+}
+
 function resetFilters() {
-  searchText.value = ''; filterCategory.value = ''; filterStatus.value = ''; filterLocation.value = ''; filterRecruitment.value = ''
+  searchText.value = ''; filterCategory.value = ''; filterStatus.value = ''; filterArchive.value = ''; filterLocation.value = ''; filterRecruitment.value = ''
   page.value = 1
   fetchJds()
 }
@@ -539,20 +624,41 @@ function changePageSize(size) {
         </div>
       </div>
 
-      <div v-if="batchMode" class="bg-white rounded-xl p-4 shadow-sm mb-6 border border-orange-100 flex flex-wrap items-center justify-between gap-3">
-        <div class="text-sm text-gray-600">
-          已选择 <span class="font-semibold text-orange-600">{{ selectedJds.length }}</span> 个岗位 JD
+      <div v-if="batchMode" class="mb-6 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-50 text-orange-500"><i class="fa fa-check-square-o"></i></div>
+            <div><div class="text-sm font-semibold text-gray-800">批量管理岗位</div><div class="text-xs text-gray-500">已选择 <span class="font-semibold text-orange-600">{{ selectedJds.length }}</span> 个 JD{{ selectedAllResults ? '（全部筛选结果）' : '' }}</div></div>
+          </div>
+          <div class="flex gap-2">
+            <button class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50" @click="toggleSelectAll">{{ allSelected && !selectedAllResults ? '取消本页全选' : '全选当前页' }}</button>
+            <button class="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-600 hover:bg-orange-100" @click="selectAllResults">{{ selectedAllResults ? '取消全选结果' : `全选全部 ${total} 条` }}</button>
+          </div>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <button class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50" @click="toggleSelectAll">{{ allSelected ? '取消全选' : '全选当前页' }}</button>
-          <button class="px-3 py-2 rounded-lg border border-green-200 text-green-600 text-sm hover:bg-green-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedJds.length" @click="updateSelectedStatus('enable')"><i class="fa fa-check-circle mr-1"></i>批量启用</button>
-          <button class="px-3 py-2 rounded-lg border border-orange-200 text-orange-600 text-sm hover:bg-orange-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedJds.length" @click="updateSelectedStatus('disable')"><i class="fa fa-pause-circle mr-1"></i>批量停用</button>
-          <button class="px-3 py-2 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:border-gray-200" :disabled="batchWorking || !selectedJds.length" @click="deleteSelectedJds"><i class="fa fa-trash-o mr-1"></i>批量删除</button>
+        <div class="mt-4 grid gap-3 border-t border-gray-100 pt-4 lg:grid-cols-[auto_1fr_auto] lg:items-end">
+          <div><div class="mb-1.5 text-xs font-medium text-gray-500">状态操作</div><div class="flex gap-2">
+            <button class="rounded-lg border border-green-200 px-3 py-2 text-sm text-green-600 hover:bg-green-50 disabled:opacity-40" :disabled="batchWorking || !selectedJds.length" @click="updateSelectedStatus('enable')"><i class="fa fa-check-circle mr-1"></i>发布</button>
+            <button class="rounded-lg border border-orange-200 px-3 py-2 text-sm text-orange-600 hover:bg-orange-50 disabled:opacity-40" :disabled="batchWorking || !selectedJds.length" @click="updateSelectedStatus('disable')"><i class="fa fa-pause-circle mr-1"></i>暂停</button>
+          </div></div>
+          <div class="hidden text-xs text-gray-400 lg:block">岗位类别和招聘类型保持 JD 固定关联，请在单个 JD 或创建副本时调整。</div>
+          <div class="flex gap-2 lg:justify-end">
+            <div class="relative">
+              <button class="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40" :disabled="batchWorking || !selectedJds.length" @click="showExportPicker = !showExportPicker">
+                <i class="fa fa-download"></i><span>导出</span><i class="fa fa-angle-down text-xs"></i>
+              </button>
+              <div v-if="showExportPicker" class="absolute bottom-[calc(100%+8px)] right-0 z-30 w-36 rounded-xl border border-slate-100 bg-white p-1.5 text-left shadow-xl">
+                <div class="px-2.5 py-1.5 text-[11px] font-semibold text-slate-400">选择导出格式</div>
+                <button class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-sky-50 hover:text-sky-600" @click="chooseExportFormat('csv')"><i class="fa fa-file-text-o w-4"></i>CSV 文件</button>
+                <button class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-sky-50 hover:text-sky-600" @click="chooseExportFormat('json')"><i class="fa fa-code w-4"></i>JSON 文件</button>
+              </div>
+            </div>
+            <button class="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40" :disabled="batchWorking || !selectedJds.length" @click="deleteSelectedJds"><i class="fa fa-archive"></i><span>归档</span></button>
+          </div>
         </div>
       </div>
 
       <!-- 统计卡片 -->
-      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+      <div class="grid grid-cols-1 gap-4 mb-6 sm:grid-cols-2 xl:grid-cols-5">
         <article
           v-for="card in statCards"
           :key="card.label"
@@ -611,6 +717,7 @@ function changePageSize(size) {
           </div>
           <div class="w-[150px]"><FixedSelect v-model="filterCategory" :options="[{ value: '', label: '全部岗位类别' }, ...categories.map(c => ({ value: c, label: c }))]" @change="fetchJds" /></div>
           <div class="w-[140px]"><FixedSelect v-model="filterStatus" :options="[{ value: '', label: '全部状态' }, { value: 'draft', label: '草稿' }, { value: 'enable', label: '已发布' }, { value: 'disable', label: '已暂停' }, { value: 'expired', label: '已过期' }, { value: 'closed', label: '已关闭' }]" @change="fetchJds" /></div>
+          <div class="w-[140px]"><FixedSelect v-model="filterArchive" :options="[{ value: '', label: '正常 JD' }, { value: 'archived', label: '已归档' }]" @change="fetchJds" /></div>
           <div class="relative w-64">
             <i class="fa fa-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
             <input
@@ -1181,6 +1288,13 @@ function changePageSize(size) {
               </div>
             </div>
           </div>
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="rounded-xl bg-[#f8fbff] px-3 py-3"><div class="text-xs text-[#8a97ad]">绑定投递</div><div class="mt-1 text-lg font-bold text-[#25304a]">{{ viewingJd.application_count || 0 }}</div></div>
+            <div class="rounded-xl bg-[#f8fbff] px-3 py-3"><div class="text-xs text-[#8a97ad]">进行中</div><div class="mt-1 text-lg font-bold text-[#1677ff]">{{ viewingJd.active_application_count || 0 }}</div></div>
+            <div class="rounded-xl bg-[#f8fbff] px-3 py-3"><div class="text-xs text-[#8a97ad]">已结束</div><div class="mt-1 text-lg font-bold text-[#64748b]">{{ viewingJd.completed_application_count || 0 }}</div></div>
+            <div class="rounded-xl bg-[#f8fbff] px-3 py-3"><div class="text-xs text-[#8a97ad]">最近更新</div><div class="mt-1 truncate text-sm font-semibold text-[#25304a]">{{ viewingJd.updated_at || viewingJd.created_at || '-' }}</div></div>
+          </div>
+          <p class="text-xs text-[#8a97ad]">最后修改人：{{ viewingJd.updated_by || viewingJd.created_by || '管理员' }}</p>
           <div>
             <h4 class="text-sm font-semibold text-gray-700 mb-2">岗位职责</h4>
             <p class="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{{ viewingJd.responsibilities || '暂无' }}</p>

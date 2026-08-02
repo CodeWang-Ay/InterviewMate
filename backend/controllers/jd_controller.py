@@ -79,8 +79,8 @@ async def unfavorite_jd(jd_id: int, username: str = Depends(get_current_candidat
 
 
 @router.get("")
-async def list_jds(category: str = "", status: str = "", location: str = "", search: str = "", recruitment_type: str = "", page: int = 1, page_size: int = 10, _: dict = Depends(require_admin)):
-    items, total = jd_repo.list_all_paged(category, status, location, search, recruitment_type, page, page_size)
+async def list_jds(category: str = "", status: str = "", location: str = "", search: str = "", recruitment_type: str = "", archived: str = "", page: int = 1, page_size: int = 10, _: dict = Depends(require_admin)):
+    items, total = jd_repo.list_all_paged(category, status, location, search, recruitment_type, page, page_size, archived)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -94,6 +94,8 @@ async def get_jd(jd_id: int, _: dict = Depends(require_admin)):
 
 @router.post("")
 async def create_jd(body: JdCreate, _: dict = Depends(require_admin)):
+    if body.status in {"enable", "published"} and (not body.responsibilities.strip() or not body.requirements.strip()):
+        raise HTTPException(status_code=400, detail="发布前请先填写岗位职责和任职要求")
     return jd_repo.create(body.model_dump())
 
 
@@ -174,7 +176,10 @@ async def restore_jd_version(jd_id: int, version_id: int, _: dict = Depends(requ
 @router.put("/{jd_id}")
 async def update_jd(jd_id: int, body: JdUpdate, source: str = "manual", _: dict = Depends(require_admin)):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
-    jd = jd_repo.update(jd_id, data, source=source)
+    try:
+        jd = jd_repo.update(jd_id, data, source=source)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if not jd:
         raise HTTPException(status_code=404, detail="JD 不存在")
     return jd

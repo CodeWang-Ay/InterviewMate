@@ -123,14 +123,18 @@ def init_db():
                 [(name, category, location, responsibilities, requirements, "enable", recruitment_type, "应届生") for name, category, location, responsibilities, requirements, recruitment_type in special_missing],
             )
         # 统一历史 JD 的分类，前台只暴露五个业务方向。
-        category_rules = [
-            ("技术", "%工程师%"), ("技术", "%开发%"), ("技术", "%算法%"),
-            ("技术", "%数据%"), ("技术", "%测试%"), ("技术", "%运维%"),
-            ("技术", "%安全%"), ("技术", "%标注%"), ("技术", "%NLP%"),
-            ("产品", "%产品%"), ("销售", "%销售%"), ("政企", "%政企%"),
-        ]
-        for category, pattern in category_rules:
-            conn.execute("UPDATE jds SET category=? WHERE name LIKE ? AND IFNULL(deleted_at, '')=''", (category, pattern))
+        # 按优先级一次性归类，避免多个 LIKE 规则互相覆盖（例如“产品运营”被后续规则改成政企）。
+        conn.execute("""
+            UPDATE jds SET category = CASE
+                WHEN name LIKE '%政企%' THEN '政企'
+                WHEN name LIKE '%销售%' THEN '销售'
+                WHEN name LIKE '%产品%' THEN '产品'
+                WHEN name LIKE '%综合%' OR name LIKE '%运营%' OR name LIKE '%业务管理%' OR name LIKE '%招聘%' THEN '综合'
+                WHEN name LIKE '%工程师%' OR name LIKE '%开发%' OR name LIKE '%算法%' OR name LIKE '%数据%' OR name LIKE '%测试%' OR name LIKE '%运维%' OR name LIKE '%安全%' OR name LIKE '%标注%' OR name LIKE '%NLP%' THEN '技术'
+                ELSE category
+            END
+            WHERE IFNULL(deleted_at, '')='' AND (category IS NULL OR TRIM(category)='' OR category NOT IN ('技术', '产品', '政企', '销售', '综合'))
+        """)
         conn.execute("UPDATE jds SET category='综合' WHERE category NOT IN ('技术', '产品', '政企', '销售', '综合') AND IFNULL(deleted_at, '')=''")
         conn.execute("UPDATE jds SET experience_required='不限经验' WHERE recruitment_type='实习生' AND IFNULL(deleted_at, '')=''")
         # 清理同一招聘类型下的重复岗位名称，保留最早创建的一条，避免列表出现重复 JD。
@@ -147,9 +151,13 @@ def init_db():
                 conn.execute("UPDATE jds SET deleted_at=datetime('now'), delete_reason='重复岗位自动归档' WHERE id=?", (duplicate_id,))
 
 
-def list_all_paged(category="", status="", location="", search="", recruitment_type="", page=1, page_size=10):
-    where = "WHERE IFNULL(deleted_at, '')=''"
+def list_all_paged(category="", status="", location="", search="", recruitment_type="", page=1, page_size=10, archived=""):
+    where = "WHERE 1=1"
     params = []
+    if archived == "archived":
+        where += " AND IFNULL(deleted_at, '')<>''"
+    else:
+        where += " AND IFNULL(deleted_at, '')=''"
     if category:
         where += " AND category=?"
         params.append(category)
@@ -178,20 +186,28 @@ def list_all_paged(category="", status="", location="", search="", recruitment_t
 
 def get_stats():
     with _conn() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM jds").fetchone()[0]
-        enabled = conn.execute("SELECT COUNT(*) FROM jds WHERE status='enable'").fetchone()[0]
-        disabled = conn.execute("SELECT COUNT(*) FROM jds WHERE status='disable'").fetchone()[0]
-        categories = conn.execute("SELECT COUNT(DISTINCT category) FROM jds WHERE category != ''").fetchone()[0]
-        interns = conn.execute("SELECT COUNT(*) FROM jds WHERE recruitment_type='实习生'").fetchone()[0]
-        campus = conn.execute("SELECT COUNT(*) FROM jds WHERE recruitment_type='校招'").fetchone()[0]
-        social = conn.execute("SELECT COUNT(*) FROM jds WHERE recruitment_type='社招'").fetchone()[0]
-        return {"total": total, "enabled": enabled, "disabled": disabled, "categories": categories,
+        active = "IFNULL(deleted_at, '')=''"
+        total = conn.execute(f"SELECT COUNT(*) FROM jds WHERE {active}").fetchone()[0]
+        archived = conn.execute("SELECT COUNT(*) FROM jds WHERE IFNULL(deleted_at, '')<>''").fetchone()[0]
+        enabled = conn.execute(f"SELECT COUNT(*) FROM jds WHERE status='enable' AND {active}").fetchone()[0]
+        disabled = conn.execute(f"SELECT COUNT(*) FROM jds WHERE status='disable' AND {active}").fetchone()[0]
+        categories = conn.execute(f"SELECT COUNT(DISTINCT category) FROM jds WHERE category != '' AND {active}").fetchone()[0]
+        interns = conn.execute(f"SELECT COUNT(*) FROM jds WHERE recruitment_type='实习生' AND {active}").fetchone()[0]
+        campus = conn.execute(f"SELECT COUNT(*) FROM jds WHERE recruitment_type='校招' AND {active}").fetchone()[0]
+        social = conn.execute(f"SELECT COUNT(*) FROM jds WHERE recruitment_type='社招' AND {active}").fetchone()[0]
+        return {"total": total, "archived": archived, "enabled": enabled, "disabled": disabled, "categories": categories,
                 "interns": interns, "campus": campus, "social": social}
 
 
 def get_by_id(jd_id):
     with _conn() as conn:
-        row = conn.execute("SELECT j.*, (SELECT COUNT(*) FROM applications a WHERE a.jd_id=j.id AND IFNULL(a.deleted_at, '')='' AND a.status NOT IN ('withdrawn','cancel')) AS application_count FROM jds j WHERE j.id=?", (jd_id,)).fetchone()
+        row = conn.execute("""
+            SELECT j.*,
+              (SELECT COUNT(*) FROM applications a WHERE a.jd_id=j.id AND IFNULL(a.deleted_at, '')='' AND a.status NOT IN ('withdrawn','cancel')) AS application_count,
+              (SELECT COUNT(*) FROM applications a WHERE a.jd_id=j.id AND IFNULL(a.deleted_at, '')='' AND a.status NOT IN ('withdrawn','cancel','rejected','closed','hired')) AS active_application_count,
+              (SELECT COUNT(*) FROM applications a WHERE a.jd_id=j.id AND IFNULL(a.deleted_at, '')='' AND a.status IN ('rejected','closed','hired','withdrawn','cancel')) AS completed_application_count
+            FROM jds j WHERE j.id=?
+        """, (jd_id,)).fetchone()
         return dict(row) if row else None
 
 
@@ -263,6 +279,17 @@ def update(jd_id, data, source="manual"):
     existing = get_by_id(jd_id)
     if not existing:
         return None
+    requested_status = data.get("status")
+    if requested_status in {"enable", "published"} and existing.get("status") == "closed":
+        raise ValueError("已关闭 JD 不能直接恢复为已发布，请创建 JD 副本后重新发布")
+    if requested_status in {"enable", "published"} and (not str(existing.get("responsibilities") or "").strip() or not str(existing.get("requirements") or "").strip()):
+        # 允许本次更新同时补齐内容后发布
+        responsibilities = data.get("responsibilities", existing.get("responsibilities"))
+        requirements = data.get("requirements", existing.get("requirements"))
+        if not str(responsibilities or "").strip() or not str(requirements or "").strip():
+            raise ValueError("发布前请先填写岗位职责和任职要求")
+    if requested_status in {"closed", "expired"} and existing.get("active_application_count", 0) > 0:
+        raise ValueError(f"该 JD 仍有 {existing['active_application_count']} 条进行中投递，不能直接结束流程")
     fields = ["name", "category", "location", "responsibilities", "requirements", "status", "recruitment_type", "experience_required"]
     if "experience_required" in data:
         data["experience_required"] = normalize_experience(data.get("experience_required"))
