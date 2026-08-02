@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
+import FixedSelect from '../components/FixedSelect.vue'
 
 const router = useRouter()
 const resumeList = ref([])
@@ -1186,29 +1187,10 @@ function sourceBadge(source) {
             <input v-model="searchText" type="text" placeholder="搜索候选人姓名、技能、期望岗位" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-[#1677ff]" @input="page = 1; fetchList()">
             <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
           </div>
-          <select v-model="filterStatus" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
-            <option value="">全部解析状态</option>
-            <option value="wait">待解析</option>
-            <option value="success">解析成功</option>
-            <option value="fail">解析失败</option>
-          </select>
-          <select v-model="filterCandidateStatus" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
-            <option value="">全部初筛状态</option>
-            <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
-          </select>
-          <select v-model="filterSource" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
-            <option value="">全部简历来源</option>
-            <option value="candidate">用户上传</option>
-            <option value="admin">后台上传</option>
-            <option value="import">批量导入</option>
-          </select>
-          <select v-model="filterYears" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
-            <option value="">全部工作年限</option>
-            <option value="应届生">应届生</option>
-            <option value="1-3年">1-3年</option>
-            <option value="3-5年">3-5年</option>
-            <option value="5年以上">5年以上</option>
-          </select>
+          <div class="w-[150px]"><FixedSelect v-model="filterStatus" :options="[{ value: '', label: '全部解析状态' }, { value: 'wait', label: '待解析' }, { value: 'success', label: '解析成功' }, { value: 'fail', label: '解析失败' }]" @change="page = 1; fetchList()" /></div>
+          <div class="w-[150px]"><FixedSelect v-model="filterCandidateStatus" :options="[{ value: '', label: '全部初筛状态' }, ...candidateStatusOptions.map(status => ({ value: status, label: status }))]" @change="page = 1; fetchList()" /></div>
+          <div class="w-[150px]"><FixedSelect v-model="filterSource" :options="[{ value: '', label: '全部简历来源' }, { value: 'candidate', label: '用户上传' }, { value: 'admin', label: '后台上传' }, { value: 'import', label: '批量导入' }]" @change="page = 1; fetchList()" /></div>
+          <div class="w-[150px]"><FixedSelect v-model="filterYears" :options="[{ value: '', label: '全部工作年限' }, '应届生', '1-3年', '3-5年', '5年以上']" @change="page = 1; fetchList()" /></div>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置筛选</button>
         </div>
       </div>
@@ -1284,14 +1266,13 @@ function sourceBadge(source) {
                 </div>
               </td>
               <td class="px-4 py-3">
-                <select
+                <FixedSelect
                   v-if="r.application_id"
-                  :value="r.candidate_status || '待筛选'"
-                  :class="['max-w-[116px] rounded-lg border px-2 py-1.5 text-xs font-medium outline-none transition hover:bg-white', candidateStatusBadge(r.candidate_status || '待筛选')]"
-                  @change="updateCandidateStatus(r, $event.target.value)"
-                >
-                  <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
-                </select>
+                  :model-value="r.candidate_status || '待筛选'"
+                  :options="candidateStatusOptions"
+                  class="max-w-[116px]"
+                  @change="updateCandidateStatus(r, $event)"
+                />
                 <span v-else class="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500">未投递</span>
               </td>
               <td class="px-4 py-3 text-center">
@@ -1400,14 +1381,13 @@ function sourceBadge(source) {
               <span class="rounded-full border border-[#dce6f7] bg-[#f8fbff] px-2.5 py-1 text-xs text-[#5f708f]">{{ r.jd_name || '未关联 JD' }}</span>
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ r.original_name || r.file_path || '无文件名' }}</span>
               <span class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f]">{{ formatDateTime(r.record_created_at || r.created_at) }}</span>
-              <select
+              <FixedSelect
                 v-if="r.application_id"
-                :value="r.candidate_status || '待筛选'"
-                class="rounded-full border border-[#dce6f7] bg-white px-2.5 py-1 text-xs text-[#5f708f] outline-none"
-                @change="updateCandidateStatus(r, $event.target.value)"
-              >
-                <option v-for="status in candidateStatusOptions" :key="status" :value="status">{{ status }}</option>
-              </select>
+                :model-value="r.candidate_status || '待筛选'"
+                :options="candidateStatusOptions"
+                class="w-[118px]"
+                @change="updateCandidateStatus(r, $event)"
+              />
               <span v-else class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-500">未投递岗位</span>
             </div>
 
@@ -1465,11 +1445,7 @@ function sourceBadge(source) {
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
         <div class="flex items-center gap-3">
           <span>共 {{ total }} 条</span>
-          <select class="border border-gray-200 rounded-lg px-2 py-1 bg-white" :value="pageSize" @change="changePageSize($event.target.value)">
-            <option :value="10">10 条/页</option>
-            <option :value="20">20 条/页</option>
-            <option :value="50">50 条/页</option>
-          </select>
+          <div class="w-[110px]"><FixedSelect :model-value="String(pageSize)" :options="[{ value: '10', label: '10 条/页' }, { value: '20', label: '20 条/页' }, { value: '50', label: '50 条/页' }]" @change="changePageSize" /></div>
         </div>
         <div class="flex items-center gap-1">
           <button class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed" :disabled="page <= 1" @click="setPage(page - 1)">上一页</button>

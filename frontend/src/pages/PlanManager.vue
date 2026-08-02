@@ -2,6 +2,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
+import FixedSelect from '../components/FixedSelect.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -772,14 +773,7 @@ const previewQuestions = computed(() => {
             <input v-model="searchText" type="text" placeholder="候选人姓名 / 岗位名称" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-[#1677ff]" @input="page = 1; fetchList()">
             <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
           </div>
-          <select v-model="filterStatus" class="border rounded-lg px-3 py-2 min-w-[160px]" @change="page = 1; fetchList()">
-            <option value="">全部流程状态</option>
-            <option value="wait">待发起面试</option>
-            <option value="pending">待评估/待发起</option>
-            <option value="running">已发起/面试中</option>
-            <option value="finish">已完成面试</option>
-            <option value="cancel">已作废</option>
-          </select>
+          <div class="w-[160px]"><FixedSelect v-model="filterStatus" :options="[{ value: '', label: '全部流程状态' }, { value: 'wait', label: '待发起面试' }, { value: 'pending', label: '待评估/待发起' }, { value: 'running', label: '已发起/面试中' }, { value: 'finish', label: '已完成面试' }, { value: 'cancel', label: '已作废' }]" @change="page = 1; fetchList()" /></div>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置筛选</button>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -896,11 +890,7 @@ const previewQuestions = computed(() => {
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
         <div class="flex items-center gap-3">
           <span>共 {{ groupedPlanList.length }} 位候选人 / {{ planList.length }} 个环节</span>
-          <select class="border border-gray-200 rounded-lg px-2 py-1 bg-white" :value="pageSize" @change="changePageSize($event.target.value)">
-            <option :value="10">10 条/页</option>
-            <option :value="20">20 条/页</option>
-            <option :value="50">50 条/页</option>
-          </select>
+          <div class="w-[110px]"><FixedSelect :model-value="String(pageSize)" :options="[{ value: '10', label: '10 条/页' }, { value: '20', label: '20 条/页' }, { value: '50', label: '50 条/页' }]" @change="changePageSize" /></div>
         </div>
         <div class="flex items-center gap-1">
           <button class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed" :disabled="page <= 1" @click="setPage(page - 1)">上一页</button>

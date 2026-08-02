@@ -2,6 +2,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
+import FixedSelect from '../components/FixedSelect.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -269,11 +270,7 @@ function resetFilters() {
             <input v-model="searchText" type="text" placeholder="搜索候选人姓名" class="w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:border-[#1677ff]" @input="page = 1; fetchList()">
             <i class="fa fa-search absolute left-3 top-3 text-gray-400"></i>
           </div>
-          <select v-model="filterType" class="border rounded-lg px-3 py-2 min-w-[170px]" @change="page = 1; fetchList()">
-            <option value="">全部面试类型</option>
-            <option value="formal">正式面试（基于面试计划）</option>
-            <option value="simulate">求职者模拟面试</option>
-          </select>
+          <div class="w-[170px]"><FixedSelect v-model="filterType" :options="[{ value: '', label: '全部面试类型' }, { value: 'formal', label: '正式面试（基于面试计划）' }, { value: 'simulate', label: '求职者模拟面试' }]" @change="page = 1; fetchList()" /></div>
           <input
             v-model="filterRound"
             type="text"
@@ -281,12 +278,7 @@ function resetFilters() {
             class="border rounded-lg px-3 py-2 min-w-[190px] focus:outline-none focus:border-[#1677ff]"
             @input="page = 1"
           >
-          <select v-model="filterConclusion" class="border rounded-lg px-3 py-2 min-w-[150px]" @change="page = 1; fetchList()">
-            <option value="">全部面试结论</option>
-            <option value="建议录用">建议录用</option>
-            <option value="待定观察">待定观察</option>
-            <option value="不予录用">不予录用</option>
-          </select>
+          <div class="w-[150px]"><FixedSelect v-model="filterConclusion" :options="[{ value: '', label: '全部面试结论' }, '建议录用', '待定观察', '不予录用']" @change="page = 1; fetchList()" /></div>
           <button class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm" @click="resetFilters">重置筛选</button>
         </div>
       </div>
@@ -357,11 +349,7 @@ function resetFilters() {
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-500">
         <div class="flex items-center gap-3">
           <span>共 {{ groupedArchives.length }} 位候选人 / {{ filteredRecords.length }} 条档案记录</span>
-          <select class="border border-gray-200 rounded-lg px-2 py-1 bg-white" :value="pageSize" @change="changePageSize($event.target.value)">
-            <option :value="10">10 条/页</option>
-            <option :value="20">20 条/页</option>
-            <option :value="50">50 条/页</option>
-          </select>
+          <div class="w-[110px]"><FixedSelect :model-value="String(pageSize)" :options="[{ value: '10', label: '10 条/页' }, { value: '20', label: '20 条/页' }, { value: '50', label: '50 条/页' }]" @change="changePageSize" /></div>
         </div>
         <div class="flex items-center gap-1">
           <button class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed" :disabled="page <= 1" @click="setPage(page - 1)">上一页</button>
